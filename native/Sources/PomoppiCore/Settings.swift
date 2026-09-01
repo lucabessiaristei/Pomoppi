@@ -30,7 +30,6 @@ public struct PomoppiSettings: Codable, Equatable {
     public var friend: String
     public var frameStyle: String
     public var background: String
-    public var petMovement: Bool
     public var inkColor: String
     public var paperColor: String
     public var alwaysOnTop: Bool
@@ -63,9 +62,9 @@ public struct PomoppiSettings: Codable, Equatable {
         autoStartBreaks: true, autoStartFocus: false,
         vaultPath: "/Users/lucabessiaristei/Documents/Opal", dailyNoteFolder: "Pomodoro",
         dailyNoteFormat: "YYYY-MM-DD", logHeading: "## Pomodoros",
-        logBreaks: false, logAborted: false, loggingEnabled: true,
+        logBreaks: false, logAborted: false, loggingEnabled: false,
         friend: friendIDs[0], frameStyle: "scallopy", background: backgroundIDs[0],
-        petMovement: false, inkColor: "#000000", paperColor: "#FFFFFF",
+        inkColor: "#000000", paperColor: "#FFFFFF",
         alwaysOnTop: true, raiseOnEnd: true, scale: 2, opacity: 1.0,
         launchAtLogin: false, startHidden: false,
         soundEnabled: true, ringSeconds: 10, askForTaskName: true,
@@ -77,7 +76,7 @@ public struct PomoppiSettings: Codable, Equatable {
         vaultPath: String, dailyNoteFolder: String, dailyNoteFormat: String, logHeading: String,
         logBreaks: Bool, logAborted: Bool, loggingEnabled: Bool,
         friend: String, frameStyle: String, background: String,
-        petMovement: Bool, inkColor: String, paperColor: String,
+        inkColor: String, paperColor: String,
         alwaysOnTop: Bool, raiseOnEnd: Bool, scale: Int, opacity: Double,
         launchAtLogin: Bool, startHidden: Bool,
         soundEnabled: Bool, ringSeconds: Double, askForTaskName: Bool,
@@ -99,7 +98,6 @@ public struct PomoppiSettings: Codable, Equatable {
         self.friend = friend
         self.frameStyle = frameStyle
         self.background = background
-        self.petMovement = petMovement
         self.inkColor = inkColor
         self.paperColor = paperColor
         self.alwaysOnTop = alwaysOnTop
@@ -119,7 +117,7 @@ public struct PomoppiSettings: Codable, Equatable {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case autoStartBreaks, autoStartFocus
         case vaultPath, dailyNoteFolder, dailyNoteFormat, logHeading, logBreaks, logAborted, loggingEnabled
-        case friend, frameStyle, background, petMovement, inkColor, paperColor
+        case friend, frameStyle, background, inkColor, paperColor
         case alwaysOnTop, raiseOnEnd, scale, opacity, launchAtLogin, startHidden
         case soundEnabled, ringSeconds, askForTaskName, shortcuts
     }
@@ -170,7 +168,6 @@ public struct PomoppiSettings: Codable, Equatable {
         }
         frameStyle = (try? c.decodeIfPresent(String.self, forKey: .frameStyle)) ?? d.frameStyle
         background = (try? c.decodeIfPresent(String.self, forKey: .background)) ?? d.background
-        petMovement = (try? c.decodeIfPresent(Bool.self, forKey: .petMovement)) ?? d.petMovement
         inkColor = (try? c.decodeIfPresent(String.self, forKey: .inkColor)) ?? d.inkColor
         paperColor = (try? c.decodeIfPresent(String.self, forKey: .paperColor)) ?? d.paperColor
         alwaysOnTop = (try? c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop)) ?? d.alwaysOnTop

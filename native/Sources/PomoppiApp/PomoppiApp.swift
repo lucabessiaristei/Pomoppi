@@ -16,6 +16,11 @@ struct PomoppiApp: App {
             SettingsRootView()
                 .environmentObject(appDelegate)
         }
+        // Settings windows default to `.contentSize` — fixed to the
+        // content's ideal size, with no drag-to-resize. `.contentMinSize`
+        // keeps the min/idealWidth/idealHeight from SettingsView's own
+        // `.frame(...)` as the window's minimum, but lets the user grow it.
+        .windowResizability(.contentMinSize)
     }
 }
 

@@ -124,13 +124,14 @@ public enum WidgetLayout {
         return Int(animClock / (isBreak(state) ? 900 : 340))
     }
 
-    // Off (the default), before the first wander step has landed, or asleep
-    // on a break: always friendX/friendY, unmirrored. Otherwise wherever the
-    // wander accumulator last stepped it to.
+    // Before the first wander step has landed, or asleep on a break: always
+    // friendX/friendY, unmirrored. Otherwise wherever the wander accumulator
+    // last stepped it to. `wanderX` is nil exactly when the controller isn't
+    // wandering (idle, paused, or on a break), so that alone gates this.
     public static func petPosition(
-        petMovement: Bool, isBreak: Bool, wanderX: Int?, wanderDir: Int, wanderUp: Bool
+        isBreak: Bool, wanderX: Int?, wanderDir: Int, wanderUp: Bool
     ) -> (x: Int, y: Int, mirrored: Bool) {
-        guard petMovement, let wanderX, !isBreak else {
+        guard let wanderX, !isBreak else {
             return (friendX, friendY, false)
         }
         let y = friendY - (wanderUp ? wanderStepHeightPx : 0)

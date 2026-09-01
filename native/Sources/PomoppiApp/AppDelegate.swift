@@ -120,7 +120,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             self.widgetWindow.isVisible ? self.widgetWindow.orderOut(nil) : self.widgetWindow.raise()
         },
         "startPause": { [unowned self] in
-            if self.timer.getState().running { self.timer.pause() } else { self.timer.start() }
+            if self.timer.getState().running {
+                self.timer.pause()
+            } else {
+                StartCoordinator.requestStart(timer: self.timer, settingsStore: self.settingsStore)
+            }
         },
         "skip": { [unowned self] in self.timer.skip() },
         "reset": { [unowned self] in self.timer.reset() },

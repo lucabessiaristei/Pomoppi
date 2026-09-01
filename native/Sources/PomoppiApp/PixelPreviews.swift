@@ -11,13 +11,21 @@ enum PixelPreviews {
     // A miniature card: the frame border plus the background pattern masked
     // to its interior — the same two steps WidgetRenderer does first, minus
     // the pet/digits/UI chrome on top.
-    static func backgroundCard(backgroundID: String, frameStyle: String, inkColor: String, paperColor: String) -> NSImage? {
+    //
+    // The full frame is 110×124 canvas pixels; shrunk to fit a ~55×62pt
+    // card, every style rendered as the same fuzzy grey square — most of
+    // the frame is plain interior, so the one part that actually
+    // distinguishes a frame style (its border) or a background (its
+    // pattern) barely registered. Both card kinds below crop to the
+    // representative slice and hand it to the picker near its native size
+    // instead, so the picker actually shows what's different.
+    private static func renderFrame(backgroundID: String?, frameStyle: String, inkColor: String, paperColor: String) -> PixelCanvas {
         let style = FrameStyle(rawValue: frameStyle) ?? .scallopy
         let frameGrid = WindowFrame.grid(style: style, w: WidgetLayout.frameWidth, h: WidgetLayout.frameHeight)
         let canvas = PixelCanvas(width: WidgetLayout.frameWidth, height: WidgetLayout.frameHeight)
         canvas.drawGrid(frameGrid, 0, 0, colorMap: ["#": inkColor, "w": paperColor])
 
-        if let pattern = GeneratedSprites.backgroundPatterns[backgroundID] {
+        if let backgroundID, let pattern = GeneratedSprites.backgroundPatterns[backgroundID] {
             let tint = mix(paperColor, inkColor, 0.3)
             for y in 0..<min(pattern.count, frameGrid.count) {
                 let row = Array(pattern[y])
@@ -28,7 +36,29 @@ enum PixelPreviews {
                 }
             }
         }
-        return image(from: canvas)
+        return canvas
+    }
+
+    // Window edge cards: one corner quadrant (top-left) of the full frame —
+    // exactly 1/4 of its area — so the border style (each style's defining
+    // feature) fills the card instead of a sliver around a mostly-empty
+    // middle.
+    static func frameEdgeCard(frameStyle: String, inkColor: String, paperColor: String) -> NSImage? {
+        let canvas = renderFrame(backgroundID: nil, frameStyle: frameStyle, inkColor: inkColor, paperColor: paperColor)
+        let quadrant = CGRect(x: 0, y: 0, width: WidgetLayout.frameWidth / 2, height: WidgetLayout.frameHeight / 2)
+        return image(from: canvas, crop: quadrant)
+    }
+
+    // Background cards: the top half only, full width. Pattern art is
+    // shorter than the frame interior (it never fills the bottom of the
+    // real widget either — see WidgetRenderer), so a full-height preview
+    // always wasted its bottom half on plain paper; cropping to where the
+    // pattern actually is lets it read at a noticeably bigger, still
+    // undistorted scale (see the matching cardSize in SettingsView).
+    static func backgroundPatternCard(backgroundID: String, frameStyle: String, inkColor: String, paperColor: String) -> NSImage? {
+        let canvas = renderFrame(backgroundID: backgroundID, frameStyle: frameStyle, inkColor: inkColor, paperColor: paperColor)
+        let topHalf = CGRect(x: 0, y: 0, width: WidgetLayout.frameWidth, height: WidgetLayout.frameHeight / 2)
+        return image(from: canvas, crop: topHalf)
     }
 
     // One friend frame (its resting pose), for a quick recognizable icon
@@ -49,6 +79,14 @@ enum PixelPreviews {
     private static func image(from canvas: PixelCanvas) -> NSImage? {
         guard let cgImage = canvas.makeImage() else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: canvas.width, height: canvas.height))
+    }
+
+    // Crops in the canvas's own coordinate space — row 0 is the top row
+    // (see PixelCanvas.fillRect), which is also CGImage's cropping origin,
+    // so no y-flip is needed to reach for the top-left corner or top half.
+    private static func image(from canvas: PixelCanvas, crop rect: CGRect) -> NSImage? {
+        guard let cgImage = canvas.makeImage()?.cropping(to: rect) else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: rect.width, height: rect.height))
     }
 
     private static func rgb(_ hex: String) -> (Int, Int, Int) {

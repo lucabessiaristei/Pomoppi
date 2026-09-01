@@ -77,7 +77,7 @@ private struct RhythmTab: View {
         Form {
             Section {
                 Stepper(
-                    "Focus length: \(Int(viewModel.settings.focusMinutes)) min",
+                    "Default focus length: \(Int(viewModel.settings.focusMinutes)) min",
                     value: viewModel.binding(\.focusMinutes), in: 1...180, step: 1)
             } header: {
                 Text("Focus")
@@ -131,9 +131,8 @@ private struct AppearanceTab: View {
                             friendID: friend, inkColor: viewModel.settings.inkColor, paperColor: viewModel.settings.paperColor)
                     },
                     onSelect: { friend in viewModel.update { $0.friend = friend } })
-                Toggle("Let the pet wander back and forth", isOn: viewModel.binding(\.petMovement))
             } header: {
-                Text("Pet")
+                Text("Roommate")
             }
 
             Section("Theme") {
@@ -149,8 +148,8 @@ private struct AppearanceTab: View {
                     cardSize: CGSize(width: 55, height: 62),
                     label: { $0.capitalized },
                     image: { style in
-                        PixelPreviews.backgroundCard(
-                            backgroundID: viewModel.settings.background, frameStyle: style,
+                        PixelPreviews.frameEdgeCard(
+                            frameStyle: style,
                             inkColor: viewModel.settings.inkColor, paperColor: viewModel.settings.paperColor)
                     },
                     onSelect: { style in viewModel.update { $0.frameStyle = style } })
@@ -160,10 +159,14 @@ private struct AppearanceTab: View {
                 CardPickerGrid(
                     items: PomoppiSettings.backgroundIDs,
                     selected: viewModel.settings.background,
-                    cardSize: CGSize(width: 55, height: 62),
+                    // Wider/shorter than the frame-edge cards above: this
+                    // preview crops to the top half of the frame, full
+                    // width (see PixelPreviews.backgroundPatternCard), so
+                    // its aspect ratio is ~110:62 rather than ~55:62.
+                    cardSize: CGSize(width: 74, height: 42),
                     label: { $0.capitalized },
                     image: { background in
-                        PixelPreviews.backgroundCard(
+                        PixelPreviews.backgroundPatternCard(
                             backgroundID: background, frameStyle: viewModel.settings.frameStyle,
                             inkColor: viewModel.settings.inkColor, paperColor: viewModel.settings.paperColor)
                     },
@@ -209,7 +212,15 @@ private struct CardPickerGrid<ID: Hashable>: View {
     }
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+        // `.center`, not `.leading`: each button's own VStack is only as
+        // wide as its widest child, and the label text below often outgrows
+        // the fixed-size image above it by a different amount per item — a
+        // leading-aligned grid then anchors each *button* to the column's
+        // left edge, so the (VStack-centred) image inside drifts right by
+        // varying amounts as the label gets longer, zigzagging column to
+        // column instead of lining up. Centering each item on its column
+        // keeps every image on the same axis regardless of label width.
+        LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
             ForEach(items, id: \.self) { item in
                 let isSelected = item == selected
                 Button {
@@ -276,7 +287,9 @@ private struct ThemePresetPicker: View {
     private let columns = [GridItem(.adaptive(minimum: 56), spacing: 10)]
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+        // Same fix as CardPickerGrid: centre each item on its column so the
+        // swatch aligns the same way regardless of preset-name width.
+        LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
             ForEach(themePresets, id: \.name) { preset in
                 let isSelected = viewModel.settings.inkColor == preset.ink && viewModel.settings.paperColor == preset.paper
                 Button {

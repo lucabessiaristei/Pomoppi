@@ -132,7 +132,7 @@ final class WidgetPixelView: NSView {
 
     private func regionAt(lx: Int, ly: Int) -> (region: String?, button: String?) {
         let pet = WidgetLayout.petPosition(
-            petMovement: settings.petMovement, isBreak: WidgetLayout.isBreak(state),
+            isBreak: WidgetLayout.isBreak(state),
             wanderX: animation.snapshot.wanderX, wanderDir: animation.snapshot.wanderDir, wanderUp: animation.snapshot.wanderUp)
 
         var region: String?
@@ -290,7 +290,12 @@ final class WidgetPixelView: NSView {
         if state.ringing { state = timer.dismissRing() }
         switch id {
         case "play":
-            state = state.running ? timer.pause() : timer.start()
+            if state.running {
+                state = timer.pause()
+            } else {
+                StartCoordinator.requestStart(timer: timer, settingsStore: settingsStore)
+                state = timer.getState()
+            }
         case "reset":
             state = timer.reset()
         case "skip":
