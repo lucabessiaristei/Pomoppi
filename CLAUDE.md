@@ -11,7 +11,7 @@ wins. Read the section you're touching, not the whole file.
 ```sh
 npm start          # run
 npm test           # node --test, 76 tests
-npm run launcher   # write ~/Desktop/Pomoppi.app (double-clickable)
+npm run launcher   # write /Applications/Pomoppi.app (double-clickable)
 npm run icons      # regenerate assets/*.png from renderer/sprites.js grids
 npm run friends    # re-import pet sprites from import/friends/*.aseprite (rewrites renderer/friends.js)
 npm run bgs        # re-import background patterns from import/bgs/*.aseprite, skipping bg-template.aseprite (rewrites renderer/background.js)
@@ -39,7 +39,9 @@ Settings live at `~/Library/Application Support/Pomoppi/settings.json`.
 | `renderer/background.js` | **Generated** by `npm run bgs` — never hand-edit |
 | `import/friends/`, `import/bgs/` | Source `.aseprite` files the importers above read. `import/bgs/bg-template.aseprite` is a starting point for a new pattern, not a background — `npm run bgs` always skips it |
 | `tools/make-icons.js` | Hand-rolled PNG encoder (zlib+fs only) |
-| `tools/make-launcher.js` | Builds the Desktop `.app` bundle |
+| `tools/make-launcher.js` | Builds the `/Applications/Pomoppi.app` bundle |
+| `assets/pomoppi-clear.icon` | Icon Composer source for the Liquid Glass app icon (`pomoppi-simple.icon` is the same drawing with `"glass": false`) |
+| `assets/AppIcon.car`, `assets/AppIcon.icns` | **Generated** from that `.icon` by `actool`, and committed — so `npm run launcher` ships the layered icon on a Mac with no Xcode. A build that *does* find `actool` rewrites both; the `.icon` stays the source of truth |
 
 ## Invariants that keep getting broken
 
