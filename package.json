@@ -1,0 +1,22 @@
+{
+  "name": "pomoppi",
+  "productName": "Pomoppi",
+  "version": "1.0.0",
+  "description": "A pixel pomodoro widget starring the Habitsuu creatures, logging sessions into Obsidian.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "icons": "node tools/make-icons.js",
+    "launcher": "node tools/make-launcher.js",
+    "test": "node --test test/*.test.js",
+    "friends": "node tools/import-friends.js",
+    "tray": "node tools/import-tray.js",
+    "bgs": "node tools/import-bgs.js",
+    "editor": "node tools/serve.js"
+  },
+  "author": "Luca Bessi Aristei",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.4.11"
+  }
+}
