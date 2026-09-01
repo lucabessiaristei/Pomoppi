@@ -34,7 +34,9 @@ public final class WidgetAnimationController {
 
         let isBreak = WidgetLayout.isBreak(state)
         if isBreak {
-            zFrameTime += dt
+            // Pausing during a break freezes the Zzz's on their current
+            // frame too, same as the pet freezes mid-wander.
+            if state.running { zFrameTime += dt }
             let frameCount = max(1, GeneratedSprites.zzzFrames.count)
             snapshot.zFrameIndex = Int(zFrameTime / 500) % frameCount
         } else {
@@ -52,13 +54,20 @@ public final class WidgetAnimationController {
         // instead of snapping back to the start. Only a real reset back to
         // `.idle` clears it, since there's no "where it was" to return to
         // before a session has ever started.
+        //
+        // wanderUp is derived straight from the pose index's parity (even =
+        // up, odd = down) rather than toggled by a persisted flag: animClock
+        // keeps accumulating even while not wandering (idle/paused/break), so
+        // any pose changes missed during those gaps would desync a toggled
+        // flag from the frame actually on screen — this self-corrects every
+        // tick instead, so frame 0 of the walk cycle always reads as "up",
+        // exactly like the leg pose it draws.
         let poseIndex = WidgetLayout.friendFrameIndex(state: state, ringTime: snapshot.ringTime, animClock: snapshot.animClock)
         let wandering = state.running && !isBreak
         if wandering {
             if snapshot.wanderX == nil {
                 snapshot.wanderX = WidgetLayout.wanderMinX
                 snapshot.wanderDir = 1
-                snapshot.wanderUp = true
                 wanderFrameIndex = nil
             }
             if let previousPose = wanderFrameIndex, poseIndex != previousPose {
@@ -71,8 +80,8 @@ public final class WidgetAnimationController {
                     snapshot.wanderDir = 1
                 }
                 snapshot.wanderX = next
-                snapshot.wanderUp.toggle()
             }
+            snapshot.wanderUp = poseIndex % 2 == 0
             wanderFrameIndex = poseIndex
         } else {
             wanderFrameIndex = nil
