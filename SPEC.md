@@ -7,6 +7,15 @@ Authoritative. If code and spec disagree, the spec wins. Do not invent files,
 dependencies, or features that are not listed here. **Zero runtime dependencies** —
 Electron only. No npm packages at runtime.
 
+This spec was written for, and is implemented by, the Electron app at the
+repo root. A separate from-scratch Swift/AppKit rewrite lives under
+`native/` (see `native/CLAUDE.md`) and treats this document as its
+**behavior** contract too — window layering, art direction, shortcuts,
+settings schema, and so on all still apply there. Where a section describes
+Electron-specific mechanics (IPC, `contextBridge`, npm packaging), read it
+for the intent, not the literal API; the native app has no Electron and no
+npm runtime dependency.
+
 ---
 
 ## 1. Art direction (non-negotiable)
