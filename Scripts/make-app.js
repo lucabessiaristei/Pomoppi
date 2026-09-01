@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-// native/Scripts/make-app.js — builds the SPM package in release mode and
-// assembles a real, double-clickable Pomoppi.app bundle. Hand-rolled, same
-// spirit as legacy-electron/tools/make-launcher.js (the Electron app's
-// launcher, now retired): no packager, no Xcode project.
+// Scripts/make-app.js — builds the SPM package in release mode and
+// assembles a real, double-clickable Pomoppi.app bundle. Hand-rolled: no
+// packager, no Xcode project.
 //
-// Destination defaults to /Applications/Pomoppi.app — the Electron app has
-// been fully retired (no longer installed), so this is now simply where
-// Pomoppi lives. Bundle identifier is the original shared one
-// (it.lucabessiaristei.pomoppi): there's only one Pomoppi identity now,
-// which is also what SMAppService's "launch at login" (LoginItem.swift)
-// needs to register correctly.
+// Destination defaults to /Applications/Pomoppi.app, simply where Pomoppi
+// lives. Bundle identifier (it.lucabessiaristei.pomoppi) is also what
+// SMAppService's "launch at login" (LoginItem.swift) needs to register
+// correctly.
 'use strict';
 
 const fs = require('fs');
@@ -17,8 +14,8 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-const REPO_ROOT = path.join(__dirname, '..', '..');
-const NATIVE_ROOT = path.join(__dirname, '..');
+const REPO_ROOT = path.join(__dirname, '..');
+const NATIVE_ROOT = REPO_ROOT;
 const BUNDLE_ID = 'it.lucabessiaristei.pomoppi';
 const APP_NAME = 'Pomoppi';
 const VERSION = '0.1.0';

@@ -17,12 +17,9 @@ Black on white, predominantly white, every pixel drawn on a canvas. Floats
 above your other windows, gets out of the way, and jumps to the front with a
 little animation when a timer ends.
 
-This README describes the app conceptually and, in a couple of places below,
-the **legacy Electron implementation's** specific commands/files. The
-actively developed build is the Swift/AppKit rewrite under `native/` (see
-`native/CLAUDE.md`) — the Electron app now lives archived under
-`legacy-electron/` (see `legacy-electron/CLAUDE.md`); every bare command below
-(`npm run …`) must be run from inside that directory.
+Swift/AppKit + SwiftUI, no Electron, no npm runtime dependency. See
+`CLAUDE.md` for the full developer contract (commands, file map,
+invariants) and `SPEC.md` for the behavior spec.
 
 ```
      ┌────────────────┐     Pomoppi draws its own chamfered pixel
@@ -51,11 +48,12 @@ Appearance**, or from the **Friend** submenu in the menu bar.
 The sprites are imported verbatim — nothing here generates or retouches them:
 
 ```sh
-npm run friends  # re-import after editing a sprite in Aseprite
+node Art/tools/import-friends.js  # re-import after editing a sprite in Aseprite
+node Scripts/generate-sprites.js  # then rewrite Sources/PomoppiSprites/Sprites.generated.swift
 ```
 
 That reads the `.aseprite` files, splits each sheet into 32×32 frames and
-writes `renderer/friends.js`. **Draw more frames and they animate**: a pet with
+writes `Art/renderer/friends.js`. **Draw more frames and they animate**: a pet with
 several frames plays them in order, and one drawn only once gets a derived
 squash frame so it still breathes. Pace is what tells you the phase — a
 working beat while focusing, drowsy on a break with a `z` beside it, a fast
@@ -92,35 +90,26 @@ The notches are genuinely transparent, so the desktop shows through them.
 ## Running it
 
 ```sh
-npm start
+swift run PomoppiApp
 ```
 
-Or put a launcher on the Desktop once and double-click it from then on:
+Or build a real, double-clickable app once and launch it from Spotlight/Finder
+from then on:
 
 ```sh
-npm run launcher
+node Scripts/make-app.js
 ```
 
-That writes `/Applications/Pomoppi.app`, a small bundle that just starts this
-working copy — it is not a distributable app, so re-run the command if you move
-the repo.
+That writes `/Applications/Pomoppi.app` (release build, ad-hoc signed) — not a
+distributable app, so re-run the command after pulling changes.
 
 **Launch at login** rides on that bundle: switching it on in Settings adds
 `Pomoppi.app` to System Settings ▸ General ▸ Login Items, so it opens at the
 next login and you can see and remove it like any other login item. Build the
-launcher first — the settings window says so if it can't find the bundle. If
+app first — the settings window says so if it can't find the bundle. If
 macOS refuses the Automation permission that editing that list needs, Pomoppi
 falls back to a background item that opens the same bundle, and says so under
 the checkbox.
-
-First run only, if `node_modules` is missing:
-
-```sh
-npm install
-# npm 11 blocks Electron's postinstall by default; if `npm start` comsplotchys
-# that Electron failed to install, fetch the binary explicitly:
-node node_modules/electron/install.js
-```
 
 ## Using it
 
@@ -213,43 +202,33 @@ Everything is editable in the settings window and saved as you type, to
 ## Layout
 
 ```
-legacy-electron/main.js              Electron main: windows, tray, IPC, always-on-top
-legacy-electron/preload*.js          contextBridge surfaces (no generic passthrough)
-legacy-electron/lib/timer.js         wall-clock timer state machine (no Electron, unit-tested)
-legacy-electron/lib/settings.js      load / validate / clamp / persist
-legacy-electron/lib/obsidian.js      atomic daily-note appender
-legacy-electron/renderer/friends.js  GENERATED pet sprites — npm run friends
-legacy-electron/renderer/task.css    CSS lives in files: the CSP blocks inline <style>
-legacy-electron/renderer/sprites.js  digits, icons, window edge; wraps the pets
-legacy-electron/renderer/draw.js     pixel drawing kit (fillRect only, no fonts, no images)
-legacy-electron/renderer/shortcuts.js the shortcut table + accelerator parsing, shared main/renderer
-legacy-electron/renderer/widget.js   the widget: layout, animation, hit-testing, chime, SVG snapshot
-legacy-electron/tools/make-icons.js  hand-rolled PNG encoder for the tray & app icons
-legacy-electron/test/                node --test
+Sources/PomoppiApp/       app lifecycle, window/tray wiring, global shortcuts, settings UI
+Sources/PomoppiCore/      wall-clock timer state machine, settings load/validate/persist, Obsidian logger
+Sources/PomoppiRender/    the 1px drawing kit and widget layout/animation
+Sources/PomoppiSprites/   digits, icons, window edge, and the generated pet/background art
+Art/                      the Aseprite pixel-art pipeline (sources + importers), independent of the app itself
+Scripts/                  generate-sprites.js, make-app.js
+Tests/                    swift-testing/XCTest suites mirroring Sources/
 ```
 
-No runtime dependencies — Electron and nothing else.
-
-This layout, and the rest of this README, describe the legacy Electron app,
-archived under `legacy-electron/` above. The actively developed, primary
-implementation is the Swift/AppKit rewrite under `native/` — see
-`native/CLAUDE.md`.
+No runtime dependencies — this is a plain SPM package, nothing else. Full
+file map and invariants: `CLAUDE.md`.
 
 ## Editing the art
 
-The pets live in `renderer/friends.js`, which is **generated** — edit the
-`.aseprite` files and run `npm run friends` instead. `tools/import-friends.js`
-shells out to Aseprite for the decoding, so Aseprite must be installed.
+The pets live in `Art/renderer/friends.js`, which is **generated** — edit the
+`.aseprite` files under `Art/import/friends/` and run
+`node Art/tools/import-friends.js` instead. It shells out to Aseprite for the
+decoding, so Aseprite must be installed.
 
-Everything else is in `renderer/sprites.js` and has no image files at all:
+Everything else is in `Art/renderer/sprites.js` and has no image files at all:
 the clock digits are generated from a seven-segment table so every stroke is
 exactly 1px, the 16×16 control icons are `0`/`1` grids, and the window edge is
 computed by `windowFrame(style, w, h)`.
 
 ```sh
-npm run friends  # re-import pet sprites from Aseprite
-npm run icons    # regenerate assets/ PNGs (tray + app icon)
-npm run launcher # write /Applications/Pomoppi.app
-npm test
+node Art/tools/import-friends.js    # re-import pet sprites from Aseprite
+node Art/tools/import-bgs.js        # re-import background patterns from Aseprite
+node Scripts/generate-sprites.js    # rewrite Sources/PomoppiSprites/Sprites.generated.swift
+swift test
 ```
-# Pomoppi
