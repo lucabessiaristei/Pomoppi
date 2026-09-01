@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // native/Scripts/make-app.js — builds the SPM package in release mode and
 // assembles a real, double-clickable Pomoppi.app bundle. Hand-rolled, same
-// spirit as tools/make-launcher.js (the Electron app's launcher, now
-// retired): no packager, no Xcode project.
+// spirit as legacy-electron/tools/make-launcher.js (the Electron app's
+// launcher, now retired): no packager, no Xcode project.
 //
 // Destination defaults to /Applications/Pomoppi.app — the Electron app has
 // been fully retired (no longer installed), so this is now simply where

@@ -17,6 +17,13 @@ Black on white, predominantly white, every pixel drawn on a canvas. Floats
 above your other windows, gets out of the way, and jumps to the front with a
 little animation when a timer ends.
 
+This README describes the app conceptually and, in a couple of places below,
+the **legacy Electron implementation's** specific commands/files. The
+actively developed build is the Swift/AppKit rewrite under `native/` (see
+`native/CLAUDE.md`) — the Electron app now lives archived under
+`legacy-electron/` (see `legacy-electron/CLAUDE.md`); every bare command below
+(`npm run …`) must be run from inside that directory.
+
 ```
      ┌────────────────┐     Pomoppi draws its own chamfered pixel
      │                │     frame — no macOS rounded rectangle,
@@ -206,26 +213,27 @@ Everything is editable in the settings window and saved as you type, to
 ## Layout
 
 ```
-main.js              Electron main: windows, tray, IPC, always-on-top
-preload*.js          contextBridge surfaces (no generic passthrough)
-lib/timer.js         wall-clock timer state machine (no Electron, unit-tested)
-lib/settings.js      load / validate / clamp / persist
-lib/obsidian.js      atomic daily-note appender
-renderer/friends.js  GENERATED pet sprites — npm run friends
-renderer/task.css    CSS lives in files: the CSP blocks inline <style>
-renderer/sprites.js  digits, icons, window edge; wraps the pets
-renderer/draw.js     pixel drawing kit (fillRect only, no fonts, no images)
-renderer/shortcuts.js the shortcut table + accelerator parsing, shared main/renderer
-renderer/widget.js   the widget: layout, animation, hit-testing, chime, SVG snapshot
-tools/make-icons.js  hand-rolled PNG encoder for the tray & app icons
-test/                node --test
+legacy-electron/main.js              Electron main: windows, tray, IPC, always-on-top
+legacy-electron/preload*.js          contextBridge surfaces (no generic passthrough)
+legacy-electron/lib/timer.js         wall-clock timer state machine (no Electron, unit-tested)
+legacy-electron/lib/settings.js      load / validate / clamp / persist
+legacy-electron/lib/obsidian.js      atomic daily-note appender
+legacy-electron/renderer/friends.js  GENERATED pet sprites — npm run friends
+legacy-electron/renderer/task.css    CSS lives in files: the CSP blocks inline <style>
+legacy-electron/renderer/sprites.js  digits, icons, window edge; wraps the pets
+legacy-electron/renderer/draw.js     pixel drawing kit (fillRect only, no fonts, no images)
+legacy-electron/renderer/shortcuts.js the shortcut table + accelerator parsing, shared main/renderer
+legacy-electron/renderer/widget.js   the widget: layout, animation, hit-testing, chime, SVG snapshot
+legacy-electron/tools/make-icons.js  hand-rolled PNG encoder for the tray & app icons
+legacy-electron/test/                node --test
 ```
 
 No runtime dependencies — Electron and nothing else.
 
-This layout, and the rest of this README, describe the Electron app above.
-A separate Swift/AppKit rewrite, targeting the same behavior, is in progress
-under `native/` — see `native/CLAUDE.md`.
+This layout, and the rest of this README, describe the legacy Electron app,
+archived under `legacy-electron/` above. The actively developed, primary
+implementation is the Swift/AppKit rewrite under `native/` — see
+`native/CLAUDE.md`.
 
 ## Editing the art
 
