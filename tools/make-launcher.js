@@ -17,6 +17,20 @@ const { execFileSync } = require('child_process');
 const REPO_ROOT = path.join(__dirname, '..');
 const BUNDLE_ID = 'it.lucabessiaristei.pomoppi';
 
+// The Liquid Glass app icon (macOS 26), authored in Icon Composer. assets/
+// holds two variants of the same drawing -- pomoppi-clear.icon sets
+// "glass": true on its layer, pomoppi-simple.icon sets it false. Swap the
+// name here to switch which one the bundle ships.
+const GLASS_ICON_SOURCE = 'pomoppi-clear.icon';
+
+// actool must see the .icon bundle named after whatever --app-icon says.
+const GLASS_ICON_NAME = 'AppIcon';
+
+// actool ships inside Xcode.app, NOT the Command Line Tools, so it is often
+// absent -- buildGlassIcon() degrades to the sips/iconutil .icns path when
+// it is. Probed via xcrun first so a switched xcode-select wins.
+const ACTOOL_FALLBACK = '/Applications/Xcode.app/Contents/Developer/usr/bin/actool';
+
 const dest = path.resolve(process.argv[2] || path.join(os.homedir(), 'Desktop', 'Pomoppi.app'));
 
 // Resolve the Electron binary the supported way: path.txt holds a path
@@ -107,7 +121,20 @@ function writeLauncherScript(macosDir, electronBinary) {
   fs.chmodSync(scriptPath, 0o755);
 }
 
-function writeInfoPlist(contentsDir, version) {
+// `icon` is whatever buildGlassIcon()/buildIcon() returned, or null: the
+// CFBundleIcon* keys the bundle carries depend on which path produced the
+// icon, so the plist is written after the icon, not before it.
+function writeInfoPlist(contentsDir, version, icon) {
+  let iconXml = '';
+  if (icon && icon.iconFile) {
+    iconXml += `\t<key>CFBundleIconFile</key>\n\t<string>${xmlEscape(icon.iconFile)}</string>\n`;
+  }
+  if (icon && icon.iconName) {
+    // CFBundleIconName is what points LaunchServices at Assets.car, and so
+    // at the layered icon. Without it macOS falls back to the flat .icns.
+    iconXml += `\t<key>CFBundleIconName</key>\n\t<string>${xmlEscape(icon.iconName)}</string>\n`;
+  }
+
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -122,9 +149,7 @@ function writeInfoPlist(contentsDir, version) {
 	<string>${xmlEscape(BUNDLE_ID)}</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
-	<key>CFBundleIconFile</key>
-	<string>icon</string>
-	<key>CFBundleShortVersionString</key>
+${iconXml}	<key>CFBundleShortVersionString</key>
 	<string>${xmlEscape(version)}</string>
 	<key>CFBundleVersion</key>
 	<string>${xmlEscape(version)}</string>
@@ -134,6 +159,88 @@ function writeInfoPlist(contentsDir, version) {
 </plist>
 `;
   fs.writeFileSync(path.join(contentsDir, 'Info.plist'), plist);
+}
+
+// actool lives in Xcode.app; `xcrun -f` finds it only when xcode-select
+// points at a full Xcode rather than the Command Line Tools, so fall back to
+// the standard install path before giving up.
+function resolveActool() {
+  try {
+    const found = execFileSync('xcrun', ['-f', 'actool'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (found && fs.existsSync(found)) return found;
+  } catch {
+    // xcode-select points at the CLT, which has no actool. Not an error.
+  }
+  return fs.existsSync(ACTOOL_FALLBACK) ? ACTOOL_FALLBACK : null;
+}
+
+// Compiles assets/<GLASS_ICON_SOURCE> into the layered macOS 26 icon.
+// Returns a descriptor for writeInfoPlist(), or null to fall through to the
+// legacy buildIcon() path -- no missing tool or actool failure may break the
+// build, same rule as buildIcon() below.
+function buildGlassIcon(resourcesDir) {
+  const source = path.join(REPO_ROOT, 'assets', GLASS_ICON_SOURCE);
+  if (!fs.existsSync(source)) {
+    console.error(`Note: assets/${GLASS_ICON_SOURCE} not found; using the .icns icon.`);
+    return null;
+  }
+  const actool = resolveActool();
+  if (!actool) {
+    console.error('Note: actool not found (it needs full Xcode, not just the Command Line Tools); using the .icns icon.');
+    return null;
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pomoppi-glass-'));
+  try {
+    // The .icon bundle is passed to actool DIRECTLY, as its own input. This
+    // is the whole trick: wrapping it in a .xcassets the way a pre-26 icon
+    // set would be compiles cleanly and emits nothing at all, silently.
+    const staged = path.join(tmpDir, `${GLASS_ICON_NAME}.icon`);
+    fs.cpSync(source, staged, { recursive: true });
+    const outDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outDir);
+
+    execFileSync(actool, [
+      '--output-format', 'human-readable-text',
+      '--app-icon', GLASS_ICON_NAME,
+      '--output-partial-info-plist', path.join(tmpDir, 'partial.plist'),
+      '--development-region', 'en',
+      '--target-device', 'mac',
+      // The layered icon is a macOS 26 feature; the .icns emitted next to it
+      // is what older systems (and un-migrated surfaces) fall back to.
+      '--minimum-deployment-target', '26.0',
+      '--platform', 'macosx',
+      '--compile', outDir,
+      staged,
+    ], { stdio: 'ignore' });
+
+    const car = path.join(outDir, 'Assets.car');
+    if (!fs.existsSync(car)) {
+      console.error('Warning: actool emitted no Assets.car; using the .icns icon.');
+      return null;
+    }
+    fs.copyFileSync(car, path.join(resourcesDir, 'Assets.car'));
+
+    // actool emits a flat .icns from the same source for free. Ship it too,
+    // so the bundle still has an icon everywhere the layered one isn't used.
+    const icns = path.join(outDir, `${GLASS_ICON_NAME}.icns`);
+    const gotIcns = fs.existsSync(icns);
+    if (gotIcns) fs.copyFileSync(icns, path.join(resourcesDir, `${GLASS_ICON_NAME}.icns`));
+
+    return {
+      iconFile: gotIcns ? GLASS_ICON_NAME : null,
+      iconName: GLASS_ICON_NAME,
+      label: `${path.join(resourcesDir, 'Assets.car')} (Liquid Glass, from ${GLASS_ICON_SOURCE})`,
+    };
+  } catch (err) {
+    console.error(`Warning: could not compile ${GLASS_ICON_SOURCE} (${err.message}); using the .icns icon.`);
+    return null;
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 // Best-effort: a missing assets/icon.png or a failing sips/iconutil must
@@ -156,7 +263,7 @@ function buildIcon(resourcesDir) {
   const sourcePng = path.join(REPO_ROOT, 'assets', 'icon.png');
   if (!fs.existsSync(sourcePng)) {
     console.error('Warning: assets/icon.png not found (run "npm run icons"); bundle will have no icon.');
-    return false;
+    return null;
   }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pomoppi-icon-'));
@@ -171,10 +278,10 @@ function buildIcon(resourcesDir) {
     const icnsPath = path.join(tmpDir, 'icon.icns');
     execFileSync('iconutil', ['-c', 'icns', iconsetDir, '-o', icnsPath], { stdio: 'ignore' });
     fs.copyFileSync(icnsPath, path.join(resourcesDir, 'icon.icns'));
-    return true;
+    return { iconFile: 'icon', iconName: null, label: path.join(resourcesDir, 'icon.icns') };
   } catch (err) {
     console.error(`Warning: could not build icon.icns (${err.message}); continuing without an icon.`);
-    return false;
+    return null;
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -193,12 +300,15 @@ function main() {
   fs.mkdirSync(resourcesDir, { recursive: true });
 
   writeLauncherScript(macosDir, electronBinary);
-  writeInfoPlist(contentsDir, pkg.version);
-  const gotIcon = buildIcon(resourcesDir);
+  // Icon before plist: the Liquid Glass path and the legacy one need
+  // different CFBundleIcon* keys, so the plist can't be written until we
+  // know which one produced the icon.
+  const icon = buildGlassIcon(resourcesDir) || buildIcon(resourcesDir);
+  writeInfoPlist(contentsDir, pkg.version, icon);
 
   console.log(`Wrote ${dest}`);
   console.log(`  launcher: ${path.join(macosDir, 'Pomoppi')} -> ${electronBinary} ${REPO_ROOT}`);
-  console.log(`  icon: ${gotIcon ? path.join(resourcesDir, 'icon.icns') : '(none)'}`);
+  console.log(`  icon: ${icon ? icon.label : '(none)'}`);
 }
 
 main();
