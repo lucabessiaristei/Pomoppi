@@ -334,14 +334,14 @@ function loadTrayImages() {
   const images = [];
   for (let i = 0; i < SPRITES.TRAY_FRAMES.length; i++) {
     const img = nativeImage.createFromPath(
-      path.join(__dirname, 'assets', `trayTemplate-${i}.png`));
+      path.join(__dirname, '..', 'assets', `trayTemplate-${i}.png`));
     if (img.isEmpty()) break;
     img.setTemplateImage(true);
     images.push(img);
   }
   if (images.length === 0) {
     const legacy = nativeImage.createFromPath(
-      path.join(__dirname, 'assets', 'trayTemplate.png'));
+      path.join(__dirname, '..', 'assets', 'trayTemplate.png'));
     legacy.setTemplateImage(true);
     images.push(legacy);
   }

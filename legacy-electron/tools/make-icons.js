@@ -15,7 +15,10 @@ const INK = [0, 0, 0];
 const PAPER = [255, 255, 255];
 const BLUSH = [200, 200, 200];
 
-const ASSETS_DIR = path.join(__dirname, '..', 'assets');
+// assets/ stays at the repo root (shared with native/'s Scripts/make-app.js,
+// which reads the same Liquid Glass icon source) — one extra '..' beyond
+// legacy-electron/ to reach it.
+const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
 const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 const CRC_TABLE = (() => {

@@ -19,6 +19,12 @@ const { execFileSync } = require('child_process');
 const REPO_ROOT = path.join(__dirname, '..');
 const BUNDLE_ID = 'it.lucabessiaristei.pomoppi';
 
+// assets/ stays at the top-level repo root, shared with native/'s
+// Scripts/make-app.js (same Liquid Glass icon source) — one level above
+// REPO_ROOT (which is legacy-electron/) now that the Electron app moved
+// into its own subdirectory.
+const SHARED_ASSETS_DIR = path.join(REPO_ROOT, '..', 'assets');
+
 // The Liquid Glass app icon (macOS 26), authored in Icon Composer. assets/
 // holds two variants of the same drawing -- pomoppi-clear.icon sets
 // "glass": true on its layer, pomoppi-simple.icon sets it false. Swap the
@@ -192,7 +198,7 @@ function resolveActool() {
 // legacy buildIcon() path -- no missing tool or actool failure may break the
 // build, same rule as buildIcon() below.
 function buildGlassIcon(resourcesDir) {
-  const source = path.join(REPO_ROOT, 'assets', GLASS_ICON_SOURCE);
+  const source = path.join(SHARED_ASSETS_DIR, GLASS_ICON_SOURCE);
   if (!fs.existsSync(source)) {
     console.error(`Note: assets/${GLASS_ICON_SOURCE} not found; using the .icns icon.`);
     return null;
@@ -244,8 +250,8 @@ function buildGlassIcon(resourcesDir) {
     // this compile just produced. A read-only checkout must not fail here:
     // the bundle already has its icon either way.
     try {
-      fs.copyFileSync(car, path.join(REPO_ROOT, 'assets', GLASS_CACHE_CAR));
-      if (gotIcns) fs.copyFileSync(icns, path.join(REPO_ROOT, 'assets', GLASS_CACHE_ICNS));
+      fs.copyFileSync(car, path.join(SHARED_ASSETS_DIR, GLASS_CACHE_CAR));
+      if (gotIcns) fs.copyFileSync(icns, path.join(SHARED_ASSETS_DIR, GLASS_CACHE_ICNS));
     } catch (err) {
       console.error(`Note: could not refresh assets/${GLASS_CACHE_CAR} (${err.message}).`);
     }
@@ -266,11 +272,11 @@ function buildGlassIcon(resourcesDir) {
 // The Xcode-less path: ship the committed catalog as-is. Same descriptor as
 // buildGlassIcon(), because the bundle ends up byte-identical either way.
 function useCachedGlassIcon(resourcesDir) {
-  const car = path.join(REPO_ROOT, 'assets', GLASS_CACHE_CAR);
+  const car = path.join(SHARED_ASSETS_DIR, GLASS_CACHE_CAR);
   if (!fs.existsSync(car)) return null;
   fs.copyFileSync(car, path.join(resourcesDir, 'Assets.car'));
 
-  const icns = path.join(REPO_ROOT, 'assets', GLASS_CACHE_ICNS);
+  const icns = path.join(SHARED_ASSETS_DIR, GLASS_CACHE_ICNS);
   const gotIcns = fs.existsSync(icns);
   if (gotIcns) fs.copyFileSync(icns, path.join(resourcesDir, `${GLASS_ICON_NAME}.icns`));
 
@@ -298,7 +304,7 @@ const ICONSET_SIZES = [
 ];
 
 function buildIcon(resourcesDir) {
-  const sourcePng = path.join(REPO_ROOT, 'assets', 'icon.png');
+  const sourcePng = path.join(SHARED_ASSETS_DIR, 'icon.png');
   if (!fs.existsSync(sourcePng)) {
     console.error('Warning: assets/icon.png not found (run "npm run icons"); bundle will have no icon.');
     return null;
