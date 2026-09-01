@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // no-op, leaving that combo free until the feature exists.
     private lazy var shortcutHandlers: [String: () -> Void] = [
         "toggleWidget": { [unowned self] in
-            self.widgetWindow.isVisible ? self.widgetWindow.orderOut(nil) : self.widgetWindow.raise()
+            self.widgetWindow.isVisible ? self.widgetWindow.hide() : self.widgetWindow.raise()
         },
         "startPause": { [unowned self] in
             if self.timer.getState().running {

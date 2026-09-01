@@ -181,16 +181,17 @@ number to change how close to the bar's own edges it gets), reversing
 direction at either end. Friend art is drawn facing left natively (§1), so
 the sprite mirrors left-right while walking right only — a plain
 string-reverse per row, not a canvas transform — so it always visually faces
-the way it's walking. **Idle and paused hold it still at rest** — wandering
-only happens while `running` is true — and **a break is deliberately exempt
-even while running**: `petPosition()` holds the pet at its centred rest
-position for the whole break, cycling only its drowsy frames on the spot,
-same as the widget always looked before wandering existed — asleep is not a
-time to be pacing. Every time wandering starts (idle→running, or a break
-ending back into focus) it resets to centred / dir 1 / up-first rather than
-resuming whatever a previous walk cycle left behind — the walk's up/down
-order is otherwise indistinguishable from "started mid-stride" carryover
-across session boundaries. The pet's hit region (hover, drag-arm,
+the way it's walking. Wandering only happens while `running` is true, and **a
+break is deliberately exempt even while running**: `petPosition()` holds the
+pet at its centred rest position for the whole break, cycling only its
+drowsy frames on the spot, same as the widget always looked before wandering
+existed — asleep is not a time to be pacing. **Idle holds it at rest** (no
+session has ever started, or one was just reset — there's no "where it was"
+to return to). **Pausing, and a break, freeze it exactly where it is
+instead**: the wander position/direction/step-phase are untouched while
+`running` is false or the phase is a break, so resuming — unpausing, or a
+break ending back into focus — continues the walk from right there rather
+than snapping back to the start. The pet's hit region (hover, drag-arm,
 §"Direct manipulation" above) tracks wherever it currently is, not its rest
 position.
 

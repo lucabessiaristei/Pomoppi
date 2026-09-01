@@ -276,7 +276,7 @@ final class WidgetPixelView: NSView {
             if state.ringing {
                 state = timer.dismissRing()
             } else {
-                window?.orderOut(nil)
+                (window as? WidgetWindow)?.hide()
             }
             needsDisplay = true
         default:

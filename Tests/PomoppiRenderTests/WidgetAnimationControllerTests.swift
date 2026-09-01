@@ -26,6 +26,12 @@ final class WidgetAnimationControllerTests: XCTestCase {
         return timer.tick()
     }
 
+    private func pausedTimerState() -> TimerState {
+        let timer = PomodoroTimer(settingsGetter: { self.settingsSnapshot() })
+        timer.start()
+        return timer.pause()
+    }
+
     func testAnimClockAccumulatesRegardlessOfState() {
         let controller = WidgetAnimationController()
         controller.tick(dt: 100, state: idleTimerState(), settings: .defaults)
@@ -82,5 +88,19 @@ final class WidgetAnimationControllerTests: XCTestCase {
         controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
         XCTAssertEqual(controller.snapshot.wanderX, WidgetLayout.wanderMinX, "restarting begins from centre again")
         XCTAssertEqual(controller.snapshot.wanderUp, true, "restarting always steps up first")
+    }
+
+    func testPauseFreezesWanderInPlaceAndResumeContinuesFromThere() {
+        let controller = WidgetAnimationController()
+        controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
+        controller.tick(dt: 520, state: runningTimerState(), settings: .defaults)
+        let steppedX = controller.snapshot.wanderX
+        XCTAssertNotEqual(steppedX, WidgetLayout.wanderMinX, "should have taken at least one step")
+
+        controller.tick(dt: 1, state: pausedTimerState(), settings: .defaults)
+        XCTAssertEqual(controller.snapshot.wanderX, steppedX, "pausing should freeze the pet in place, not reset it")
+
+        controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
+        XCTAssertEqual(controller.snapshot.wanderX, steppedX, "resuming should continue from where it paused, not restart from the edge")
     }
 }
