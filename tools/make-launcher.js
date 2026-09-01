@@ -1,7 +1,9 @@
 // tools/make-launcher.js — generates a double-clickable macOS .app bundle that
 // launches Pomoppi without a terminal (SPEC.md §10). Hand-rolled bundle: no
-// packager, no npm install. Destination defaults to ~/Desktop/Pomoppi.app,
-// or process.argv[2] if given.
+// packager, no npm install. Destination defaults to /Applications/Pomoppi.app,
+// or process.argv[2] if given -- /Applications because that is the first place
+// lib/login-item.js looks for the bundle, so building and launching at login
+// agree on one copy instead of racing a stale one left on the Desktop.
 //
 // This is a launcher for the WORKING COPY, not a distributable app: the
 // bundle's shell script bakes in absolute paths into this repo and its
@@ -31,7 +33,15 @@ const GLASS_ICON_NAME = 'AppIcon';
 // it is. Probed via xcrun first so a switched xcode-select wins.
 const ACTOOL_FALLBACK = '/Applications/Xcode.app/Contents/Developer/usr/bin/actool';
 
-const dest = path.resolve(process.argv[2] || path.join(os.homedir(), 'Desktop', 'Pomoppi.app'));
+// actool's output, committed next to the .icon source. Xcode is a ~15GB
+// install for one build step, and a compiled catalog is just a file -- so the
+// build ships the layered icon on a machine that has never had Xcode. A run
+// that DOES find actool rewrites these, so the .icon stays the source of
+// truth: edit it in Icon Composer, rebuild once anywhere with Xcode, commit.
+const GLASS_CACHE_CAR = 'AppIcon.car';
+const GLASS_CACHE_ICNS = 'AppIcon.icns';
+
+const dest = path.resolve(process.argv[2] || path.join('/Applications', 'Pomoppi.app'));
 
 // Resolve the Electron binary the supported way: path.txt holds a path
 // relative to node_modules/electron/dist/, not a fixed inner layout — reading
@@ -189,7 +199,7 @@ function buildGlassIcon(resourcesDir) {
   }
   const actool = resolveActool();
   if (!actool) {
-    console.error('Note: actool not found (it needs full Xcode, not just the Command Line Tools); using the .icns icon.');
+    console.error('Note: actool not found (it needs full Xcode, not just the Command Line Tools); using the prebuilt catalog.');
     return null;
   }
 
@@ -230,6 +240,16 @@ function buildGlassIcon(resourcesDir) {
     const gotIcns = fs.existsSync(icns);
     if (gotIcns) fs.copyFileSync(icns, path.join(resourcesDir, `${GLASS_ICON_NAME}.icns`));
 
+    // Refresh the committed cache so the next Xcode-less build ships what
+    // this compile just produced. A read-only checkout must not fail here:
+    // the bundle already has its icon either way.
+    try {
+      fs.copyFileSync(car, path.join(REPO_ROOT, 'assets', GLASS_CACHE_CAR));
+      if (gotIcns) fs.copyFileSync(icns, path.join(REPO_ROOT, 'assets', GLASS_CACHE_ICNS));
+    } catch (err) {
+      console.error(`Note: could not refresh assets/${GLASS_CACHE_CAR} (${err.message}).`);
+    }
+
     return {
       iconFile: gotIcns ? GLASS_ICON_NAME : null,
       iconName: GLASS_ICON_NAME,
@@ -241,6 +261,24 @@ function buildGlassIcon(resourcesDir) {
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+}
+
+// The Xcode-less path: ship the committed catalog as-is. Same descriptor as
+// buildGlassIcon(), because the bundle ends up byte-identical either way.
+function useCachedGlassIcon(resourcesDir) {
+  const car = path.join(REPO_ROOT, 'assets', GLASS_CACHE_CAR);
+  if (!fs.existsSync(car)) return null;
+  fs.copyFileSync(car, path.join(resourcesDir, 'Assets.car'));
+
+  const icns = path.join(REPO_ROOT, 'assets', GLASS_CACHE_ICNS);
+  const gotIcns = fs.existsSync(icns);
+  if (gotIcns) fs.copyFileSync(icns, path.join(resourcesDir, `${GLASS_ICON_NAME}.icns`));
+
+  return {
+    iconFile: gotIcns ? GLASS_ICON_NAME : null,
+    iconName: GLASS_ICON_NAME,
+    label: `${path.join(resourcesDir, 'Assets.car')} (Liquid Glass, prebuilt assets/${GLASS_CACHE_CAR})`,
+  };
 }
 
 // Best-effort: a missing assets/icon.png or a failing sips/iconutil must
@@ -303,7 +341,7 @@ function main() {
   // Icon before plist: the Liquid Glass path and the legacy one need
   // different CFBundleIcon* keys, so the plist can't be written until we
   // know which one produced the icon.
-  const icon = buildGlassIcon(resourcesDir) || buildIcon(resourcesDir);
+  const icon = buildGlassIcon(resourcesDir) || useCachedGlassIcon(resourcesDir) || buildIcon(resourcesDir);
   writeInfoPlist(contentsDir, pkg.version, icon);
 
   console.log(`Wrote ${dest}`);

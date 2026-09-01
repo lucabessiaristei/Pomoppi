@@ -94,7 +94,7 @@ Or put a launcher on the Desktop once and double-click it from then on:
 npm run launcher
 ```
 
-That writes `~/Desktop/Pomoppi.app`, a small bundle that just starts this
+That writes `/Applications/Pomoppi.app`, a small bundle that just starts this
 working copy — it is not a distributable app, so re-run the command if you move
 the repo.
 
@@ -237,7 +237,7 @@ computed by `windowFrame(style, w, h)`.
 ```sh
 npm run friends  # re-import pet sprites from Aseprite
 npm run icons    # regenerate assets/ PNGs (tray + app icon)
-npm run launcher # write ~/Desktop/Pomoppi.app
+npm run launcher # write /Applications/Pomoppi.app
 npm test
 ```
 # Pomoppi
