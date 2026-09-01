@@ -87,7 +87,22 @@ final class WidgetAnimationControllerTests: XCTestCase {
 
         controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
         XCTAssertEqual(controller.snapshot.wanderX, WidgetLayout.wanderMinX, "restarting begins from centre again")
-        XCTAssertEqual(controller.snapshot.wanderUp, true, "restarting always steps up first")
+    }
+
+    // wanderUp used to be a flag toggled once per step and reset to `true`
+    // whenever a session (re)started — but animClock keeps ticking even
+    // while idle, so by the time a session restarts its pose parity could
+    // already be odd, and forcing wanderUp back to `true` then drew the
+    // "up" bob over the frame that actually reads as the down pose. It must
+    // instead track the pose index's own parity so it always matches
+    // whatever frame is actually on screen, restart timing notwithstanding.
+    func testWanderUpTracksPoseParityEvenAfterAnIdleGapShiftsIt() {
+        let controller = WidgetAnimationController()
+        controller.tick(dt: 341, state: idleTimerState(), settings: .defaults)
+
+        controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
+        XCTAssertEqual(controller.snapshot.animClock, 342)
+        XCTAssertEqual(controller.snapshot.wanderUp, false, "pose 1 (odd) is the down frame, even though the session only just started")
     }
 
     func testPauseFreezesWanderInPlaceAndResumeContinuesFromThere() {
@@ -102,5 +117,23 @@ final class WidgetAnimationControllerTests: XCTestCase {
 
         controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
         XCTAssertEqual(controller.snapshot.wanderX, steppedX, "resuming should continue from where it paused, not restart from the edge")
+    }
+
+    func testPauseFreezesZzzFrameDuringBreak() {
+        let controller = WidgetAnimationController()
+        let timer = PomodoroTimer(settingsGetter: { self.settingsSnapshot() })
+        timer.start()
+        let breakState = timer.skip() // focus -> short break, auto-running
+
+        controller.tick(dt: 1, state: breakState, settings: .defaults)
+        controller.tick(dt: 500, state: breakState, settings: .defaults)
+        let frameBeforePause = controller.snapshot.zFrameIndex
+
+        let pausedBreakState = timer.pause()
+        controller.tick(dt: 1000, state: pausedBreakState, settings: .defaults)
+        XCTAssertEqual(controller.snapshot.zFrameIndex, frameBeforePause, "pausing during a break should freeze the Zzz's, not keep animating them")
+
+        controller.tick(dt: 500, state: timer.start(), settings: .defaults)
+        XCTAssertNotEqual(controller.snapshot.zFrameIndex, frameBeforePause, "resuming should continue animating the Zzz's again")
     }
 }

@@ -172,28 +172,35 @@ toggle in the archived Electron app — native has no such toggle anymore, this
 is just how it behaves). While a focus session is actually running, the
 roommate ambles instead of sitting at its centred rest position — mechanically,
 not eased: it only moves when the friend's own sprite frame changes
-(`friendFrameIndex()`), stepping `WANDER_STEP_PX` sideways and toggling
-`WANDER_STEP_HEIGHT_PX` up/down each time (up first, then down, alternating),
-the way an old Tamagotchi's few-pixel walk cycle steps in lockstep with its
-pose changes rather than sliding smoothly. Bounded to the progress bar's own
-x-span, inset by `WANDER_EDGE_INSET` px on each side (5 by default — the one
-number to change how close to the bar's own edges it gets), reversing
-direction at either end. Friend art is drawn facing left natively (§1), so
-the sprite mirrors left-right while walking right only — a plain
-string-reverse per row, not a canvas transform — so it always visually faces
-the way it's walking. Wandering only happens while `running` is true, and **a
-break is deliberately exempt even while running**: `petPosition()` holds the
-pet at its centred rest position for the whole break, cycling only its
-drowsy frames on the spot, same as the widget always looked before wandering
-existed — asleep is not a time to be pacing. **Idle holds it at rest** (no
-session has ever started, or one was just reset — there's no "where it was"
-to return to). **Pausing, and a break, freeze it exactly where it is
-instead**: the wander position/direction/step-phase are untouched while
-`running` is false or the phase is a break, so resuming — unpausing, or a
-break ending back into focus — continues the walk from right there rather
-than snapping back to the start. The pet's hit region (hover, drag-arm,
-§"Direct manipulation" above) tracks wherever it currently is, not its rest
-position.
+(`friendFrameIndex()`), stepping `WANDER_STEP_PX` sideways and, each time,
+setting `WANDER_STEP_HEIGHT_PX` up/down to whichever the *current pose index's
+parity* says (even = up, odd = down) — not a flag that toggles once per step
+independent of the frame, since the animation clock keeps running even while
+not wandering (idle/paused/break) and a toggle would drift out of sync with
+whatever pose is actually on screen by the time wandering resumes. Deriving it
+from the pose index directly is self-correcting, so frame 0 of the walk cycle
+always reads as "up" no matter how long a gap preceded it — the way an old
+Tamagotchi's few-pixel walk cycle steps in lockstep with its pose changes
+rather than sliding smoothly. Bounded to the progress bar's own x-span, inset
+by `WANDER_EDGE_INSET` px on each side (5 by default — the one number to
+change how close to the bar's own edges it gets), reversing direction at
+either end. Friend art is drawn facing left natively (§1), so the sprite
+mirrors left-right while walking right only — a plain string-reverse per row,
+not a canvas transform — so it always visually faces the way it's walking.
+Wandering only happens while `running` is true, and **a break is deliberately
+exempt even while running**: `petPosition()` holds the pet at its centred rest
+position for the whole break, cycling only its drowsy frames on the spot, same
+as the widget always looked before wandering existed — asleep is not a time to
+be pacing. **Idle holds it at rest** (no session has ever started, or one was
+just reset — there's no "where it was" to return to). **Pausing, and a break,
+freeze it exactly where it is instead**: the wander position/direction/
+step-phase are untouched while `running` is false or the phase is a break, so
+resuming — unpausing, or a break ending back into focus — continues the walk
+from right there rather than snapping back to the start. The pet's hit region
+(hover, drag-arm, §"Direct manipulation" above) tracks wherever it currently
+is, not its rest position. **Pausing during a break freezes the Zzz's too** —
+`zFrameIndex` only advances while `running`, so a paused nap holds on whichever
+Zzz frame it was on rather than continuing to animate in the background.
 
 ### Dragging
 Bind **pointer events only**. Registering mouse listeners as well double-fires
