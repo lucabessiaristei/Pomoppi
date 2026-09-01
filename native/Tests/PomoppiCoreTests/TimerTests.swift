@@ -67,12 +67,22 @@ final class TimerTests: XCTestCase {
         current = current.addingTimeInterval(25 * 60) // full focus duration elapses
         let state = timer.tick()
 
+        // The phase switch to shortBreak (and any auto-start of it) is held
+        // back until the ring is silenced — see completePhase()/
+        // advancePendingPhase() — so the break/Zzz animation never starts
+        // while the end-of-session ring/shake is still playing.
         XCTAssertTrue(state.ringing)
-        XCTAssertEqual(state.phase, .shortBreak)
+        XCTAssertEqual(state.phase, .focus)
         XCTAssertEqual(state.cycleIndex, 1)
         XCTAssertEqual(state.completedToday, 1)
         XCTAssertEqual(completedEvents.count, 1)
         XCTAssertTrue(completedEvents[0].completed)
+
+        current = current.addingTimeInterval(self.defaultSettings().ringSeconds)
+        let afterRing = timer.tick()
+        XCTAssertFalse(afterRing.ringing)
+        XCTAssertEqual(afterRing.phase, .shortBreak)
+        XCTAssertTrue(afterRing.running, "autoStartBreaks is true by default")
     }
 
     func testDayRolloverResetsCompletedToday() {

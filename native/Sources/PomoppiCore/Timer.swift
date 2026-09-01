@@ -83,6 +83,14 @@ public final class PomodoroTimer {
     private var task: String = ""
     private var phaseStartedAt: Date?
     private var ringStartedAt: Date?
+    // Set by completePhase() instead of switching `phase` right away, so the
+    // ring/shake animation plays out entirely over the phase that just
+    // finished — flipping `phase` (and therefore isBreak/the Zzz animation)
+    // immediately would overlap the two. Applied by advancePendingPhase()
+    // whichever way the ring ends: naturally timing out, or the user
+    // interacting (start/pause/reset/skip all silence an active ring first).
+    private var pendingPhase: Phase?
+    private var pendingAutoStart = false
 
     public init(settingsGetter: @escaping () -> TimerSettingsSnapshot, now: @escaping () -> Date = Date.init) {
         self.getSettings = settingsGetter
@@ -94,7 +102,7 @@ public final class PomodoroTimer {
     @discardableResult
     public func start() -> TimerState {
         let nowTs = now()
-        if ringing { silenceRing(emitChange: false) }
+        if ringing { silenceRing(emitChange: false, nowTs) }
         if phase == .idle { setupPhase(.focus) }
         if running || remainingMs <= 0 { return getState() }
         beginRunning(nowTs)
@@ -105,7 +113,7 @@ public final class PomodoroTimer {
     @discardableResult
     public func pause() -> TimerState {
         let nowTs = now()
-        if ringing { silenceRing(emitChange: false) }
+        if ringing { silenceRing(emitChange: false, nowTs) }
         guard running else { return getState() }
         remainingMs = max(0, computeRemainingMs(nowTs))
         endsAt = nil
@@ -117,7 +125,7 @@ public final class PomodoroTimer {
     @discardableResult
     public func reset() -> TimerState {
         let nowTs = now()
-        if ringing { silenceRing(emitChange: false) }
+        if ringing { silenceRing(emitChange: false, nowTs) }
         if phase != .idle, let startedAt = phaseStartedAt {
             let remaining = computeRemainingMs(nowTs)
             let actualMs = max(0, totalMs - remaining)
@@ -141,9 +149,9 @@ public final class PomodoroTimer {
     // and bypasses autoStartFocus/autoStartBreaks.
     @discardableResult
     public func skip() -> TimerState {
-        guard phase != .idle else { return getState() }
         let nowTs = now()
-        if ringing { silenceRing(emitChange: false) }
+        if ringing { silenceRing(emitChange: false, nowTs) }
+        guard phase != .idle else { return getState() }
 
         let skippedPhase = phase
         let remaining = computeRemainingMs(nowTs)
@@ -165,7 +173,7 @@ public final class PomodoroTimer {
 
     @discardableResult
     public func dismissRing() -> TimerState {
-        if ringing { silenceRing(emitChange: true) }
+        if ringing { silenceRing(emitChange: true, now()) }
         return getState()
     }
 
@@ -186,7 +194,7 @@ public final class PomodoroTimer {
         if ringing, let ringStartedAt {
             let ringMs = max(0, getSettings().ringSeconds) * 1000
             if nowTs.timeIntervalSince(ringStartedAt) * 1000 >= ringMs {
-                silenceRing(emitChange: false)
+                silenceRing(emitChange: false, nowTs)
             }
         }
         if running, let endsAt, nowTs >= endsAt {
@@ -262,10 +270,23 @@ public final class PomodoroTimer {
         running = true
     }
 
-    private func silenceRing(emitChange: Bool) {
+    private func silenceRing(emitChange: Bool, _ nowTs: Date) {
         ringing = false
         ringStartedAt = nil
+        advancePendingPhase(nowTs)
         if emitChange { onChange?(getState()) }
+    }
+
+    // Applies whatever completePhase() deferred, if anything — a no-op once
+    // the ring has already been resolved once. Runs on every path that stops
+    // a ring: it timing out on its own, or any user interaction cutting it
+    // short.
+    private func advancePendingPhase(_ nowTs: Date) {
+        guard let next = pendingPhase else { return }
+        pendingPhase = nil
+        setupPhase(next)
+        if pendingAutoStart { beginRunning(nowTs) }
+        pendingAutoStart = false
     }
 
     private func emitPhaseComplete(_ event: PhaseCompleteEvent) {
@@ -303,12 +324,16 @@ public final class PomodoroTimer {
             nextPhase = .focus
         }
 
-        setupPhase(nextPhase)
+        // `phase` deliberately stays `finishedPhase` for now — setupPhase(),
+        // and any auto-start, are deferred to advancePendingPhase() so the
+        // break/Zzz animation (which keys off `phase`) never starts until
+        // the ring/shake animation for the phase that just ended has fully
+        // played out and been silenced. Logging above already happened
+        // immediately: only the *visual* transition is held back.
+        pendingPhase = nextPhase
+        pendingAutoStart = nextPhase == .focus ? settings.autoStartFocus : settings.autoStartBreaks
         ringing = true
         ringStartedAt = nowTs
-
-        let autoStart = nextPhase == .focus ? settings.autoStartFocus : settings.autoStartBreaks
-        if autoStart { beginRunning(nowTs) }
 
         onChange?(getState())
     }

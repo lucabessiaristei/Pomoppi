@@ -13,6 +13,11 @@ final class WidgetAnimationControllerTests: XCTestCase {
         PomodoroTimer(settingsGetter: { self.settingsSnapshot() }).getState()
     }
 
+    private func runningTimerState() -> TimerState {
+        let timer = PomodoroTimer(settingsGetter: { self.settingsSnapshot() })
+        return timer.start()
+    }
+
     private func ringingTimerState() -> TimerState {
         var now = Date(timeIntervalSince1970: 0)
         let timer = PomodoroTimer(settingsGetter: { self.settingsSnapshot() }, now: { now })
@@ -48,23 +53,34 @@ final class WidgetAnimationControllerTests: XCTestCase {
         XCTAssertEqual(controller.snapshot.shakeOffset, 0)
     }
 
-    func testWanderStepsOnlyOnPoseChangeWhenPetMovementEnabled() {
+    func testWanderStepsOnlyOnPoseChangeWhileRunning() {
         let controller = WidgetAnimationController()
-        var settings = PomoppiSettings.defaults
-        settings.petMovement = true
-
-        controller.tick(dt: 1, state: idleTimerState(), settings: settings)
+        controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
         let firstX = controller.snapshot.wanderX
         XCTAssertEqual(firstX, WidgetLayout.wanderMinX)
 
-        controller.tick(dt: 520, state: idleTimerState(), settings: settings)
+        controller.tick(dt: 520, state: runningTimerState(), settings: .defaults)
         XCTAssertNotEqual(controller.snapshot.wanderX, firstX, "a pose change should advance the wander position")
     }
 
-    func testWanderNeverAdvancesWhenPetMovementDisabled() {
+    func testWanderNeverAdvancesWhileIdle() {
         let controller = WidgetAnimationController()
         controller.tick(dt: 1, state: idleTimerState(), settings: .defaults)
         controller.tick(dt: 1000, state: idleTimerState(), settings: .defaults)
         XCTAssertNil(controller.snapshot.wanderX)
+    }
+
+    func testWanderResetsToFreshStateWhenSessionStops() {
+        let controller = WidgetAnimationController()
+        controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
+        controller.tick(dt: 520, state: runningTimerState(), settings: .defaults)
+        XCTAssertNotEqual(controller.snapshot.wanderX, WidgetLayout.wanderMinX, "should have taken at least one step")
+
+        controller.tick(dt: 1, state: idleTimerState(), settings: .defaults)
+        XCTAssertNil(controller.snapshot.wanderX, "stopping clears the wander position")
+
+        controller.tick(dt: 1, state: runningTimerState(), settings: .defaults)
+        XCTAssertEqual(controller.snapshot.wanderX, WidgetLayout.wanderMinX, "restarting begins from centre again")
+        XCTAssertEqual(controller.snapshot.wanderUp, true, "restarting always steps up first")
     }
 }

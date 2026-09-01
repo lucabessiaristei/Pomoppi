@@ -104,9 +104,12 @@ final class TrayController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
 
         menu.addItem(makeItem(
-            title: state.running ? "Pause" : "Start", action: #selector(handleStartPause)))
-        menu.addItem(makeItem(title: "Skip", action: #selector(handleSkip), enabled: !idle))
-        menu.addItem(makeItem(title: "Reset", action: #selector(handleReset), enabled: !idle))
+            title: state.running ? "Pause" : "Start", action: #selector(handleStartPause),
+            shortcut: settings.shortcuts["startPause"]))
+        menu.addItem(makeItem(
+            title: "Skip", action: #selector(handleSkip), enabled: !idle, shortcut: settings.shortcuts["skip"]))
+        menu.addItem(makeItem(
+            title: "Reset", action: #selector(handleReset), enabled: !idle, shortcut: settings.shortcuts["reset"]))
         menu.addItem(.separator())
 
         let sessionsItem = NSMenuItem(title: "Sessions per long break", action: nil, keyEquivalent: "")
@@ -115,13 +118,16 @@ final class TrayController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         menu.addItem(makeItem(
-            title: widgetVisible ? "Hide Pomoppi" : "Show Pomoppi", action: #selector(handleToggleVisibility)))
-        let keepOnTop = makeItem(title: "Keep on top", action: #selector(handleToggleAlwaysOnTop))
+            title: widgetVisible ? "Hide Pomoppi" : "Show Pomoppi", action: #selector(handleToggleVisibility),
+            shortcut: settings.shortcuts["toggleWidget"]))
+        let keepOnTop = makeItem(
+            title: "Keep on top", action: #selector(handleToggleAlwaysOnTop), shortcut: settings.shortcuts["toggleOnTop"])
         keepOnTop.state = settings.alwaysOnTop ? .on : .off
         menu.addItem(keepOnTop)
         menu.addItem(.separator())
 
-        menu.addItem(makeItem(title: "Settings…", action: #selector(handleOpenSettings)))
+        menu.addItem(makeItem(
+            title: "Settings…", action: #selector(handleOpenSettings), shortcut: settings.shortcuts["openSettings"]))
         menu.addItem(makeItem(title: "Quit", action: #selector(handleQuit)))
 
         return menu
@@ -138,17 +144,67 @@ final class TrayController: NSObject, NSMenuDelegate {
         return menu
     }
 
-    private func makeItem(title: String, action: Selector, enabled: Bool = true) -> NSMenuItem {
+    // Wired through NSMenuItem's own keyEquivalent/keyEquivalentModifierMask
+    // rather than appended text, so the combo renders the same dimmed,
+    // right-aligned way every other macOS app's menu shortcuts do. Safe
+    // alongside the already-live GlobalShortcutManager binding: this menu is
+    // a transient, freshly-built popup (never installed as NSApp.mainMenu),
+    // so AppKit only ever consults its keyEquivalents while it's the one
+    // actually open and tracking — never as a second, competing system-wide
+    // binding the way it would if this were a persistent menu bar item.
+    private func makeItem(title: String, action: Selector, enabled: Bool = true, shortcut: String? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        if let shortcut, let (glyph, mask) = Self.keyEquivalent(for: shortcut) {
+            item.keyEquivalent = glyph
+            item.keyEquivalentModifierMask = mask
+        }
         item.target = self
         item.isEnabled = enabled
         return item
     }
 
+    // Only the handful of key names Shortcuts.canonicalKey can actually
+    // produce that aren't already a single displayable character.
+    private static let namedKeyGlyphs: [String: String] = [
+        "Space": " ", "Return": "\r", "Enter": "\r", "Tab": "\t",
+        "Backspace": "\u{8}", "Delete": "\u{7f}", "Escape": "\u{1b}", "Plus": "+",
+        "Up": "\u{F700}", "Down": "\u{F701}", "Left": "\u{F702}", "Right": "\u{F703}",
+    ]
+
+    // "Alt+Shift+P" -> (" p", [.option, .shift]) etc. Returns nil for a
+    // combo with no modifier or a key this table doesn't know how to render
+    // (there are none among today's defaults) — better a plain, unhinted
+    // item than a wrong or crashing keyEquivalent.
+    private static func keyEquivalent(for accel: String) -> (String, NSEvent.ModifierFlags)? {
+        guard !accel.isEmpty else { return nil }
+        let parts = accel.split(separator: "+").map(String.init)
+        guard let key = parts.last else { return nil }
+
+        var mask: NSEvent.ModifierFlags = []
+        for mod in parts.dropLast() {
+            switch mod {
+            case "Command", "CommandOrControl": mask.insert(.command)
+            case "Control": mask.insert(.control)
+            case "Alt": mask.insert(.option)
+            case "Shift": mask.insert(.shift)
+            default: break
+            }
+        }
+        guard !mask.isEmpty else { return nil }
+
+        if let glyph = namedKeyGlyphs[key] { return (glyph, mask) }
+        if key.count == 1 { return (key.lowercased(), mask) }
+        return nil
+    }
+
     // -- actions --------------------------------------------------------------
 
     @objc private func handleStartPause() {
-        if timer.getState().running { timer.pause() } else { timer.start() }
+        if timer.getState().running {
+            timer.pause()
+        } else {
+            StartCoordinator.requestStart(timer: timer, settingsStore: settingsStore)
+        }
     }
 
     @objc private func handleSkip() { timer.skip() }

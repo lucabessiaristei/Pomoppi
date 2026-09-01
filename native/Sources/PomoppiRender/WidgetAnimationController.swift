@@ -42,13 +42,24 @@ public final class WidgetAnimationController {
             snapshot.zFrameIndex = 0
         }
 
-        // Steps once per friend pose change, not per tick: wanderFrameIndex
-        // always tracks the current pose (even with petMovement off) so
-        // turning it on mid-session never fires a backlog of steps from a
-        // stale comparison.
+        // Steps once per friend pose change, not per tick, and only while a
+        // session is actually running — a break is deliberately exempt even
+        // while running (asleep isn't a time to be pacing), and so is idle
+        // (no wandering before a session has started, request: wander only
+        // once a timer is going). Every time wandering (re)starts it resets
+        // to centred/dir 1/up-first rather than picking up stale state from
+        // whatever a previous session left behind — that stale carryover was
+        // what made the up/down step order look inverted from one session to
+        // the next.
         let poseIndex = WidgetLayout.friendFrameIndex(state: state, ringTime: snapshot.ringTime, animClock: snapshot.animClock)
-        if settings.petMovement, !isBreak {
-            if snapshot.wanderX == nil { snapshot.wanderX = WidgetLayout.wanderMinX }
+        let wandering = state.running && !isBreak
+        if wandering {
+            if snapshot.wanderX == nil {
+                snapshot.wanderX = WidgetLayout.wanderMinX
+                snapshot.wanderDir = 1
+                snapshot.wanderUp = true
+                wanderFrameIndex = nil
+            }
             if let previousPose = wanderFrameIndex, poseIndex != previousPose {
                 var next = snapshot.wanderX! + snapshot.wanderDir * WidgetLayout.wanderStepPx
                 if next >= WidgetLayout.wanderMaxX {
@@ -61,7 +72,12 @@ public final class WidgetAnimationController {
                 snapshot.wanderX = next
                 snapshot.wanderUp.toggle()
             }
+            wanderFrameIndex = poseIndex
+        } else {
+            snapshot.wanderX = nil
+            snapshot.wanderDir = 1
+            snapshot.wanderUp = true
+            wanderFrameIndex = nil
         }
-        wanderFrameIndex = poseIndex
     }
 }

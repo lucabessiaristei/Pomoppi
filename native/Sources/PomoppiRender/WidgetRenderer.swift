@@ -96,7 +96,7 @@ public enum WidgetRenderer {
 
         let isBreak = WidgetLayout.isBreak(state)
         let pet = WidgetLayout.petPosition(
-            petMovement: settings.petMovement, isBreak: isBreak,
+            isBreak: isBreak,
             wanderX: animation.wanderX, wanderDir: animation.wanderDir, wanderUp: animation.wanderUp)
         let rawFrame = friendFrame(settings: settings, state: state, animation: animation)
         let petFrame = pet.mirrored ? mirrorGridH(rawFrame) : rawFrame

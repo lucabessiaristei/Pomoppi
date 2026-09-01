@@ -167,28 +167,32 @@ The widget is operated, not just watched:
 The clock steppers are drawn whenever the timer is idle, not only on hover;
 hover adds the 1px box like any other control. The time itself is not clickable.
 
-**`settings.petMovement`** (off by default, Appearance tab — §7). When on, the
-pet ambles instead of sitting at its centred rest position — mechanically,
+**Roommate wandering** (Appearance tab in native; was the `settings.petMovement`
+toggle in the archived Electron app — native has no such toggle anymore, this
+is just how it behaves). While a focus session is actually running, the
+roommate ambles instead of sitting at its centred rest position — mechanically,
 not eased: it only moves when the friend's own sprite frame changes
-(`friendFrameIndex()`, `renderer/widget.js`), stepping `WANDER_STEP_PX`
-sideways and toggling `WANDER_STEP_HEIGHT_PX` up/down each time, the way an
-old Tamagotchi's few-pixel walk cycle steps in lockstep with its pose
-changes rather than sliding smoothly. Bounded to the progress bar's own
+(`friendFrameIndex()`), stepping `WANDER_STEP_PX` sideways and toggling
+`WANDER_STEP_HEIGHT_PX` up/down each time (up first, then down, alternating),
+the way an old Tamagotchi's few-pixel walk cycle steps in lockstep with its
+pose changes rather than sliding smoothly. Bounded to the progress bar's own
 x-span, inset by `WANDER_EDGE_INSET` px on each side (5 by default — the one
 number to change how close to the bar's own edges it gets), reversing
 direction at either end. Friend art is drawn facing left natively (§1), so
 the sprite mirrors left-right while walking right only — a plain
 string-reverse per row, not a canvas transform — so it always visually faces
-the way it's walking. Because a step only fires on a pose change, and a
-paused session already holds pose 0 (`getFriendFrame()`), movement freezes
-right along with it — no separate pause to get out of sync. **A break is
-deliberately exempt even while running**: `petPosition()` holds the pet at
-its centred rest position for the whole break, cycling only its drowsy
-frames on the spot, same as the widget always looked before wandering
-existed — asleep is not a time to be pacing. It resumes walking from
-wherever `updateAnimations()` left it once focus starts again. The pet's
-hit region (hover, drag-arm, §"Direct manipulation" above) tracks wherever
-it currently is, not its rest position.
+the way it's walking. **Idle and paused hold it still at rest** — wandering
+only happens while `running` is true — and **a break is deliberately exempt
+even while running**: `petPosition()` holds the pet at its centred rest
+position for the whole break, cycling only its drowsy frames on the spot,
+same as the widget always looked before wandering existed — asleep is not a
+time to be pacing. Every time wandering starts (idle→running, or a break
+ending back into focus) it resets to centred / dir 1 / up-first rather than
+resuming whatever a previous walk cycle left behind — the walk's up/down
+order is otherwise indistinguishable from "started mid-stride" carryover
+across session boundaries. The pet's hit region (hover, drag-arm,
+§"Direct manipulation" above) tracks wherever it currently is, not its rest
+position.
 
 ### Dragging
 Bind **pointer events only**. Registering mouse listeners as well double-fires
@@ -241,6 +245,16 @@ only add jitter on top of a sprite that is already moving.
   every 300ms, and plays the chime. Ringing lasts `settings.ringSeconds`
   (default 10) or until any button is pressed.
 
+**Ringing holds the phase, not just the animation.** The state machine's own
+`phase` stays on whichever phase just finished for the whole time it's
+ringing — the switch to the next phase (and any `autoStartBreaks`/
+`autoStartFocus`) is deferred until the ring is actually silenced, whether
+that's the `ringSeconds` timeout or the user interacting early. Flipping
+`phase` the instant the phase completes (which is what the ring's timing
+alone would suggest) would start the next phase's break/Zzz animation
+directly on top of the still-playing shake+ring — the two are never meant to
+overlap; the ring finishes, then the break (and its Zzz) begins.
+
 ### Chime (no audio files)
 Synthesize with Web Audio in the renderer: three square-wave `OscillatorNode`
 blips, ~90ms each, at 880 / 1174 / 1568 Hz, 60ms apart, gain 0.06 with a short
@@ -269,6 +283,12 @@ open for the next one.
 no task is set yet**. Prompting unconditionally meant naming a session ahead of
 time (tray > Set task…) and then pressing play re-opened the same dialog on top
 of the name just typed, which made setting a task in advance pointless.
+**Native additionally makes the prompt mandatory** — regardless of
+`askForTaskName`'s stored value — whenever `loggingEnabled` is true and
+`vaultPath` is non-empty: an Obsidian entry with no task name isn't a useful
+line to have logged, so that combination forces the ask rather than silently
+skipping it. Cancelling that forced prompt leaves the timer idle instead of
+starting; cancelling the ordinary, optional prompt still starts the timer.
 
 Timing is **wall-clock based**, not tick-accumulated: store `endsAt`
 (epoch ms) and derive `remainingMs = endsAt - Date.now()`. On pause store
@@ -358,12 +378,11 @@ with defaults (and the bad file renamed `settings.json.bak`).
   logHeading: '## Pomodoros',
   logBreaks: false,
   logAborted: false,
-  loggingEnabled: true,
+  loggingEnabled: false,             // off by default: a fresh install has no vault configured yet
 
   friend: <first of SPRITES.FRIEND_IDS>,
   frameStyle: 'scallopy',            // one of SPRITES.FRAME_STYLES
   background: <first of BACKGROUND_IDS>, // one of renderer/background.js's BACKGROUND_IDS
-  petMovement: false,                // pet ambles the progress bar's width instead of sitting still -- see section 3
   inkColor: '#000000',              // the theme pair -- see section 1
   paperColor: '#FFFFFF',
   alwaysOnTop: true,
@@ -375,7 +394,9 @@ with defaults (and the bad file renamed `settings.json.bak`).
 
   soundEnabled: true,
   ringSeconds: 10,
-  askForTaskName: true,             // prompt for a task when starting focus
+  askForTaskName: true,             // prompt for a task when starting focus; native additionally
+                                     // forces this on (regardless of the stored value) whenever
+                                     // loggingEnabled is true and vaultPath is non-empty -- see §5
 
   shortcuts: { ... },               // the schema's one nested object -- see §13
 }
