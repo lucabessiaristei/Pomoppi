@@ -7,17 +7,17 @@ Authoritative. If code and spec disagree, the spec wins. Do not invent files,
 dependencies, or features that are not listed here. **Zero runtime dependencies** —
 Electron only. No npm packages at runtime.
 
-This spec was written for, and is implemented by, the Electron app — now
-archived under `legacy-electron/` (see `legacy-electron/CLAUDE.md`). Every
-bare file path below (`main.js`, `lib/`, `renderer/`, `tools/`, `import/`,
-etc.) refers to a location under that directory, not the repo root. A
-separate from-scratch Swift/AppKit rewrite, now the **primary**
-implementation, lives under `native/` (see `native/CLAUDE.md`) and treats
-this document as its **behavior** contract too — window layering, art
-direction, shortcuts, settings schema, and so on all still apply there.
-Where a section describes Electron-specific mechanics (IPC, `contextBridge`,
-npm packaging), read it for the intent, not the literal API; the native app
-has no Electron and no npm runtime dependency.
+This spec was originally written for, and implemented by, an Electron app;
+that implementation has since been retired (its history is still in git, on
+the branches that predate the rewrite). The **from-scratch Swift/AppKit
+rewrite** that now lives at the repo root (see `CLAUDE.md`) is the sole
+implementation and treats this document as its **behavior** contract —
+window layering, art direction, shortcuts, settings schema, and so on. Some
+sections still describe Electron-specific mechanics (IPC, `contextBridge`,
+npm packaging) and bare file paths (`main.js`, `lib/`, `renderer/`,
+`tools/`, `import/`) left over from that implementation; read those for the
+intent, not the literal API or path — the current app has no Electron and no
+npm runtime dependency.
 
 ---
 
