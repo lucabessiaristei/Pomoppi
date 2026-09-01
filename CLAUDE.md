@@ -6,6 +6,12 @@ no bundler, no git repo (so: back up before destructive edits).
 `SPEC.md` is the authoritative contract — if code and spec disagree, the spec
 wins. Read the section you're touching, not the whole file.
 
+This file, and everything below, describes only the **legacy Electron app**
+(everything at the repo root outside `native/`). There is also an in-progress
+**Swift/AppKit rewrite** under `native/`, targeting the same `SPEC.md`
+contract with its own toolchain and no Electron at all — it has its own
+`native/CLAUDE.md`; don't apply the Electron-specific rules below to it.
+
 ## Commands
 
 ```sh

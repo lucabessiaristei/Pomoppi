@@ -1,0 +1,190 @@
+import AppKit
+import Combine
+import Foundation
+import PomoppiCore
+import PomoppiRender
+import SwiftUI
+
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    private var settingsStore: SettingsStore!
+    private var timer: PomodoroTimer!
+    private var obsidianLogger: ObsidianLogger!
+    private var widgetWindow: WidgetWindow!
+    private var trayController: TrayController!
+
+    // Owned here so the SwiftUI Settings scene can reuse one view model
+    // instead of constructing a new one every time the scene body runs.
+    @Published private(set) var settingsViewModel: SettingsViewModel?
+
+    // Never shown — exists only so `SettingsOpenerView` has a live place in
+    // the scene graph to read `\.openSettings` from (see SettingsOpener.swift).
+    private var settingsOpenerWindow: NSWindow!
+    private let settingsOpenerModel = SettingsOpenerModel()
+
+    private var appliedShortcutsKey: String?
+    private var appliedLaunchAtLogin: Bool?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Accessory, before any window exists: no Dock icon, and the app
+        // never owns the system menu bar even when focused — an accepted
+        // trade for a menu-bar-style widget (SPEC.md §9b). WillFinish so
+        // SwiftUI's App lifecycle doesn't flash a Dock icon first.
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+
+        settingsStore = SettingsStore(storageDir: Self.storageDir())
+        timer = PomodoroTimer(settingsGetter: { [unowned self] in self.timerSettingsSnapshot() })
+        obsidianLogger = ObsidianLogger(getSettings: { [unowned self] in self.settingsStore.get() })
+        settingsViewModel = SettingsViewModel(settingsStore: settingsStore, obsidianLogger: obsidianLogger)
+        timer.onPhaseComplete = { [unowned self] event in
+            Task { await self.obsidianLogger.logSession(event) }
+        }
+
+        widgetWindow = WidgetWindow(
+            timer: timer, settingsStore: settingsStore,
+            onOpenSettingsRequested: { [unowned self] in self.showSettingsWindow() })
+
+        settingsOpenerWindow = Self.makeSettingsOpenerWindow(model: settingsOpenerModel)
+
+        trayController = TrayController(
+            timer: timer, settingsStore: settingsStore, widgetWindow: widgetWindow,
+            focusedOwnWindow: { [unowned self] in self.focusedOwnWindow() },
+            onOpenSettingsRequested: { [unowned self] in self.showSettingsWindow() },
+            onQuitRequested: { NSApp.terminate(nil) })
+
+        // Everything a settings change might need to propagate to, in one
+        // place: the widget window's own re-read of settings every frame
+        // covers everything it draws, but window-level properties, the OS
+        // hotkey table, and the login-item registration are each owned by
+        // exactly one thing that applies them once rather than continuously.
+        settingsStore.onChange = { [unowned self] settings in
+            self.widgetWindow.applyExternalSettingsChange(settings)
+            self.registerGlobalShortcuts()
+            self.applyLoginItemIfNeeded(settings)
+        }
+
+        registerGlobalShortcuts()
+        applyLoginItemIfNeeded(settingsStore.get())
+
+        if !settingsStore.get().startHidden {
+            widgetWindow.raise()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // globalShortcut is process-wide, not window-scoped — it outlives
+        // every window, so it needs its own explicit teardown on quit.
+        GlobalShortcutManager.shared.unregisterAll()
+    }
+
+    // macOS 14+ dropped support for opening a SwiftUI `Settings` scene via
+    // `sendAction(showSettingsWindow:)` from AppKit (it finds a responder
+    // and returns true, but no window appears) — routing through
+    // `settingsOpenerModel` reaches the scene via the `openSettings`
+    // environment action instead (see SettingsOpener.swift).
+    func showSettingsWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        settingsOpenerModel.requestOpen()
+    }
+
+    // A window that's never ordered onto screen, whose sole purpose is
+    // giving `SettingsOpenerView` a spot in the scene graph so its
+    // `\.openSettings` environment action is populated.
+    private static func makeSettingsOpenerWindow(model: SettingsOpenerModel) -> NSWindow {
+        let window = NSWindow(
+            contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: SettingsOpenerView(model: model))
+        return window
+    }
+
+    private func focusedOwnWindow() -> NSWindow? {
+        if widgetWindow.isKeyWindow { return widgetWindow }
+        if let settings = NSApp.windows.first(where: { $0 !== widgetWindow && $0.isKeyWindow }) {
+            return settings
+        }
+        return nil
+    }
+
+    // -- global shortcuts -----------------------------------------------------
+
+    // One handler per Shortcuts action id, mirroring the tray item or
+    // in-app key each shortcut stands in for. "snapshot" has no handler —
+    // there's no snapshot feature yet (later phase) — so a binding for it
+    // is simply never registered with the OS rather than registered as a
+    // no-op, leaving that combo free until the feature exists.
+    private lazy var shortcutHandlers: [String: () -> Void] = [
+        "toggleWidget": { [unowned self] in
+            self.widgetWindow.isVisible ? self.widgetWindow.orderOut(nil) : self.widgetWindow.raise()
+        },
+        "startPause": { [unowned self] in
+            if self.timer.getState().running { self.timer.pause() } else { self.timer.start() }
+        },
+        "skip": { [unowned self] in self.timer.skip() },
+        "reset": { [unowned self] in self.timer.reset() },
+        "toggleOnTop": { [unowned self] in self.settingsStore.update { $0.alwaysOnTop.toggle() } },
+        "openSettings": { [unowned self] in self.showSettingsWindow() },
+    ]
+
+    // Unregisters and rebinds every non-empty shortcut only when the table
+    // actually changed — globalShortcut is a system-wide resource, and
+    // re-registering seven hotkeys on every settings write that has nothing
+    // to do with shortcuts would needlessly churn it (same reasoning as
+    // WidgetWindow's idempotent always-on-top setter).
+    private func registerGlobalShortcuts() {
+        let bindings = settingsStore.get().shortcuts
+        let key = Shortcuts.actionIDs.map { "\($0)=\(bindings[$0] ?? "")" }.joined(separator: "|")
+        guard key != appliedShortcutsKey else { return }
+        appliedShortcutsKey = key
+
+        let manager = GlobalShortcutManager.shared
+        manager.unregisterAll()
+        for id in Shortcuts.actionIDs {
+            guard let accel = bindings[id], !accel.isEmpty, let handler = shortcutHandlers[id] else { continue }
+            manager.register(id: id, accelerator: accel, handler: handler)
+        }
+    }
+
+    // -- login item -------------------------------------------------------
+
+    private func applyLoginItemIfNeeded(_ settings: PomoppiSettings) {
+        guard appliedLaunchAtLogin != settings.launchAtLogin else { return }
+        appliedLaunchAtLogin = settings.launchAtLogin
+        _ = LoginItem.apply(enabled: settings.launchAtLogin)
+    }
+
+    // -- settings storage location -------------------------------------------
+
+    // Running from a real, installed .app bundle (has a real bundle
+    // identifier): use the shared production path, the same file the
+    // Electron app reads and writes, so this build can actually take over
+    // day-to-day use with continuity. Running as a loose dev binary
+    // (`swift run`/`.build/debug/PomoppiApp`, no bundle identifier): keep
+    // settings local to the package instead, so iterating on this doesn't
+    // reformat/rewrite a file you rely on day to day, or touch your real
+    // Obsidian vault. #filePath is stable at compile time on this machine,
+    // so the dev path doesn't depend on the process's working directory.
+    private static func storageDir() -> URL {
+        if Bundle.main.bundleIdentifier != nil {
+            return FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Pomoppi")
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // PomoppiApp
+            .deletingLastPathComponent() // Sources
+            .deletingLastPathComponent() // native
+            .appendingPathComponent(".dev-app-support")
+    }
+
+    private func timerSettingsSnapshot() -> TimerSettingsSnapshot {
+        let s = settingsStore.get()
+        return TimerSettingsSnapshot(
+            focusMinutes: s.focusMinutes, shortBreakMinutes: s.shortBreakMinutes,
+            longBreakMinutes: s.longBreakMinutes, longBreakEvery: s.longBreakEvery,
+            autoStartBreaks: s.autoStartBreaks, autoStartFocus: s.autoStartFocus,
+            ringSeconds: s.ringSeconds)
+    }
+}

@@ -223,6 +223,10 @@ test/                node --test
 
 No runtime dependencies — Electron and nothing else.
 
+This layout, and the rest of this README, describe the Electron app above.
+A separate Swift/AppKit rewrite, targeting the same behavior, is in progress
+under `native/` — see `native/CLAUDE.md`.
+
 ## Editing the art
 
 The pets live in `renderer/friends.js`, which is **generated** — edit the
