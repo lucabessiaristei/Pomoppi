@@ -240,3 +240,4 @@ npm run icons    # regenerate assets/ PNGs (tray + app icon)
 npm run launcher # write ~/Desktop/Pomoppi.app
 npm test
 ```
+# Pomoppi
