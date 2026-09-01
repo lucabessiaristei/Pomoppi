@@ -46,11 +46,12 @@ public final class WidgetAnimationController {
         // session is actually running — a break is deliberately exempt even
         // while running (asleep isn't a time to be pacing), and so is idle
         // (no wandering before a session has started, request: wander only
-        // once a timer is going). Every time wandering (re)starts it resets
-        // to centred/dir 1/up-first rather than picking up stale state from
-        // whatever a previous session left behind — that stale carryover was
-        // what made the up/down step order look inverted from one session to
-        // the next.
+        // once a timer is going). Pausing (or a break) freezes wanderX/dir/up
+        // exactly where they are — `wandering` going false does NOT reset
+        // them — so resuming continues the walk from wherever it stopped
+        // instead of snapping back to the start. Only a real reset back to
+        // `.idle` clears it, since there's no "where it was" to return to
+        // before a session has ever started.
         let poseIndex = WidgetLayout.friendFrameIndex(state: state, ringTime: snapshot.ringTime, animClock: snapshot.animClock)
         let wandering = state.running && !isBreak
         if wandering {
@@ -74,10 +75,12 @@ public final class WidgetAnimationController {
             }
             wanderFrameIndex = poseIndex
         } else {
-            snapshot.wanderX = nil
-            snapshot.wanderDir = 1
-            snapshot.wanderUp = true
             wanderFrameIndex = nil
+            if state.phase == .idle {
+                snapshot.wanderX = nil
+                snapshot.wanderDir = 1
+                snapshot.wanderUp = true
+            }
         }
     }
 }

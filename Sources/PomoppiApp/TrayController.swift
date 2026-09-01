@@ -211,7 +211,7 @@ final class TrayController: NSObject, NSMenuDelegate {
     @objc private func handleReset() { timer.reset() }
 
     @objc private func handleToggleVisibility() {
-        if widgetWindow.isVisible { widgetWindow.orderOut(nil) } else { widgetWindow.raise() }
+        if widgetWindow.isVisible { widgetWindow.hide() } else { widgetWindow.raise() }
     }
 
     @objc private func handleToggleAlwaysOnTop() {
