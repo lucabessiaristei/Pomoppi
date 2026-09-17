@@ -33,7 +33,7 @@ final class GeneratedSpritesTests: XCTestCase {
     // Every background PomoppiSettings.backgroundIDs validates against now
     // has a real pattern.
     func testEveryBackgroundInTheFullRosterHasAUniformRowWidth() {
-        let expectedIDs: Set<String> = ["scacchi", "scacchi2", "scacchi3"]
+        let expectedIDs: Set<String> = ["luna", "grid"]
         XCTAssertEqual(Set(GeneratedSprites.backgroundPatterns.keys), expectedIDs)
         for (id, pattern) in GeneratedSprites.backgroundPatterns {
             XCTAssertFalse(pattern.isEmpty, "\(id) has no rows")
