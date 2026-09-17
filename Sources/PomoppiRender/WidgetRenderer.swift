@@ -75,9 +75,10 @@ public enum WidgetRenderer {
 
     // Same composition as draw(), minus the final CoreGraphics export — lets
     // tests read pixels straight out of the PixelCanvas buffer without going
-    // through CGImage, and is the seam a future Windows widget window (not
-    // this phase) would call instead of draw().
-    static func drawCanvas(
+    // through CGImage, and is the Windows widget window's rendering entry
+    // point (PomoppiWindows/WidgetWindow.swift) since draw() -> CGImage?
+    // isn't available there.
+    public static func drawCanvas(
         state: TimerState,
         settings: PomoppiSettings,
         animation: WidgetAnimationSnapshot = WidgetAnimationSnapshot(),

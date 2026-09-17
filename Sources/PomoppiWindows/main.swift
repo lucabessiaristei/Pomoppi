@@ -1,59 +1,36 @@
-// main.swift — Phase W1 skeleton. Just enough Win32 to prove the toolchain
-// and the message loop work: register a window class, create a window,
-// pump messages, quit cleanly on WM_DESTROY. No rendering, no tray, no
-// hotkeys yet — those are later phases (see WINDOWS_PORT_PLAN.md).
+// main.swift — Phase W3 part 2: real wiring, replacing the Phase W1
+// skeleton. Mirrors AppDelegate.applicationDidFinishLaunching's construction
+// order for exactly what exists on this platform so far: SettingsStore ->
+// PomodoroTimer -> WidgetWindow -> settingsStore.onChange -> show/hide based
+// on startHidden -> the message loop. No tray, no global hotkeys, no
+// settings window, no Obsidian logger, no login item yet — those are later
+// phases (see WINDOWS_PORT_PLAN.md).
+import PomoppiCore
 import WinSDK
 
-// Wide-string buffers for the Win32 calls below. Kept as module-level `let`
-// arrays (not built inline per-call) so their storage stays alive for the
-// process's whole lifetime; pointers into them are still only taken inside
-// scoped `withUnsafeBufferPointer` closures at each call site, never
-// returned out of one (see WINDOWS_PORT_PLAN.md's WinSDK gotchas).
-let className: [UInt16] = Array("PomoppiWindowClass".utf16) + [0]
-let windowTitle: [UInt16] = Array("Pomoppi".utf16) + [0]
+let settingsStore = SettingsStore(storageDir: storageDir())
 
-func pomoppiWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if message == UINT(WM_DESTROY) {
-        PostQuitMessage(0)
-        return 0
-    }
-    return DefWindowProcW(hwnd, message, wParam, lParam)
+let timer = PomodoroTimer(settingsGetter: {
+    let s = settingsStore.get()
+    return TimerSettingsSnapshot(
+        focusMinutes: s.focusMinutes, shortBreakMinutes: s.shortBreakMinutes,
+        longBreakMinutes: s.longBreakMinutes, longBreakEvery: s.longBreakEvery,
+        autoStartBreaks: s.autoStartBreaks, autoStartFocus: s.autoStartFocus,
+        ringSeconds: s.ringSeconds)
+})
+
+let widgetWindow = WidgetWindow(timer: timer, settingsStore: settingsStore)
+
+// Only the window-level properties WidgetWindow applies once rather than
+// re-reading every frame (always-on-top, size-on-scale-change) need this —
+// everything else it draws already re-reads settings on every tick.
+settingsStore.onChange = { settings in
+    widgetWindow.applyExternalSettingsChange(settings)
 }
 
-let hInstance = GetModuleHandleW(nil)
+widgetWindow.setVisible(!settingsStore.get().startHidden)
 
-let registeredClass: ATOM = className.withUnsafeBufferPointer { classNamePtr in
-    var windowClass = WNDCLASSW()
-    windowClass.lpfnWndProc = pomoppiWndProc
-    windowClass.hInstance = hInstance
-    windowClass.lpszClassName = classNamePtr.baseAddress
-    return RegisterClassW(&windowClass)
-}
-
-guard registeredClass != 0 else {
-    fatalError("RegisterClassW failed with error \(GetLastError())")
-}
-
-let hwnd: HWND? = className.withUnsafeBufferPointer { classNamePtr in
-    windowTitle.withUnsafeBufferPointer { titlePtr in
-        CreateWindowExW(
-            0,
-            classNamePtr.baseAddress,
-            titlePtr.baseAddress,
-            DWORD(WS_OVERLAPPEDWINDOW),
-            Int32(CW_USEDEFAULT), Int32(CW_USEDEFAULT),
-            Int32(CW_USEDEFAULT), Int32(CW_USEDEFAULT),
-            nil, nil, hInstance, nil)
-    }
-}
-
-guard let hwnd else {
-    fatalError("CreateWindowExW failed with error \(GetLastError())")
-}
-
-ShowWindow(hwnd, SW_SHOWDEFAULT)
-UpdateWindow(hwnd)
-print("Pomoppi (Windows skeleton) window created, entering message loop")
+print("Pomoppi (Windows) widget window created, entering message loop")
 
 // GetMessageW's BOOL return imports as Swift Bool here (audited Windows
 // headers), not Int32/WindowsBool — so no "> 0" needed, just `while`.
@@ -62,4 +39,4 @@ while GetMessageW(&message, nil, 0, 0) {
     TranslateMessage(&message)
     DispatchMessageW(&message)
 }
-print("Pomoppi (Windows skeleton) message loop exited")
+print("Pomoppi (Windows) message loop exited")
