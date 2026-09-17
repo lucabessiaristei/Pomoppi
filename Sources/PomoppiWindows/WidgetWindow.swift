@@ -29,6 +29,11 @@ final class WidgetWindow {
     let settingsStore: SettingsStore
     let animation = WidgetAnimationController()
 
+    // Set by main.swift right after both objects exist (TrayController's
+    // init needs an already-constructed WidgetWindow) — WM_TIMER/the tray
+    // callback message/WM_COMMAND below all forward to it once set.
+    var trayController: TrayController?
+
     var state: TimerState
     var settings: PomoppiSettings
 
@@ -211,11 +216,29 @@ final class WidgetWindow {
     func handleMessage(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
         switch Int32(message) {
         case WM_TIMER:
-            tick()
+            // Both WidgetWindow's own ~60fps frame loop and (once set)
+            // TrayController's 500ms icon/tooltip refresh share this hwnd's
+            // WndProc, so WM_TIMER fires for either — dispatch on which
+            // timer ID actually fired rather than assuming it's always this
+            // window's own.
+            if wParam == Self.timerID {
+                tick()
+            } else {
+                trayController?.handleTimer(id: wParam)
+            }
             return 0
         case WM_DESTROY:
             KillTimer(hwnd, Self.timerID)
+            trayController?.tearDown()
             PostQuitMessage(0)
+            return 0
+        case Int32(TrayController.callbackMessageID):
+            guard let trayController else { return DefWindowProcW(hwnd, message, wParam, lParam) }
+            trayController.handleTrayCallback(lParam: lParam)
+            return 0
+        case WM_COMMAND:
+            guard let trayController else { return DefWindowProcW(hwnd, message, wParam, lParam) }
+            trayController.handleCommand(wParam: wParam)
             return 0
         case WM_MOUSEMOVE:
             handleMouseMove(lParam: lParam)
