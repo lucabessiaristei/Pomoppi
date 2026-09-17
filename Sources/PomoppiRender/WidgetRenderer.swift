@@ -61,6 +61,19 @@ public enum WidgetRenderer {
         animation: WidgetAnimationSnapshot = WidgetAnimationSnapshot(),
         interaction: WidgetInteractionSnapshot = WidgetInteractionSnapshot()
     ) -> CGImage? {
+        drawCanvas(state: state, settings: settings, animation: animation, interaction: interaction).makeImage()
+    }
+
+    // Same composition as draw(), minus the final CoreGraphics export — lets
+    // tests read pixels straight out of the PixelCanvas buffer without going
+    // through CGImage, and is the seam a future Windows widget window (not
+    // this phase) would call instead of draw().
+    static func drawCanvas(
+        state: TimerState,
+        settings: PomoppiSettings,
+        animation: WidgetAnimationSnapshot = WidgetAnimationSnapshot(),
+        interaction: WidgetInteractionSnapshot = WidgetInteractionSnapshot()
+    ) -> PixelCanvas {
         let canvas = PixelCanvas(width: WidgetLayout.canvasWidth, height: WidgetLayout.canvasHeight)
 
         let inverted = WidgetLayout.isInverted(ringing: state.ringing, ringTime: animation.ringTime)
@@ -158,7 +171,7 @@ public enum WidgetRenderer {
             }
         }
 
-        return canvas.makeImage()
+        return canvas
     }
 
     // -- pure derivations that stay local to rendering (not needed by hit-testing) ----

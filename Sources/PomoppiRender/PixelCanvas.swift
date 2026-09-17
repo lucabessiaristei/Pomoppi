@@ -3,38 +3,31 @@
 // antialiasing and no interpolation, so the widget looks the same hard-edge
 // way at any integer scale — the caller blits the resulting CGImage scaled
 // up with nearest-neighbor, it never draws pre-scaled itself.
-import CoreGraphics
 import Foundation
 
 public final class PixelCanvas {
     public let width: Int
     public let height: Int
-    private let context: CGContext
+    let bytesPerRow: Int
+    // Plain zero-initialized byte buffer, RGBA per pixel — no platform
+    // drawing API involved. Kept internal (not private): the CoreGraphics
+    // adapter (PixelCanvas+CoreGraphics.swift) is a different file in the
+    // same module that reads this directly to build a CGImage.
+    var buffer: [UInt8]
 
     public init(width: Int, height: Int) {
         self.width = width
         self.height = height
-        guard let ctx = CGContext(
-            data: nil, width: width, height: height,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            fatalError("Failed to create PixelCanvas bitmap context")
-        }
-        ctx.interpolationQuality = .none
-        ctx.setShouldAntialias(false)
-        ctx.setAllowsAntialiasing(false)
-        self.context = ctx
-        // CGContext(data: nil, ...) doesn't guarantee a zeroed buffer, and
+        self.bytesPerRow = width * 4
+        // A CGContext(data: nil, ...) didn't guarantee a zeroed buffer, and
         // CGContext.fill() runs every solid-color rect through Core
         // Graphics's color-managed painting pipeline — small enough to be
         // invisible for photos, but not byte-exact, which matters when a
         // user's chosen ink/paper hex is supposed to render verbatim. Every
-        // fill below writes raw RGBA bytes straight into the buffer instead
-        // (see fillRect), so clear it explicitly up front rather than trust
-        // whatever was already in that memory.
-        memset(ctx.data, 0, ctx.bytesPerRow * height)
+        // fill below writes raw RGBA bytes straight into this buffer
+        // instead (see fillRect); a fresh Swift array is already
+        // zero-filled, so there's nothing left to clear explicitly.
+        self.buffer = [UInt8](repeating: 0, count: bytesPerRow * height)
     }
 
     // Every other drawing method bottoms out here. Writes raw bytes directly
@@ -44,21 +37,19 @@ public final class PixelCanvas {
     // layout constant in this port (ported from a browser canvas 2D
     // context) uses — no coordinate flip needed anywhere.
     public func fillRect(_ x: Int, _ y: Int, _ w: Int, _ h: Int, _ hexColor: String) {
-        guard w > 0, h > 0, let base = context.data else { return }
+        guard w > 0, h > 0 else { return }
         let x0 = max(0, x), y0 = max(0, y)
         let x1 = min(width, x + w), y1 = min(height, y + h)
         guard x0 < x1, y0 < y1 else { return }
 
         let (r, g, b) = Self.rgb(hex: hexColor)
-        let bytesPerRow = context.bytesPerRow
-        let ptr = base.assumingMemoryBound(to: UInt8.self)
         for row in y0..<y1 {
             var offset = row * bytesPerRow + x0 * 4
             for _ in x0..<x1 {
-                ptr[offset] = r
-                ptr[offset + 1] = g
-                ptr[offset + 2] = b
-                ptr[offset + 3] = 255
+                buffer[offset] = r
+                buffer[offset + 1] = g
+                buffer[offset + 2] = b
+                buffer[offset + 3] = 255
                 offset += 4
             }
         }
@@ -142,19 +133,13 @@ public final class PixelCanvas {
         }
     }
 
-    public func makeImage() -> CGImage? {
-        context.makeImage()
-    }
-
     // Testing/debugging only: samples a pixel straight out of the backing
     // buffer, bypassing CGImage, so tests can assert exact placement without
     // depending on how makeImage() happens to encode the result.
     public func pixel(x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)? {
-        guard x >= 0, x < width, y >= 0, y < height, let base = context.data else { return nil }
-        let bytesPerRow = context.bytesPerRow
+        guard x >= 0, x < width, y >= 0, y < height else { return nil }
         let offset = y * bytesPerRow + x * 4
-        let ptr = base.assumingMemoryBound(to: UInt8.self)
-        return (ptr[offset], ptr[offset + 1], ptr[offset + 2], ptr[offset + 3])
+        return (buffer[offset], buffer[offset + 1], buffer[offset + 2], buffer[offset + 3])
     }
 
     private static func rgb(hex: String) -> (UInt8, UInt8, UInt8) {

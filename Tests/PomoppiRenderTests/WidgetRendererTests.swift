@@ -9,12 +9,6 @@ final class WidgetRendererTests: XCTestCase {
             autoStartBreaks: true, autoStartFocus: false, ringSeconds: 10)
     }
 
-    private func pixel(of image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)? {
-        guard let data = image.dataProvider?.data, let ptr = CFDataGetBytePtr(data) else { return nil }
-        let offset = y * image.bytesPerRow + x * 4
-        return (ptr[offset], ptr[offset + 1], ptr[offset + 2], ptr[offset + 3])
-    }
-
     func testRendersAtCanvasDimensions() {
         let timer = PomodoroTimer(settingsGetter: settingsSnapshot)
         let image = WidgetRenderer.draw(state: timer.getState(), settings: .defaults)
@@ -24,12 +18,12 @@ final class WidgetRendererTests: XCTestCase {
 
     func testRenderIsNotBlank() {
         let timer = PomodoroTimer(settingsGetter: settingsSnapshot)
-        let image = WidgetRenderer.draw(state: timer.getState(), settings: .defaults)!
+        let canvas = WidgetRenderer.drawCanvas(state: timer.getState(), settings: .defaults)
 
         var foundDrawnPixel = false
-        outer: for y in stride(from: 0, to: image.height, by: 2) {
-            for x in stride(from: 0, to: image.width, by: 2) {
-                if let p = pixel(of: image, x: x, y: y), p.a > 0 {
+        outer: for y in stride(from: 0, to: canvas.height, by: 2) {
+            for x in stride(from: 0, to: canvas.width, by: 2) {
+                if let p = canvas.pixel(x: x, y: y), p.a > 0 {
                     foundDrawnPixel = true
                     break outer
                 }
@@ -47,17 +41,17 @@ final class WidgetRendererTests: XCTestCase {
         XCTAssertTrue(ringingState.ringing)
 
         // ringTime = 0 -> floor(0/300) % 2 == 0 -> not inverted.
-        let normalImage = WidgetRenderer.draw(state: ringingState, settings: .defaults, animation: WidgetAnimationSnapshot(ringTime: 0))!
+        let normalCanvas = WidgetRenderer.drawCanvas(state: ringingState, settings: .defaults, animation: WidgetAnimationSnapshot(ringTime: 0))
         // ringTime = 300 -> floor(300/300) % 2 == 1 -> inverted.
-        let invertedImage = WidgetRenderer.draw(state: ringingState, settings: .defaults, animation: WidgetAnimationSnapshot(ringTime: 300))!
+        let invertedCanvas = WidgetRenderer.drawCanvas(state: ringingState, settings: .defaults, animation: WidgetAnimationSnapshot(ringTime: 300))
 
         // (progressX, progressY) itself is the rounded rect's omitted corner
         // pixel — drawRoundRect's border mode starts the top edge at x+1, so
         // that corner shows whatever the frame/background drew underneath
         // (paper), not the bar's own ink. Sample a pixel that's actually
         // part of the drawn top edge instead.
-        let normalBorder = pixel(of: normalImage, x: WidgetLayout.progressX + 1, y: WidgetLayout.progressY)!
-        let invertedBorder = pixel(of: invertedImage, x: WidgetLayout.progressX + 1, y: WidgetLayout.progressY)!
+        let normalBorder = normalCanvas.pixel(x: WidgetLayout.progressX + 1, y: WidgetLayout.progressY)!
+        let invertedBorder = invertedCanvas.pixel(x: WidgetLayout.progressX + 1, y: WidgetLayout.progressY)!
 
         // Default theme is black ink on white paper, so the progress bar's
         // border (always drawn in "ink") should swap accordingly.
