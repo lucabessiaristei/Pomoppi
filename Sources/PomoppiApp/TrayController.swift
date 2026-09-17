@@ -4,11 +4,14 @@ import PomoppiRender
 import PomoppiSprites
 
 // The menu bar icon, ported from main.js's createTray()/updateTray()/
-// buildTrayTemplate(). Left-click opens the menu, right-click raises the
-// widget — the user's explicit choice, and the reverse of the usual split.
-// Both are bound directly on the status item's button rather than through
-// `statusItem.menu`, which on macOS binds *both* clicks to the menu and
-// would leave no click free to raise a widget hiding behind other windows.
+// buildTrayTemplate(). By default left-click raises the widget and
+// right-click opens the menu — the standard menu-bar-app split; the
+// `reverseTrayClick` setting swaps the two back to the original
+// left=menu/right=raise mapping for anyone who prefers it (see
+// `handleClick`). Both are bound directly on the status item's button rather
+// than through `statusItem.menu`, which on macOS binds *both* clicks to the
+// menu and would leave no click free to raise a widget hiding behind other
+// windows.
 final class TrayController: NSObject, NSMenuDelegate {
     private let timer: PomodoroTimer
     private let settingsStore: SettingsStore
@@ -59,7 +62,12 @@ final class TrayController: NSObject, NSMenuDelegate {
 
     @objc private func handleClick() {
         guard let event = NSApp.currentEvent else { return }
-        if event.type == .rightMouseUp {
+        // Re-read at click time, not captured, so a settings change mid-
+        // session takes effect on the very next click (same pattern as
+        // handleToggleAlwaysOnTop).
+        let reversed = settingsStore.get().reverseTrayClick
+        let isRightClick = event.type == .rightMouseUp
+        if isRightClick == reversed {
             widgetWindow.raise()
         } else {
             popMenu()

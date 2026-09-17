@@ -48,7 +48,7 @@ platforms. Windows entries land as their corresponding phase (see
 
 | Behavior | macOS | Windows |
 |---|---|---|
-| Tray click mapping | Left-click opens the menu, right-click raises the widget (§9) — changes to the standard left=raise/right=menu convention, with a `reverseTrayClick` toggle, in Phase W2b | not yet implemented (Phase W3–W7) |
+| Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | not yet implemented (Phase W3–W7) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | not yet implemented (Phase W3–W7) — no text slot in the notification area; planned as a hover tooltip instead |
 | Settings chrome | SwiftUI `Settings` scene, standard titled window, native tab control (`Tab(_:systemImage:content:)`), 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Obsidian | not yet implemented (Phase W3–W7) — planned as `SysTabControl32` with the same 6 tabs in the same order, same `SettingsStore`/validation, not a pixel match |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | not yet implemented (Phase W3–W7) — planned as plain text via a new `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` |
@@ -655,12 +655,14 @@ item's handler closes over it.
   the widget draws from, so the two cannot disagree — do not give it its own
   timer.
 
-**Left-click opens the menu, right-click raises the widget.** This is the
-user's explicit choice and the reverse of the usual menu-bar-app split; do not
-"correct" it. Do not use `tray.setContextMenu` either — on macOS it binds
-*both* buttons to the menu, which is why both are bound by hand. Register the
-listeners once at tray creation: `updateTray` runs on every 250ms tick, so
-registering there stacks a listener per tick.
+**Left-click raises the widget, right-click opens the menu** — the standard
+menu-bar-app split, and the default since the Windows port (Phase W2b), which
+also introduced `reverseTrayClick`: a settings toggle that swaps the two back
+to the original left=menu/right=raise mapping for anyone who prefers it. Do
+not use `tray.setContextMenu` either — on macOS it binds *both* buttons to the
+menu, which is why both are bound by hand. Register the listeners once at
+tray creation: `updateTray` runs on every 250ms tick, so registering there
+stacks a listener per tick.
 
 **Dismissing the menu must not send our windows backwards.** macOS gives event
 focus to the status bar while a tray menu is up, and hands activation back to
