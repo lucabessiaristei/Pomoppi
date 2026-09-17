@@ -54,6 +54,7 @@ final class TrayController {
 
     private var lastFrameIndex = -1
     private var lastTooltip: String?
+    private var lastLightTaskbar: Bool?
 
     init(window: WidgetWindow) {
         self.window = window
@@ -68,7 +69,9 @@ final class TrayController {
         nid.uCallbackMessage = Self.callbackMessageID
 
         lastFrameIndex = 0
-        let icon = Self.trayIcon(frameIndex: lastFrameIndex)
+        let lightTaskbar = Self.systemPrefersLightTaskbar()
+        lastLightTaskbar = lightTaskbar
+        let icon = Self.trayIcon(frameIndex: lastFrameIndex, lightTaskbar: lightTaskbar)
         nid.hIcon = icon
         currentIcon = icon
 
@@ -173,19 +176,26 @@ final class TrayController {
     // Same 500ms cadence and "hold the last pushed value, no-op if
     // unchanged" discipline as macOS's TrayController.refresh() — only
     // difference is a manually-built HICON has to be disposed once
-    // superseded, which NSImage never required.
+    // superseded, which NSImage never required. Also polls the taskbar
+    // light/dark setting here rather than listening for
+    // WM_SETTINGCHANGE("ImmersiveColorSet") — this timer already fires
+    // every 500ms regardless, so re-reading one more cheap registry value
+    // alongside it is simpler than wiring a second notification path for
+    // something that changes this rarely.
     private func refresh() {
         let frameCount = GeneratedSprites.trayFrames.count
         guard frameCount > 0 else { return }
         let frameIndex = Int(Date().timeIntervalSince1970 * 1000 / 500) % frameCount
         let tooltip = currentTooltip()
+        let lightTaskbar = Self.systemPrefersLightTaskbar()
 
         var changed = false
         var newIcon: HICON?
-        if frameIndex != lastFrameIndex {
-            newIcon = Self.trayIcon(frameIndex: frameIndex)
+        if frameIndex != lastFrameIndex || lightTaskbar != lastLightTaskbar {
+            newIcon = Self.trayIcon(frameIndex: frameIndex, lightTaskbar: lightTaskbar)
             nid.hIcon = newIcon
             lastFrameIndex = frameIndex
+            lastLightTaskbar = lightTaskbar
             changed = true
         }
         if tooltip != lastTooltip {
@@ -235,15 +245,40 @@ final class TrayController {
         }
     }
 
-    // Same 16x16 canvas + drawIcon(frame, 0, 0, "#000000") shape as macOS's
+    // Same 16x16 canvas + drawIcon(frame, 0, 0, ...) shape as macOS's
     // TrayController.trayImage(frameIndex:) — the tray frame grids are
-    // already 16x16, drawn flush at the canvas origin.
-    private static func trayIcon(frameIndex: Int) -> HICON? {
+    // already 16x16, drawn flush at the canvas origin. Unlike macOS (where
+    // NSImage.isTemplate lets AppKit auto-tint the glyph for the current
+    // menu-bar appearance), Win32 has no equivalent for a Shell_NotifyIcon
+    // HICON — the ink color has to be picked explicitly to match the
+    // taskbar's own light/dark setting, or a black icon disappears into a
+    // dark taskbar (and vice versa for white-on-light).
+    private static func trayIcon(frameIndex: Int, lightTaskbar: Bool) -> HICON? {
         let frames = GeneratedSprites.trayFrames
         guard !frames.isEmpty else { return nil }
         let canvas = PixelCanvas(width: 16, height: 16)
-        canvas.drawIcon(frames[frameIndex % frames.count], 0, 0, "#000000")
+        canvas.drawIcon(frames[frameIndex % frames.count], 0, 0, lightTaskbar ? "#000000" : "#FFFFFF")
         return canvas.makeIcon()
+    }
+
+    // SystemUsesLightTheme (1 = light taskbar/Start/tray, 0 = dark) is the
+    // same registry value Windows' own theme picker writes; defaults to
+    // light (black icon) if the key/value is missing, matching this app's
+    // "clamp rather than fail" stance elsewhere for absent settings.
+    // HKEY_CURRENT_USER imports fine as a usable symbol in this WinSDK
+    // overlay (confirmed by LoginItem.swift's RegOpenKeyExW call) — unlike
+    // HWND_TOPMOST and friends elsewhere in this port, no bitPattern
+    // reconstruction needed here.
+    private static func systemPrefersLightTaskbar() -> Bool {
+        var value: DWORD = 0
+        var size = DWORD(MemoryLayout<DWORD>.size)
+        let status = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize".withCString(encodedAs: UTF16.self) { subKey in
+            "SystemUsesLightTheme".withCString(encodedAs: UTF16.self) { valueName in
+                RegGetValueW(HKEY_CURRENT_USER, subKey, valueName, DWORD(RRF_RT_REG_DWORD), nil, &value, &size)
+            }
+        }
+        guard status == ERROR_SUCCESS else { return true }
+        return value != 0
     }
 
     // -- menu -----------------------------------------------------------------
