@@ -30,7 +30,7 @@ let targets: [Target] = [
     .target(name: "PomoppiCore", swiftSettings: swiftSettings),
     .target(name: "PomoppiSprites", swiftSettings: swiftSettings),
     .target(name: "PomoppiRender", dependencies: ["PomoppiCore", "PomoppiSprites"], swiftSettings: swiftSettings),
-    .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender"], exclude: ["Pomoppi.exe.manifest"], swiftSettings: swiftSettings),
+    .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites"], exclude: ["Pomoppi.exe.manifest"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
 ]

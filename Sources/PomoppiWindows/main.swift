@@ -20,6 +20,8 @@ let timer = PomodoroTimer(settingsGetter: {
 })
 
 let widgetWindow = WidgetWindow(timer: timer, settingsStore: settingsStore)
+let trayController = TrayController(window: widgetWindow)
+widgetWindow.trayController = trayController
 
 // Only the window-level properties WidgetWindow applies once rather than
 // re-reading every frame (always-on-top, size-on-scale-change) need this —
