@@ -25,6 +25,8 @@ widgetWindow.trayController = trayController
 let globalShortcutManager = GlobalShortcutManager(hwnd: widgetWindow.hwnd)
 widgetWindow.globalShortcutManager = globalShortcutManager
 
+widgetWindow.onOpenSettingsRequested = { SettingsWindow.show(settingsStore: settingsStore) }
+
 // -- global shortcuts -------------------------------------------------------
 
 // One handler per Shortcuts action id, mirroring the tray item or in-app key
@@ -45,9 +47,7 @@ let shortcutHandlers: [String: () -> Void] = [
     "skip": { widgetWindow.activateButton("skip") },
     "reset": { widgetWindow.activateButton("reset") },
     "toggleOnTop": { widgetWindow.toggleAlwaysOnTop() },
-    "openSettings": {
-        print("Pomoppi: settings requested, but there's no settings window on Windows yet")
-    },
+    "openSettings": { widgetWindow.activateButton("settings") },
 ]
 
 // Unregisters and rebinds every non-empty shortcut only when the table

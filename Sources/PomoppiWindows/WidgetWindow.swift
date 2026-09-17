@@ -38,6 +38,12 @@ final class WidgetWindow {
     // below forwards to it once set.
     var globalShortcutManager: GlobalShortcutManager?
 
+    // Set by main.swift right after construction — activateButton's
+    // "settings" case (WidgetInput.swift) calls this rather than reaching
+    // into SettingsWindow directly, same seam shape as the two properties
+    // above.
+    var onOpenSettingsRequested: (() -> Void)?
+
     var state: TimerState
     var settings: PomoppiSettings
 
