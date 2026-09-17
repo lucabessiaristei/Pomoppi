@@ -206,9 +206,16 @@ public enum WidgetRenderer {
     // reset - play/pause - skip - heart.
     private static func buttonLayout(state: TimerState) -> [(x: Int, id: String, icon: [String])] {
         let playIcon = state.running ? GeneratedSprites.icons["pause"]! : GeneratedSprites.icons["play"]!
+        // reset/skip swap icon artwork with each other, each mirrored — the
+        // bar-and-arrow glyph (originally skip's) now reads "back to start"
+        // pointing left in reset's own slot, and the double-chevron
+        // (originally reset's) now reads "fast forward" pointing right in
+        // skip's slot. A pure design choice, not a hit-testing change —
+        // each button's id/action is untouched, only which artwork renders
+        // where.
         let icons: [String: [String]] = [
-            "reset": GeneratedSprites.icons["reset"]!, "play": playIcon,
-            "skip": GeneratedSprites.icons["skip"]!, "settings": GeneratedSprites.icons["heart"]!,
+            "reset": mirrorGridH(GeneratedSprites.icons["skip"]!), "play": playIcon,
+            "skip": mirrorGridH(GeneratedSprites.icons["reset"]!), "settings": GeneratedSprites.icons["heart"]!,
         ]
         return WidgetLayout.buttonHitBoxes().map { (x: $0.x, id: $0.id, icon: icons[$0.id]!) }
     }
