@@ -325,7 +325,12 @@ public final class SettingsStore {
             let tmp = filePath.appendingPathExtension("tmp")
             try data.write(to: tmp, options: .atomic)
             if FileManager.default.fileExists(atPath: filePath.path) {
+                #if os(Windows)
+                try FileManager.default.removeItem(at: filePath)
+                try FileManager.default.moveItem(at: tmp, to: filePath)
+                #else
                 _ = try FileManager.default.replaceItemAt(filePath, withItemAt: tmp)
+                #endif
             } else {
                 try FileManager.default.moveItem(at: tmp, to: filePath)
             }

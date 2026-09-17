@@ -71,7 +71,12 @@ public actor ObsidianLogger {
             let tmpPath = filePath + ".tmp"
             try nextContent.write(toFile: tmpPath, atomically: false, encoding: .utf8)
             if FileManager.default.fileExists(atPath: filePath) {
+                #if os(Windows)
+                try FileManager.default.removeItem(atPath: filePath)
+                try FileManager.default.moveItem(atPath: tmpPath, toPath: filePath)
+                #else
                 _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: filePath), withItemAt: URL(fileURLWithPath: tmpPath))
+                #endif
             } else {
                 try FileManager.default.moveItem(atPath: tmpPath, toPath: filePath)
             }

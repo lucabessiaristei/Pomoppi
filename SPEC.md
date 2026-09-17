@@ -21,6 +21,40 @@ npm runtime dependency.
 
 ---
 
+## 0a. Platform scope tags
+
+Pomoppi is being ported to also run on Windows (see `WINDOWS_PORT_PLAN.md`
+at the repo root for the phase plan). Sections below get one of these tags,
+placed right after the heading:
+
+- **`[macOS]`** — macOS-only contract, no Windows equivalent (yet or ever).
+- **`[windows]`** — Windows-only contract, no macOS equivalent.
+- **`[divergent]`** — both platforms implement this, but the behavior
+  differs; read the section for which platform is which.
+- **`[legacy]`** — Electron-era mechanics kept for historical intent only,
+  not literally implemented by either the macOS or Windows app.
+- Untagged — **`[both]`**, identical contract on macOS and Windows.
+
+Tagging is progressive: this convention section and the parity ledger below
+are scaffolded in Phase W1, but the existing sections aren't retagged yet —
+that's finished in Phase W9, once the Windows behavior they'd describe
+actually exists.
+
+## 0b. Parity ledger
+
+One row per behavior that is known (or planned) to diverge between the two
+platforms. Windows entries land as their corresponding phase (see
+`WINDOWS_PORT_PLAN.md`) ships; until then they read "not yet implemented."
+
+| Behavior | macOS | Windows |
+|---|---|---|
+| Tray click mapping | Left-click opens the menu, right-click raises the widget (§9) — changes to the standard left=raise/right=menu convention, with a `reverseTrayClick` toggle, in Phase W2b | not yet implemented (Phase W3–W7) |
+| Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | not yet implemented (Phase W3–W7) — no text slot in the notification area; planned as a hover tooltip instead |
+| Settings chrome | SwiftUI `Settings` scene, standard titled window, native tab control (`Tab(_:systemImage:content:)`), 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Obsidian | not yet implemented (Phase W3–W7) — planned as `SysTabControl32` with the same 6 tabs in the same order, same `SettingsStore`/validation, not a pixel match |
+| Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | not yet implemented (Phase W3–W7) — planned as plain text via a new `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` |
+| Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | not yet implemented (Phase W3–W7) — planned as `%APPDATA%\Pomoppi\settings.json` |
+| Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | not yet implemented (Phase W3–W7) — planned as `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
+
 ## 1. Art direction (non-negotiable)
 
 - Palette, and nothing else — **two colours**, `settings.inkColor` and
