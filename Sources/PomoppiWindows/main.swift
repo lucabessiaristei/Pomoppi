@@ -25,8 +25,6 @@ widgetWindow.trayController = trayController
 let globalShortcutManager = GlobalShortcutManager(hwnd: widgetWindow.hwnd)
 widgetWindow.globalShortcutManager = globalShortcutManager
 
-widgetWindow.onOpenSettingsRequested = { SettingsWindow.show(settingsStore: settingsStore) }
-
 // -- global shortcuts -------------------------------------------------------
 
 // One handler per Shortcuts action id, mirroring the tray item or in-app key
@@ -65,6 +63,21 @@ func registerGlobalShortcuts() {
         guard let accel = bindings[id], !accel.isEmpty, let handler = shortcutHandlers[id] else { continue }
         globalShortcutManager.register(id: id, accelerator: accel, handler: handler)
     }
+}
+
+// Forces a full re-apply regardless of whether the bindings table actually
+// changed — used after the Keys tab's shortcut recorder (SettingsWindow)
+// temporarily unregisters every global hotkey mid-capture: without
+// invalidating the memoized key first, registerGlobalShortcuts' own
+// change-detection would skip re-registering whenever a recording is
+// cancelled or ends in no net change, leaving every hotkey unregistered.
+func reapplyGlobalShortcuts() {
+    appliedShortcutsKey = nil
+    registerGlobalShortcuts()
+}
+
+widgetWindow.onOpenSettingsRequested = {
+    SettingsWindow.show(settingsStore: settingsStore, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reapplyGlobalShortcuts)
 }
 
 // -- login item ---------------------------------------------------------

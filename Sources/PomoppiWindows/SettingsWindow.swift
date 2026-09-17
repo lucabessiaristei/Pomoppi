@@ -36,8 +36,21 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // settings window) is enough — handleMessage's own dispatch already
 // resolves the sending control by its own HWND out of wParam/lParam, so it
 // doesn't care which window physically received the message.
+// WM_KEYDOWN/WM_SYSKEYDOWN forward the same way, added in W7 for the Keys
+// tab's shortcut recorder: unlike WM_COMMAND/WM_NOTIFY (always sent to a
+// control's immediate parent regardless of focus), keyboard messages go
+// straight to whichever HWND currently owns input focus — the settings
+// window explicitly hands the Keys page that focus while a row is
+// recording (see SettingsWindow.startRecording) specifically so its own
+// keydown arrives here to forward, rather than silently going nowhere.
+// WM_SYSKEYDOWN has to be included too: Windows reclassifies any key
+// pressed while Alt is already held as a "system" keydown (normally meant
+// for menu mnemonics), and every one of Shortcuts.actions' own default
+// accelerators uses Alt — without it, no default binding could ever be
+// re-recorded to a new Alt combo at all.
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY), let hwnd, let parent = GetParent(hwnd) {
+    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN),
+       let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
     }
     return DefWindowProcW(hwnd, message, wParam, lParam)
@@ -51,6 +64,12 @@ final class SettingsWindow {
 
     let hwnd: HWND
     private let settingsStore: SettingsStore
+    // Owned by main.swift (WidgetWindow's own instance) — the Keys tab's
+    // shortcut recorder needs to unregister every live global hotkey while
+    // capturing a new one (see startRecording below), and reregisterShortcuts
+    // re-applies the table afterward via main.swift's own registration logic.
+    private let globalShortcutManager: GlobalShortcutManager
+    private let reregisterShortcuts: () -> Void
     private var tabControl: HWND?
     private var pages: [HWND] = []
 
@@ -79,6 +98,31 @@ final class SettingsWindow {
 
     private var checkboxes: [CheckboxControl] = []
     private var steppers: [StepperControl] = []
+
+    // Same HWND-keyed dispatch shape as the two above, for the Keys tab's
+    // plain push buttons (Reset to Defaults, and each row's own recorder
+    // button — its onClick just toggles recording, see buildKeysTab).
+    private struct PushButtonControl {
+        let hwnd: HWND
+        let onClick: () -> Void
+    }
+    private var pushButtons: [PushButtonControl] = []
+
+    // A shortcut row's own button, tracked separately from pushButtons so
+    // refreshShortcutButtons can look one up by action id after a binding
+    // changes (write, cancel, or Reset to Defaults all funnel through it).
+    private struct ShortcutRecorderControl {
+        let buttonHwnd: HWND
+        let actionID: String
+    }
+    private var shortcutRecorders: [ShortcutRecorderControl] = []
+    // The Keys tab's own page — SetFocus target while recording, so the
+    // capture keystroke's WM_(SYS)KEYDOWN has somewhere of ours to land
+    // (see startRecording/handleShortcutRecorderKeyDown below).
+    private var keysPage: HWND?
+    // The action id currently listening for its next keydown, or nil — only
+    // one row records at a time (see toggleShortcutRecording).
+    private var recordingActionID: String?
 
     // Exact order macOS's SettingsView.swift uses.
     private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Obsidian"]
@@ -163,7 +207,7 @@ final class SettingsWindow {
     // onOpenSettingsRequested and main.swift's wiring): creates the window
     // on first call, or brings the existing one to front on every call
     // after that — never a second instance.
-    static func show(settingsStore: SettingsStore) {
+    static func show(settingsStore: SettingsStore, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
         if let existing = shared {
             if IsIconic(existing.hwnd) {
                 ShowWindow(existing.hwnd, SW_RESTORE)
@@ -171,14 +215,16 @@ final class SettingsWindow {
             SetForegroundWindow(existing.hwnd)
             return
         }
-        let window = SettingsWindow(settingsStore: settingsStore)
+        let window = SettingsWindow(settingsStore: settingsStore, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reregisterShortcuts)
         shared = window
         ShowWindow(window.hwnd, SW_SHOW)
         SetForegroundWindow(window.hwnd)
     }
 
-    private init(settingsStore: SettingsStore) {
+    private init(settingsStore: SettingsStore, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
         self.settingsStore = settingsStore
+        self.globalShortcutManager = globalShortcutManager
+        self.reregisterShortcuts = reregisterShortcuts
         Self.registerClassesIfNeeded()
         Self.initCommonControlsIfNeeded()
 
@@ -291,9 +337,10 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (settings page) failed with error \(GetLastError())")
         }
 
-        // Rhythm/Window/Sound get real controls this phase; Appearance/
-        // Keys/Obsidian stay the placeholder built for part 1 (their real
-        // content needs more than raw common controls — W7).
+        // Rhythm/Window/Sound/Keys get real controls; Appearance/Obsidian
+        // stay the placeholder built for part 1 — Appearance needs more
+        // than raw common controls (owner-drawn art pickers, separate
+        // upcoming work), Obsidian is deliberately deferred.
         switch title {
         case "Rhythm":
             buildRhythmTab(page: page, width: width)
@@ -301,6 +348,8 @@ final class SettingsWindow {
             buildWindowTab(page: page, width: width)
         case "Sound":
             buildSoundTab(page: page, width: width)
+        case "Keys":
+            buildKeysTab(page: page, width: width)
         default:
             buildPlaceholder(page: page, title: title, width: width, height: height)
         }
@@ -467,6 +516,227 @@ final class SettingsWindow {
         }
     }
 
+    // Mirrors macOS's KeysTab/ShortcutRow (SettingsView.swift): one row per
+    // Shortcuts.action with a button showing its current binding (click to
+    // record a new one), a Reset to Defaults button, then a static,
+    // read-only list of the widget's own fixed keys. A single line per
+    // shortcut row (label only, no hint underneath) — not a pixel match for
+    // macOS's two-line LabeledContent rows, just enough to fit comfortably
+    // alongside the informational list below.
+    private func buildKeysTab(page: HWND, width: Int32) {
+        keysPage = page
+        let bindings = settingsStore.get().shortcuts
+        let rowWidth = width - 2 * Self.rowMargin
+        let labelWidth: Int32 = 300
+        let buttonWidth: Int32 = 140
+        var y = Self.rowMargin
+
+        addLabel("Global shortcuts", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+
+        for action in Shortcuts.actions {
+            addLabel(action.label, in: page, x: Self.rowMargin, y: y + 3, width: labelWidth)
+            let button = addButton(
+                Shortcuts.displayWindows(bindings[action.id] ?? ""),
+                in: page, x: Self.rowMargin + labelWidth + 8, y: y, width: buttonWidth, height: 22
+            ) { [weak self] in
+                self?.toggleShortcutRecording(actionID: action.id)
+            }
+            shortcutRecorders.append(ShortcutRecorderControl(buttonHwnd: button, actionID: action.id))
+            y += Self.rowHeight
+        }
+        y += Self.groupGap
+
+        addButton("Reset to Defaults", in: page, x: Self.rowMargin, y: y, width: 140, height: 24) { [weak self] in
+            self?.resetShortcutsToDefaults()
+        }
+        y += 24 + Self.groupGap
+
+        addLabel("While the widget is focused", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+
+        for binding in Self.widgetKeyBindings {
+            addLabel(binding.keys, in: page, x: Self.rowMargin, y: y, width: 140)
+            addLabel(binding.action, in: page, x: Self.rowMargin + 148, y: y, width: rowWidth - 148)
+            y += 20
+        }
+    }
+
+    private struct WidgetKeyBinding {
+        let keys: String
+        let action: String
+    }
+
+    // Mirrors macOS's widgetKeyBindings (SettingsView.swift), minus the T
+    // (name-what-you're-working-on) and P (SVG snapshot) rows — neither
+    // feature exists on Windows yet, so listing their keys here would be
+    // informational noise about nothing actually bound.
+    private static let widgetKeyBindings: [WidgetKeyBinding] = [
+        WidgetKeyBinding(keys: "Space / Return", action: "Start / pause"),
+        WidgetKeyBinding(keys: "S", action: "Skip phase"),
+        WidgetKeyBinding(keys: "R", action: "Reset phase"),
+        WidgetKeyBinding(keys: "O", action: "Keep on top"),
+        WidgetKeyBinding(keys: ",", action: "Open settings"),
+        WidgetKeyBinding(keys: "Esc", action: "Dismiss the ring, or hide the widget"),
+        WidgetKeyBinding(keys: "Up / Down", action: "Adjust focus length, while idle"),
+    ]
+
+    // -- Keys tab: shortcut recording ------------------------------------------
+
+    private func toggleShortcutRecording(actionID: String) {
+        if recordingActionID == actionID {
+            stopRecording()
+            return
+        }
+        // Only one row records at a time — cancel whichever other row was
+        // listening (no change committed for it) before starting this one.
+        if recordingActionID != nil {
+            stopRecording()
+        }
+        startRecording(actionID: actionID)
+    }
+
+    // Unregisters every live global hotkey up front: leaving the old combo
+    // registered while capturing its replacement could either fire the
+    // stale binding mid-capture, or block re-registering a combo the OS
+    // already considers claimed (e.g. rebinding an action to its own
+    // current key). handleShortcutRecorderKeyDown below watches for the
+    // capture keystroke; stopRecording always re-applies the table
+    // afterward, whether or not anything actually changed.
+    private func startRecording(actionID: String) {
+        recordingActionID = actionID
+        globalShortcutManager.unregisterAll()
+        if let recorder = shortcutRecorders.first(where: { $0.actionID == actionID }) {
+            setWindowText(recorder.buttonHwnd, "Press a key…")
+        }
+        // Moves focus off the button that was just clicked (clicking a
+        // BUTTON control focuses it as a side effect) onto the Keys page
+        // itself, so the capture keystroke's WM_(SYS)KEYDOWN has somewhere
+        // of ours to land — see pomoppiSettingsPageWndProc's forwarding and
+        // handleMessage's WM_KEYDOWN/WM_SYSKEYDOWN case.
+        if let keysPage {
+            SetFocus(keysPage)
+        }
+    }
+
+    // Ends whatever row is recording (a no-op on recordingActionID itself
+    // if none was) and reapplies the shortcut table to the OS
+    // unconditionally, since startRecording always unregistered everything
+    // up front — reused by both an actual capture and Reset to Defaults.
+    private func stopRecording() {
+        let previousActionID = recordingActionID
+        recordingActionID = nil
+        refreshShortcutButtons()
+        reregisterShortcuts()
+        // Moves focus off the Keys page and back onto a real control now
+        // that no keydown needs to land there — otherwise the page would
+        // silently keep swallowing every future WM_KEYDOWN it's sent (see
+        // handleMessage's WM_KEYDOWN/WM_SYSKEYDOWN case), for as long as it
+        // keeps the focus startRecording gave it, even long after recording
+        // itself has stopped.
+        if let previousActionID, let recorder = shortcutRecorders.first(where: { $0.actionID == previousActionID }) {
+            SetFocus(recorder.buttonHwnd)
+        }
+    }
+
+    private func refreshShortcutButtons() {
+        let bindings = settingsStore.get().shortcuts
+        for recorder in shortcutRecorders {
+            setWindowText(recorder.buttonHwnd, Shortcuts.displayWindows(bindings[recorder.actionID] ?? ""))
+        }
+    }
+
+    private func resetShortcutsToDefaults() {
+        settingsStore.update { $0.shortcuts = Shortcuts.defaults }
+        stopRecording()
+    }
+
+    private func isKeyDown(_ vk: Int32) -> Bool {
+        (GetKeyState(vk) & Int16(bitPattern: 0x8000)) != 0
+    }
+
+    private func liveModifiers() -> [String] {
+        var mods: [String] = []
+        if isKeyDown(VK_CONTROL) { mods.append("Control") }
+        if isKeyDown(VK_MENU) { mods.append("Alt") }
+        if isKeyDown(VK_SHIFT) { mods.append("Shift") }
+        return mods
+    }
+
+    // Reverse of GlobalShortcutManager.keyCodes (private to that file, so
+    // rebuilt here rather than exposed) — virtual-key code -> the key name
+    // Shortcuts.normalize expects, for turning a captured keydown back into
+    // a raw accelerator string.
+    private static let virtualKeyNames: [Int32: String] = {
+        var out: [Int32: String] = [:]
+        for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" {
+            out[Int32(c.asciiValue!)] = String(c)
+        }
+        out[VK_OEM_3] = "`"
+        out[VK_OEM_MINUS] = "-"
+        out[VK_OEM_PLUS] = "="
+        out[VK_OEM_4] = "["
+        out[VK_OEM_6] = "]"
+        out[VK_OEM_5] = "\\"
+        out[VK_OEM_1] = ";"
+        out[VK_OEM_7] = "'"
+        out[VK_OEM_COMMA] = ","
+        out[VK_OEM_PERIOD] = "."
+        out[VK_OEM_2] = "/"
+        out[VK_SPACE] = "Space"
+        out[VK_RETURN] = "Return"
+        out[VK_TAB] = "Tab"
+        out[VK_BACK] = "Backspace"
+        out[VK_DELETE] = "Delete"
+        out[VK_INSERT] = "Insert"
+        out[VK_ESCAPE] = "Escape"
+        out[VK_UP] = "Up"
+        out[VK_DOWN] = "Down"
+        out[VK_LEFT] = "Left"
+        out[VK_RIGHT] = "Right"
+        out[VK_HOME] = "Home"
+        out[VK_END] = "End"
+        out[VK_PRIOR] = "PageUp"
+        out[VK_NEXT] = "PageDown"
+        out[VK_SNAPSHOT] = "PrintScreen"
+        let fKeys: [Int32] = [
+            VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10,
+            VK_F11, VK_F12, VK_F13, VK_F14, VK_F15, VK_F16, VK_F17, VK_F18, VK_F19, VK_F20,
+            VK_F21, VK_F22, VK_F23, VK_F24,
+        ]
+        for (i, vk) in fKeys.enumerated() { out[vk] = "F\(i + 1)" }
+        return out
+    }()
+
+    // The next WM_KEYDOWN/WM_SYSKEYDOWN the Keys page receives while a row
+    // is recording (forwarded here via pomoppiSettingsPageWndProc + this
+    // window's own handleMessage — see both for why WM_SYSKEYDOWN has to be
+    // included). Bare Escape cancels without changing the binding, same as
+    // macOS's ShortcutRow.startRecording; any other key stops recording
+    // whether or not it produced a usable combo (e.g. no modifier held),
+    // mirroring that same method's unconditional `defer { stopRecording() }`.
+    private func handleShortcutRecorderKeyDown(wParam: WPARAM) {
+        guard let actionID = recordingActionID else { return }
+        let vk = Int32(truncatingIfNeeded: wParam)
+
+        // A modifier key press fires its own WM_(SYS)KEYDOWN on Windows
+        // (unlike AppKit's separate flagsChanged) — wait for the actual key
+        // instead of treating a bare modifier as the captured combo.
+        if vk == VK_CONTROL || vk == VK_MENU || vk == VK_SHIFT || vk == VK_LWIN || vk == VK_RWIN {
+            return
+        }
+
+        let mods = liveModifiers()
+        if vk == VK_ESCAPE, mods.isEmpty {
+            stopRecording()
+            return
+        }
+        if !mods.isEmpty, let keyName = Self.virtualKeyNames[vk] {
+            settingsStore.update { $0.shortcuts[actionID] = (mods + [keyName]).joined(separator: "+") }
+        }
+        stopRecording()
+    }
+
     // -- raw control helpers ---------------------------------------------------
 
     // Every raw control created below needs this or it renders in the
@@ -520,6 +790,39 @@ final class SettingsWindow {
         checkboxes.append(CheckboxControl(hwnd: checkbox, onToggle: onToggle))
     }
 
+    // A plain BS_PUSHBUTTON (unlike addCheckbox's BS_AUTOCHECKBOX, no
+    // persistent check state of its own) — used by the Keys tab for both
+    // each row's own recorder button and Reset to Defaults.
+    @discardableResult
+    private func addButton(
+        _ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 24,
+        onClick: @escaping () -> Void
+    ) -> HWND {
+        let wide = Array(text.utf16) + [0]
+        guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+            wide.withUnsafeBufferPointer { textPtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, textPtr.baseAddress,
+                    DWORD(WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON),
+                    x, y, width, height,
+                    page, nil, Self.hInstance, nil)
+            }
+        }) else {
+            fatalError("CreateWindowExW (button) failed with error \(GetLastError())")
+        }
+        applyDefaultFont(button)
+        pushButtons.append(PushButtonControl(hwnd: button, onClick: onClick))
+        return button
+    }
+
+    // Only setWindowTextW-based redraw a shortcut recorder button ever
+    // needs (its own text is the whole displayed state, no separate check
+    // mark or edit buddy) — SetWindowTextW repaints on its own.
+    private func setWindowText(_ hwnd: HWND, _ text: String) {
+        let wide = Array(text.utf16) + [0]
+        _ = wide.withUnsafeBufferPointer { SetWindowTextW(hwnd, $0.baseAddress) }
+    }
+
     // The standard Win32 numeric-stepper idiom: an EDIT paired with an
     // msctls_updown32 "buddy" via UDM_SETBUDDY. UDS_SETBUDDYINT keeps the
     // edit's displayed text in sync whenever the up-down's position changes
@@ -568,6 +871,14 @@ final class SettingsWindow {
     }
 
     private func selectTab(_ index: Int) {
+        // Mirrors macOS's ShortcutRow.onDisappear(perform: stopRecording):
+        // switching away from the Keys tab mid-recording must not leave
+        // every global hotkey unregistered (startRecording's own
+        // unregisterAll) with no way back short of returning to Keys and
+        // finishing the capture.
+        if recordingActionID != nil {
+            stopRecording()
+        }
         for (i, page) in pages.enumerated() {
             ShowWindow(page, i == index ? SW_SHOW : SW_HIDE)
         }
@@ -592,7 +903,23 @@ final class SettingsWindow {
         case WM_COMMAND:
             handleCommand(wParam: wParam, lParam: lParam)
             return 0
+        case WM_KEYDOWN, WM_SYSKEYDOWN:
+            // Always swallowed (return 0) rather than falling through to
+            // DefWindowProcW: this only ever arrives forwarded from the
+            // Keys page (see pomoppiSettingsPageWndProc — DefWindowProcW
+            // would need the *page's* own HWND to mean anything here, not
+            // this window's), and the Keys page never has keyboard focus
+            // except while startRecording explicitly gave it that focus, so
+            // there's no other default behavior worth preserving.
+            handleShortcutRecorderKeyDown(wParam: wParam)
+            return 0
         case WM_CLOSE:
+            // Same reasoning as selectTab's own stopRecording call: closing
+            // the window mid-recording must not leave every global hotkey
+            // unregistered with no window left to finish the capture in.
+            if recordingActionID != nil {
+                stopRecording()
+            }
             // Closing the settings window must never quit the app — only
             // WidgetWindow's own WM_DESTROY calls PostQuitMessage.
             DestroyWindow(hwnd)
@@ -617,6 +944,10 @@ final class SettingsWindow {
         if notificationCode == BN_CLICKED, let checkbox = checkboxes.first(where: { $0.hwnd == controlHwnd }) {
             let checked = SendMessageW(controlHwnd, UINT(BM_GETCHECK), 0, 0) == BST_CHECKED
             checkbox.onToggle(checked)
+            return
+        }
+        if notificationCode == BN_CLICKED, let button = pushButtons.first(where: { $0.hwnd == controlHwnd }) {
+            button.onClick()
             return
         }
         if notificationCode == EN_KILLFOCUS, let stepper = steppers.first(where: { $0.editHwnd == controlHwnd }) {
