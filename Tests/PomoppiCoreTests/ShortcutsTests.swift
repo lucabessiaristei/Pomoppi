@@ -38,4 +38,12 @@ final class ShortcutsTests: XCTestCase {
         XCTAssertEqual(result["toggleWidget"], "Command+K")
         XCTAssertEqual(result["startPause"], "")
     }
+
+    func testDisplayWindowsRendersTheNormalizedAcceleratorAsIs() {
+        XCTAssertEqual(Shortcuts.displayWindows("Alt+Shift+P"), "Alt+Shift+P")
+    }
+
+    func testDisplayWindowsRendersAnUnboundAcceleratorAsNotSet() {
+        XCTAssertEqual(Shortcuts.displayWindows(""), "Not set")
+    }
 }
