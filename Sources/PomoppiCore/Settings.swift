@@ -34,6 +34,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public var paperColor: String
     public var alwaysOnTop: Bool
     public var raiseOnEnd: Bool
+    public var reverseTrayClick: Bool
     public var scale: Int
     public var opacity: Double
     public var launchAtLogin: Bool
@@ -68,7 +69,7 @@ public struct PomoppiSettings: Codable, Equatable {
         alwaysOnTop: true, raiseOnEnd: true, scale: 2, opacity: 1.0,
         launchAtLogin: false, startHidden: false,
         soundEnabled: true, ringSeconds: 10, askForTaskName: true,
-        shortcuts: Shortcuts.defaults)
+        shortcuts: Shortcuts.defaults, reverseTrayClick: false)
 
     public init(
         focusMinutes: Double, shortBreakMinutes: Double, longBreakMinutes: Double, longBreakEvery: Int,
@@ -80,7 +81,7 @@ public struct PomoppiSettings: Codable, Equatable {
         alwaysOnTop: Bool, raiseOnEnd: Bool, scale: Int, opacity: Double,
         launchAtLogin: Bool, startHidden: Bool,
         soundEnabled: Bool, ringSeconds: Double, askForTaskName: Bool,
-        shortcuts: [String: String]
+        shortcuts: [String: String], reverseTrayClick: Bool = false
     ) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -102,6 +103,7 @@ public struct PomoppiSettings: Codable, Equatable {
         self.paperColor = paperColor
         self.alwaysOnTop = alwaysOnTop
         self.raiseOnEnd = raiseOnEnd
+        self.reverseTrayClick = reverseTrayClick
         self.scale = scale
         self.opacity = opacity
         self.launchAtLogin = launchAtLogin
@@ -118,7 +120,7 @@ public struct PomoppiSettings: Codable, Equatable {
         case autoStartBreaks, autoStartFocus
         case vaultPath, dailyNoteFolder, dailyNoteFormat, logHeading, logBreaks, logAborted, loggingEnabled
         case friend, frameStyle, background, inkColor, paperColor
-        case alwaysOnTop, raiseOnEnd, scale, opacity, launchAtLogin, startHidden
+        case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
         case soundEnabled, ringSeconds, askForTaskName, shortcuts
     }
 
@@ -172,6 +174,7 @@ public struct PomoppiSettings: Codable, Equatable {
         paperColor = (try? c.decodeIfPresent(String.self, forKey: .paperColor)) ?? d.paperColor
         alwaysOnTop = (try? c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop)) ?? d.alwaysOnTop
         raiseOnEnd = (try? c.decodeIfPresent(Bool.self, forKey: .raiseOnEnd)) ?? d.raiseOnEnd
+        reverseTrayClick = (try? c.decodeIfPresent(Bool.self, forKey: .reverseTrayClick)) ?? d.reverseTrayClick
         scale = (try? c.decodeIfPresent(Int.self, forKey: .scale)) ?? d.scale
         opacity = (try? c.decodeIfPresent(Double.self, forKey: .opacity)) ?? d.opacity
         launchAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? d.launchAtLogin

@@ -337,6 +337,13 @@ private struct WindowTab: View {
                 Toggle("Pop to the front when a session ends", isOn: viewModel.binding(\.raiseOnEnd))
             }
             Section {
+                Toggle("Swap the menu bar icon's left and right clicks", isOn: viewModel.binding(\.reverseTrayClick))
+            } footer: {
+                Text(viewModel.settings.reverseTrayClick
+                    ? "Left-click opens the menu, right-click raises the widget."
+                    : "Left-click raises the widget, right-click opens the menu.")
+            }
+            Section {
                 Toggle("Open Pomoppi when I log in", isOn: viewModel.binding(\.launchAtLogin))
                 Toggle("Start without showing the widget", isOn: viewModel.binding(\.startHidden))
             } header: {

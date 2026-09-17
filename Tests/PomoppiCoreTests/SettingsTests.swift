@@ -74,6 +74,19 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.get().focusMinutes, 50)
     }
 
+    func testReverseTrayClickDefaultsToFalseAndFallsBackWhenMissingFromJSON() throws {
+        XCTAssertEqual(PomoppiSettings.defaults.reverseTrayClick, false)
+
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let filePath = dir.appendingPathComponent("settings.json")
+        try "{}".write(to: filePath, atomically: true, encoding: .utf8)
+
+        let store = SettingsStore(storageDir: dir)
+        XCTAssertEqual(store.get().reverseTrayClick, false)
+    }
+
     func testCorruptFileFallsBackToDefaultsAndBacksUpOriginal() throws {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
