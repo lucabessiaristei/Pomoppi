@@ -5,7 +5,14 @@
 // frame (WidgetAnimationController), and tracking hover/press from real
 // mouse events (WidgetPixelView), both live elsewhere — this stays a pure
 // function of its inputs so it can be tested headlessly.
+// draw()'s CGImage-returning overload below is guarded the same way
+// PixelCanvas+CoreGraphics.swift guards makeImage() — this file also
+// defines WidgetAnimationSnapshot, which WidgetAnimationController.swift
+// (otherwise platform-agnostic) depends on, so the whole file has to stay
+// buildable on Windows even though only draw() itself is Apple-only.
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 import PomoppiCore
 import PomoppiSprites
@@ -55,6 +62,7 @@ public struct WidgetInteractionSnapshot {
 }
 
 public enum WidgetRenderer {
+#if canImport(CoreGraphics)
     public static func draw(
         state: TimerState,
         settings: PomoppiSettings,
@@ -63,6 +71,7 @@ public enum WidgetRenderer {
     ) -> CGImage? {
         drawCanvas(state: state, settings: settings, animation: animation, interaction: interaction).makeImage()
     }
+#endif
 
     // Same composition as draw(), minus the final CoreGraphics export — lets
     // tests read pixels straight out of the PixelCanvas buffer without going
