@@ -56,7 +56,7 @@ public struct PomoppiSettings: Codable, Equatable {
     // is the one that falls back for missing art, not settings validation.
     public static let friendIDs = ["namidappi", "onanippi", "gemuppin", "jankuppin", "utsupon"]
     public static let frameStyles = ["ziggy", "scallopy", "splotchy", "wavey"]
-    public static let backgroundIDs = ["scacchi", "scacchi2", "scacchi3"]
+    public static let backgroundIDs = ["grid", "luna"]
 
     public static let defaults = PomoppiSettings(
         focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4,
