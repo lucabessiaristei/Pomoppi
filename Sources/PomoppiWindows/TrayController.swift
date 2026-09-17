@@ -143,8 +143,8 @@ final class TrayController {
             case .toggleAlwaysOnTop:
                 window.toggleAlwaysOnTop()
             case .settings:
-                // No settings window yet (Phase W6/W7) — same no-op print
-                // WidgetInput.swift's own settings button/key already use.
+                // Same single call site every "open settings" trigger goes
+                // through — see WidgetWindow.onOpenSettingsRequested.
                 window.activateButton("settings")
             case .quit:
                 // Triggers WidgetWindow's existing WM_DESTROY handler, which

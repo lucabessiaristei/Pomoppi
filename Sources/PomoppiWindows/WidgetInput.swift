@@ -200,8 +200,7 @@ extension WidgetWindow {
         case Int32(UnicodeScalar("O").value):
             toggleAlwaysOnTop()
         case VK_OEM_COMMA:
-            // No settings window yet (Phase W6/W7) — harmless no-op for now.
-            print("Pomoppi: settings requested, but there's no settings window on Windows yet")
+            activateButton("settings")
         case VK_ESCAPE:
             if state.ringing {
                 state = timer.dismissRing()
@@ -235,7 +234,7 @@ extension WidgetWindow {
         case "skip":
             state = timer.skip()
         case "settings":
-            print("Pomoppi: settings requested, but there's no settings window on Windows yet")
+            onOpenSettingsRequested?()
         default:
             break
         }
