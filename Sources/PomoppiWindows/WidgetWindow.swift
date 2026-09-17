@@ -34,6 +34,10 @@ final class WidgetWindow {
     // callback message/WM_COMMAND below all forward to it once set.
     var trayController: TrayController?
 
+    // Set by main.swift, same pattern as trayController above — WM_HOTKEY
+    // below forwards to it once set.
+    var globalShortcutManager: GlobalShortcutManager?
+
     var state: TimerState
     var settings: PomoppiSettings
 
@@ -230,6 +234,11 @@ final class WidgetWindow {
         case WM_DESTROY:
             KillTimer(hwnd, Self.timerID)
             trayController?.tearDown()
+            // A hotkey left registered after the process exits doesn't
+            // linger the way a tray icon does (Windows auto-releases them
+            // once the owning window/thread is gone), but explicit,
+            // symmetric cleanup is still the correct thing to do here.
+            globalShortcutManager?.unregisterAll()
             PostQuitMessage(0)
             return 0
         case Int32(TrayController.callbackMessageID):
@@ -239,6 +248,10 @@ final class WidgetWindow {
         case WM_COMMAND:
             guard let trayController else { return DefWindowProcW(hwnd, message, wParam, lParam) }
             trayController.handleCommand(wParam: wParam)
+            return 0
+        case WM_HOTKEY:
+            guard let globalShortcutManager else { return DefWindowProcW(hwnd, message, wParam, lParam) }
+            globalShortcutManager.handleHotKey(id: wParam)
             return 0
         case WM_MOUSEMOVE:
             handleMouseMove(lParam: lParam)

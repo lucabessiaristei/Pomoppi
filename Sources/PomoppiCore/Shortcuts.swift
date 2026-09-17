@@ -157,4 +157,12 @@ public enum Shortcuts {
         }
         return out + (keyGlyphs[key] ?? key)
     }
+
+    // Human string for Windows, e.g. "Alt+Shift+P" -> "Alt+Shift+P". Unlike
+    // display() above, normalize()'s own output is already the plain-text
+    // shape Windows conventions use (no glyph substitution, "+"-joined) —
+    // this only needs to cover the empty/unbound case the same way.
+    public static func displayWindows(_ accel: String) -> String {
+        accel.isEmpty ? "Not set" : accel
+    }
 }
