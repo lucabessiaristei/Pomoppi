@@ -79,5 +79,31 @@ extension PixelCanvas {
 
         return (hdc, bitmap, previousBitmap, SIZE(cx: Int32(outWidth), cy: Int32(outHeight)))
     }
+
+    // Blits an optionally-cropped region of this canvas into an arbitrary
+    // destination device context, stretched to fill destRect — used by the
+    // Appearance tab's owner-drawn picker cards (Sources/PomoppiWindows/
+    // SettingsWindow.swift's WM_DRAWITEM handling), unlike
+    // makeLayeredBitmap's other caller (WidgetWindow's UpdateLayeredWindow
+    // loop, always at a fixed integer scale with caller-managed GDI object
+    // lifetime). Builds its own throwaway unscaled memory DC via
+    // makeLayeredBitmap(scale: 1) and disposes it before returning, so
+    // there's nothing for the caller to clean up here. COLORONCOLOR (plain
+    // pixel replication, no blending) keeps the same hard-edge look as
+    // every other blit in this app — see PixelCanvas.swift's header.
+    public func draw(into destDC: HDC?, destRect: RECT, cropX: Int = 0, cropY: Int = 0, cropWidth: Int? = nil, cropHeight: Int? = nil) {
+        guard let (memDC, bitmap, previousBitmap, size) = makeLayeredBitmap(scale: 1) else { return }
+        defer {
+            SelectObject(memDC, previousBitmap)
+            DeleteObject(bitmap)
+            DeleteDC(memDC)
+        }
+        let srcWidth = cropWidth ?? Int(size.cx)
+        let srcHeight = cropHeight ?? Int(size.cy)
+        SetStretchBltMode(destDC, COLORONCOLOR)
+        StretchBlt(
+            destDC, destRect.left, destRect.top, destRect.right - destRect.left, destRect.bottom - destRect.top,
+            memDC, Int32(cropX), Int32(cropY), Int32(srcWidth), Int32(srcHeight), DWORD(SRCCOPY))
+    }
 }
 #endif
