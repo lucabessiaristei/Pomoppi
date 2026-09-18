@@ -308,6 +308,25 @@ final class SettingsWindow {
     private static var classesRegistered = false
     private static var commonControlsInitialized = false
 
+    // Loads the exe's own embedded icon resource (ID 1 — see Pomoppi.rc,
+    // compiled+linked in only by Scripts/make-windows-app.js's release
+    // build, never a plain debug swift build) at an explicit pixel size,
+    // so the titlebar/taskbar/Alt-Tab get a crisp match against the .ico's
+    // own baked 16-256px frames instead of one fixed bitmap stretched
+    // blurry. LoadImageW returns a plain HANDLE, not HICON — Win32 itself
+    // only tells them apart by the uType argument, so the result is
+    // reinterpreted via the same Int-bitPattern round-trip this file
+    // already uses to recover a typed pointer from an untyped one (see
+    // handleMessage's own NMHDR/NMUPDOWN reconstruction below). MAKEINTRESOURCE(1)
+    // doesn't import as a usable symbol in this overlay (same story as
+    // IDC_ARROW just below) — reconstruct via UnsafePointer<WCHAR>(bitPattern:).
+    private static func loadAppIcon(width: Int32, height: Int32) -> HICON? {
+        guard let handle = LoadImageW(hInstance, UnsafePointer<WCHAR>(bitPattern: 1), UINT(IMAGE_ICON), width, height, UINT(LR_DEFAULTCOLOR)) else {
+            return nil
+        }
+        return HICON(bitPattern: Int(bitPattern: handle))
+    }
+
     // A normal titled window and a normal titled window's own child page —
     // neither is WidgetWindow's layered/tool-window popup, so both get a
     // plain background brush rather than being left to draw nothing.
@@ -321,6 +340,11 @@ final class SettingsWindow {
             windowClass.lpszClassName = classNamePtr.baseAddress
             windowClass.hCursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
             windowClass.hbrBackground = HBRUSH(bitPattern: Int(COLOR_BTNFACE + 1))
+            // Only this window class gets a real icon — WidgetWindow's own
+            // popup is WS_EX_TOOLWINDOW (no titlebar/taskbar presence by
+            // design) and pageClassName's children never surface an icon
+            // of their own either way.
+            windowClass.hIcon = loadAppIcon(width: GetSystemMetrics(SM_CXICON), height: GetSystemMetrics(SM_CYICON))
             return RegisterClassW(&windowClass)
         }
         guard windowAtom != 0 else {
@@ -416,6 +440,18 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (settings window) failed with error \(GetLastError())")
         }
         hwnd = createdHwnd
+
+        // Belt-and-suspenders alongside registerClassesIfNeeded's own
+        // windowClass.hIcon: explicitly setting both icon sizes on the
+        // window itself guarantees the titlebar, taskbar button, and
+        // Alt-Tab all pick up the real icon regardless of any DPI/
+        // class-icon subtlety.
+        if let bigIcon = Self.loadAppIcon(width: GetSystemMetrics(SM_CXICON), height: GetSystemMetrics(SM_CYICON)) {
+            SendMessageW(hwnd, UINT(WM_SETICON), WPARAM(UInt(ICON_BIG)), LPARAM(Int(bitPattern: bigIcon)))
+        }
+        if let smallIcon = Self.loadAppIcon(width: GetSystemMetrics(SM_CXSMICON), height: GetSystemMetrics(SM_CYSMICON)) {
+            SendMessageW(hwnd, UINT(WM_SETICON), WPARAM(UInt(ICON_SMALL)), LPARAM(Int(bitPattern: smallIcon)))
+        }
 
         setUpTabsAndPages()
     }
@@ -1175,11 +1211,7 @@ final class SettingsWindow {
     // Appearance page's *own* scrollbar (WS_VSCROLL on the page itself,
     // see createPage), not a child control's notification, so there's no
     // "immediate parent" forwarding step to undo here; Windows already
-    // delivered it to the right place. Mouse-wheel scrolling is a
-    // deliberate scope cut for this pass — the real scrollbar (drag the
-    // thumb, click the arrows/track) covers the page fully; wheel input
-    // would need bubbling up from whichever child control currently has
-    // focus, extra plumbing not worth it yet.
+    // delivered it to the right place.
     func handlePageScroll(page: HWND, wParam: WPARAM) -> LRESULT {
         let action = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) & 0xFFFF)
         var clientRect = RECT()
@@ -1196,6 +1228,49 @@ final class SettingsWindow {
         default:
             break
         }
+        return 0
+    }
+
+    // WM_MOUSEWHEEL, unlike WM_VSCROLL above, isn't a scrollbar
+    // notification at all — it's delivered straight to whichever HWND
+    // currently owns keyboard focus (the Appearance page's own owner-drawn
+    // buttons grab focus on click, same as any BUTTON-derived control),
+    // *not* whatever the cursor happens to be hovering. This app never
+    // has to chase that down by hand, though: DefWindowProc itself walks
+    // an unhandled WM_MOUSEWHEEL up the parent chain automatically (a
+    // real, documented Win32 behavior, not something this app opts into),
+    // so neither pomoppiSettingsPageWndProc nor any owner-drawn button
+    // needs its own forwarding case for this message the way
+    // WM_COMMAND/WM_NOTIFY/WM_HSCROLL above do — it simply arrives here
+    // once it bubbles all the way up to the top-level window.
+    // Guarded to the Appearance page specifically so the exact same
+    // message, delivered while any other tab happens to have focus, is a
+    // no-op rather than silently repositioning an invisible page's
+    // controls.
+    private func handleMouseWheel(wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        guard let appearancePage, IsWindowVisible(appearancePage) else {
+            return DefWindowProcW(hwnd, UINT(WM_MOUSEWHEEL), wParam, lParam)
+        }
+        // GET_WHEEL_DELTA_WPARAM: wParam's high word, a *signed* 16-bit
+        // multiple of WHEEL_DELTA (120) per notch — reconstructed via
+        // Int16(bitPattern:) rather than this file's usual
+        // Int32(truncatingIfNeeded:) idiom (see handlePageScroll's
+        // SB_THUMBTRACK case) since that one doesn't sign-extend a 16-bit
+        // negative value out of a 32-bit unsigned intermediate. Positive =
+        // wheel rotated forward/away from the user; that sign already
+        // reflects whatever scroll-direction preference the user has set
+        // system-wide (mouse wheel settings, or a touchpad driver's own
+        // "reverse scrolling" toggle) — forwarded through unmodified into
+        // scrollAppearance's existing up=negative/down=positive convention
+        // (SB_LINEUP above already does `scrollAppearance(by: -20)`), so
+        // forward/positive decreases the offset, matching every other
+        // scroll entry point without this code re-deciding direction.
+        let highWord = UInt16(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
+        let notches = Double(Int16(bitPattern: highWord)) / 120.0
+        // 60px per notch: three of the existing 20px SB_LINEUP/SB_LINEDOWN
+        // steps — tuned by feel against a real wheel in the VM, not a
+        // derived value.
+        scrollAppearance(by: Int32((-notches * 60).rounded()))
         return 0
     }
 
@@ -1953,6 +2028,8 @@ final class SettingsWindow {
         case WM_HSCROLL:
             handleOpacityScroll(lParam: lParam)
             return 0
+        case WM_MOUSEWHEEL:
+            return handleMouseWheel(wParam: wParam, lParam: lParam)
         case WM_KEYDOWN, WM_SYSKEYDOWN:
             // Always swallowed (return 0) rather than falling through to
             // DefWindowProcW: this only ever arrives forwarded from the
