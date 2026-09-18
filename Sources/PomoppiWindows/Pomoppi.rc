@@ -1,0 +1,8 @@
+// Pomoppi.rc — embeds pomoppi.ico as the exe's own icon resource (ID 1,
+// the conventional "default app icon" slot Explorer/Alt-Tab/the taskbar
+// fall back to for any top-level window that never calls WM_SETICON
+// itself). Compiled to a .res and linked in by Scripts/make-windows-app.js
+// — not part of the ordinary `swift build` dev loop, only the release
+// packaging step, so a missing assets/pomoppi.ico never breaks a plain
+// debug build.
+1 ICON "pomoppi.ico"
