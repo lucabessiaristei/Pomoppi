@@ -28,6 +28,17 @@ public struct PomoppiSettings: Codable, Equatable {
     // later — see project-obsidian-logging-redesign).
     public var loggingEnabled: Bool
 
+    // The Diary tab (SPEC.md §8b): reads sessions.json and either exports
+    // a one-shot .md snapshot (stateless, needs nothing here) or syncs
+    // new entries into `diaryFolderPath` (a plain folder — Pomoppi doesn't
+    // need to know it's "an Obsidian vault", just somewhere to drop
+    // date-named .md files). `diaryLastSyncedCount` is an index into
+    // sessions.json's array, not a timestamp — simpler and immune to
+    // clock/timezone edge cases, and safe because that array is
+    // append-only and never reordered.
+    public var diaryFolderPath: String
+    public var diaryLastSyncedCount: Int
+
     public var friend: String
     public var frameStyle: String
     public var background: String
@@ -82,7 +93,8 @@ public struct PomoppiSettings: Codable, Equatable {
         alwaysOnTop: Bool, raiseOnEnd: Bool, scale: Int, opacity: Double,
         launchAtLogin: Bool, startHidden: Bool,
         soundEnabled: Bool, ringSeconds: Double, askForTaskName: Bool,
-        shortcuts: [String: String], reverseTrayClick: Bool = false
+        shortcuts: [String: String], reverseTrayClick: Bool = false,
+        diaryFolderPath: String = "", diaryLastSyncedCount: Int = 0
     ) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -91,6 +103,8 @@ public struct PomoppiSettings: Codable, Equatable {
         self.autoStartBreaks = autoStartBreaks
         self.autoStartFocus = autoStartFocus
         self.loggingEnabled = loggingEnabled
+        self.diaryFolderPath = diaryFolderPath
+        self.diaryLastSyncedCount = diaryLastSyncedCount
         self.friend = friend
         self.frameStyle = frameStyle
         self.background = background
@@ -113,7 +127,7 @@ public struct PomoppiSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case autoStartBreaks, autoStartFocus
-        case loggingEnabled
+        case loggingEnabled, diaryFolderPath, diaryLastSyncedCount
         case friend, frameStyle, background, inkColor, paperColor
         case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
         case soundEnabled, ringSeconds, askForTaskName, shortcuts
@@ -144,6 +158,8 @@ public struct PomoppiSettings: Codable, Equatable {
         autoStartFocus = (try? c.decodeIfPresent(Bool.self, forKey: .autoStartFocus)) ?? d.autoStartFocus
 
         loggingEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .loggingEnabled)) ?? d.loggingEnabled
+        diaryFolderPath = (try? c.decodeIfPresent(String.self, forKey: .diaryFolderPath)) ?? d.diaryFolderPath
+        diaryLastSyncedCount = (try? c.decodeIfPresent(Int.self, forKey: .diaryLastSyncedCount)) ?? d.diaryLastSyncedCount
 
         // `friend` was called `mascot` until the rename; read the old key only
         // if the new one is absent, same as lib/settings.js. (`try?` on an

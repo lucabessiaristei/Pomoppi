@@ -55,7 +55,7 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Log | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 7 tabs: Rhythm/Appearance/Window/Keys/Sound/Log/Diary | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 7 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
@@ -730,6 +730,51 @@ reads *this* JSON file and either syncs it to Obsidian/Apple Notes/OneNote/
 etc., or exports it as nicely-formatted text (`.md`/`.odt`) — an export
 built on top of the internal record, rather than writing a specific
 editor's format directly the way the old design did.
+
+## 8b. Diary `[both]`
+
+**Added 2026-09-19**, on top of §8's JSON session log — the "read *this*
+JSON file and either sync it to Obsidian/etc., or export it as nicely
+formatted text" intent §8's closing note described, now built. Reads
+`SessionLogger.allSessionsSync()`; never writes to `sessions.json` itself.
+
+Two independent actions, both living in a "Diary" settings tab (right
+after Log):
+
+**Export** — a one-shot, complete snapshot to a user-chosen `.md` file
+(save dialog: `NSSavePanel` on macOS, `GetSaveFileNameW` on Windows).
+`DiaryExporter.exportMarkdown(sessions:)` (`PomoppiCore`) formats every
+**focus** session only (breaks are never part of a diary), grouped by day
+oldest-first, each day closing with a `**Total focus: Xh Ym**` line
+counting only *completed* sessions — an aborted focus session still gets
+its own line (marked "stopped early"), just isn't summed into the total.
+Stateless: safe to run repeatedly, always overwrites the chosen file
+fresh, no cursor to track.
+
+**Sync** — incremental append into a user-chosen folder (a plain folder;
+Pomoppi never assumes it's specifically an Obsidian vault, an
+`SHBrowseForFolderW`/`NSOpenPanel` directory picker either way). Writes
+one `<dateKey>.md` per day touched, each holding a `## Pomodoros` section;
+`DiaryExporter.syncToFolder(_:newEntries:)` inserts new `- ` lines at the
+end of that section without disturbing any other content in the file
+(hand-written notes before/after, or a later unrelated `## ` heading) —
+deliberately never recomputes a running total on an existing file, unlike
+Export, since that would mean re-parsing a file the user may have
+hand-edited between syncs. Throws on write failure (folder unmounted,
+permission lost, etc.) rather than swallowing it, so the tab can show
+"Sync failed."
+
+Two new settings fields back this (`Settings.swift`, `SettingsStore.swift`
+on Windows): `diaryFolderPath: String` (empty = not set yet, disables the
+Sync button) and `diaryLastSyncedCount: Int` — **an index into the
+session-log array, not a timestamp.** Sync computes `newEntries` as
+everything past that index, syncs them, then advances the index to the
+log's current length. The tab's "Last synced" row shows that count
+("Never" / "N sessions"), not a relative time — there's no timestamp
+field to show one from. Erasing the cached session log (§8's "Erase Cached
+Sessions" button) resets `diaryLastSyncedCount` to 0 in the same action:
+a stale, non-zero index into an array that erase just emptied would skip
+every session logged afterward (`dropFirst` past the end).
 
 ## 9. Tray `[divergent]`
 
