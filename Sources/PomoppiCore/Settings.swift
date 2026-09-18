@@ -79,7 +79,9 @@ public struct PomoppiSettings: Codable, Equatable {
         // no vault configured yet"), this is safe to default on.
         loggingEnabled: true,
         friend: friendIDs[0], frameStyle: "scallopy", background: backgroundIDs[0],
-        inkColor: "#000000", paperColor: "#FFFFFF",
+        // "LCD Green" theme preset (SettingsView.swift/SettingsWindow.swift's
+        // themePresets) — the default on a fresh install on both platforms.
+        inkColor: "#276231", paperColor: "#80B391",
         alwaysOnTop: true, raiseOnEnd: true, scale: 2, opacity: 1.0,
         launchAtLogin: false, startHidden: false,
         soundEnabled: true, ringSeconds: 10, askForTaskName: true,
