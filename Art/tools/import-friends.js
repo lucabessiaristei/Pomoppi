@@ -1,11 +1,26 @@
 #!/usr/bin/env node
 // Imports friend sprites from .aseprite files into renderer/friends.js.
 //
-//   npm run friends              # default source directory below
-//   npm run friends -- <dir> [...names]
+//   node Art/tools/import-friends.js              # every *_ok.aseprite in import/friends/
+//   node Art/tools/import-friends.js <dir> [...names]
 //
-// Re-run after editing a sprite in Aseprite; nothing else needs touching.
+// Only NAME_ok.aseprite files are imported — the _ok suffix marks a friend
+// as finished and ready to ship. A friend still being drawn can live in the
+// same folder as plain NAME.aseprite and stays invisible to the app (not
+// imported, not in Settings' friend picker) until renamed to NAME_ok.aseprite.
+//
+// A friend also needs exactly 2 drawn frames — an idle/step pair, animated
+// by alternating them. No auto-animation: a sheet with 1 frame (nothing to
+// alternate with) or 3+ (which one plays second?) is skipped, not padded or
+// truncated, so it stays out of friends.js and out of Settings until fixed.
+//
+// Re-import after editing a sprite in Aseprite, adding one, or renaming one
+// to (or away from) _ok — added/removed friends propagate on their own,
+// nothing to register by hand (see refresh-art.js, which also syncs
+// PomoppiCore/Settings.swift's friendIDs from this same roster).
 // Requires Aseprite installed (its CLI does the decoding of its own format).
+
+'use strict';
 
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -16,78 +31,98 @@ const { readPng } = require('./read-png');
 
 const ASEPRITE = '/Applications/Aseprite.app/Contents/MacOS/aseprite';
 const DEFAULT_DIR = path.join(__dirname, '..', 'import', 'friends');
-const DEFAULT_FRIENDS = ['Namidappi', 'Onanippi', 'Gemuppin', 'Jankuppin', 'Utsupon'];
+const SUFFIX = '_ok';
 const CELL = 32;
+const REQUIRED_FRAMES = 2;
 
-// --- import -----------------------------------------------------------------
-
-const args = process.argv.slice(2);
-const srcDir = args[0] || DEFAULT_DIR;
-const names = args.length > 1 ? args.slice(1) : DEFAULT_FRIENDS;
-
-if (!fs.existsSync(ASEPRITE)) {
-  console.error('Aseprite not found at ' + ASEPRITE + '\nInstall it, or edit renderer/friends.js by hand.');
-  process.exit(1);
-}
-
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pomoppi-friends-'));
-const friends = [];
-
-for (const name of names) {
-  const src = path.join(srcDir, name + '.aseprite');
-  if (!fs.existsSync(src)) {
-    console.error('missing: ' + src);
-    process.exit(1);
-  }
-  const sheet = path.join(tmp, name + '.png');
-  execFileSync(ASEPRITE, ['-b', src, '--sheet', sheet], { stdio: 'pipe' });
-
-  const { w, h, alpha } = readPng(sheet);
-  if (h !== CELL || w % CELL !== 0) {
-    console.error(`${name}: expected a ${CELL}px-tall sheet in ${CELL}px frames, got ${w}x${h}`);
+function importFriends({ dir = DEFAULT_DIR, names } = {}) {
+  if (!fs.existsSync(ASEPRITE)) {
+    console.error('Aseprite not found at ' + ASEPRITE + '\nInstall it, or edit renderer/friends.js by hand.');
     process.exit(1);
   }
 
-  const frames = [];
-  for (let f = 0; f < w / CELL; f++) {
-    const grid = [];
-    for (let y = 0; y < CELL; y++) {
-      let row = '';
-      for (let x = 0; x < CELL; x++) row += alpha(f * CELL + x, y) > 127 ? '#' : '.';
-      grid.push(row);
+  const resolvedNames = names && names.length
+    ? names
+    : fs.readdirSync(dir)
+      .filter((f) => f.endsWith(SUFFIX + '.aseprite'))
+      .map((f) => f.slice(0, -(SUFFIX + '.aseprite').length))
+      .sort();
+
+  if (resolvedNames.length === 0) {
+    console.error(`no ${SUFFIX}.aseprite friend files in ${dir}`);
+    process.exit(1);
+  }
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pomoppi-friends-'));
+  const friends = [];
+
+  for (const name of resolvedNames) {
+    const src = path.join(dir, name + SUFFIX + '.aseprite');
+    if (!fs.existsSync(src)) {
+      console.error('missing: ' + src);
+      process.exit(1);
     }
-    frames.push(grid);
+    const sheet = path.join(tmp, name + '.png');
+    execFileSync(ASEPRITE, ['-b', src, '--sheet', sheet], { stdio: 'pipe' });
+
+    const { w, h, alpha } = readPng(sheet);
+    if (h !== CELL || w % CELL !== 0) {
+      console.error(`${name}: expected a ${CELL}px-tall sheet in ${CELL}px frames, got ${w}x${h}`);
+      process.exit(1);
+    }
+
+    const frameCount = w / CELL;
+    if (frameCount !== REQUIRED_FRAMES) {
+      console.log(`${name.padEnd(12)} skipped — ${frameCount} frame(s), needs exactly ${REQUIRED_FRAMES}`);
+      continue;
+    }
+
+    const frames = [];
+    for (let f = 0; f < frameCount; f++) {
+      const grid = [];
+      for (let y = 0; y < CELL; y++) {
+        let row = '';
+        for (let x = 0; x < CELL; x++) row += alpha(f * CELL + x, y) > 127 ? '#' : '.';
+        grid.push(row);
+      }
+      frames.push(grid);
+    }
+    const ink = frames[0].join('').split('').filter((c) => c === '#').length;
+    friends.push({ id: name.toLowerCase(), name, frames });
+    console.log(`${name.padEnd(12)} ${frames.length} frame(s), ${ink} ink px in frame 0`);
   }
-  const ink = frames[0].join('').split('').filter((c) => c === '#').length;
-  friends.push({ id: name.toLowerCase(), name, frames });
-  console.log(`${name.padEnd(12)} ${frames.length} frame(s), ${ink} ink px in frame 0`);
-}
 
-fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(tmp, { recursive: true, force: true });
 
-const body = friends.map((p) =>
-  `  ${p.id}: {\n` +
-  `    name: '${p.name}',\n` +
-  `    frames: [\n` +
-  p.frames.map((f) => '      [\n' + f.map((r) => `        '${r}',`).join('\n') + '\n      ],').join('\n') +
-  `\n    ],\n  },`
-).join('\n');
+  if (friends.length === 0) {
+    console.error(`no friend had exactly ${REQUIRED_FRAMES} frames — nothing to write`);
+    process.exit(1);
+  }
 
-const out = `// friends.js — GENERATED by tools/import-friends.js. Do not edit by hand.
+  const body = friends.map((p) =>
+    `  ${p.id}: {\n` +
+    `    name: '${p.name}',\n` +
+    `    frames: [\n` +
+    p.frames.map((f) => '      [\n' + f.map((r) => `        '${r}',`).join('\n') + '\n      ],').join('\n') +
+    `\n    ],\n  },`
+  ).join('\n');
+
+  const out = `// friends.js — GENERATED by tools/import-friends.js. Do not edit by hand.
 //
-// Source: ${path.relative(path.join(__dirname, '..'), srcDir)}
-// Re-import after editing a sprite in Aseprite:  npm run friends
+// Source: ${path.relative(path.join(__dirname, '..'), dir)}/*${SUFFIX}.aseprite
+// Re-import after editing, adding, or renaming a sprite to/from _ok in Aseprite:
+//   node refresh-art --friends
 //
-// Each friend is one or more ${CELL}x${CELL} frames of line art: '#' ink, '.' clear.
-// The drawings are the author's own; nothing here is generated or retouched.
+// Each friend is exactly ${REQUIRED_FRAMES} ${CELL}x${CELL} frames of line art (an
+// idle/step pair): '#' ink, '.' clear. The drawings are the author's own;
+// nothing here is generated, retouched, or padded out to this count.
 
 // Wrapped: loaded as a classic <script>, a top-level const would land in the
 // shared global scope and collide with sprites.js.
 //
-// Named FRIEND_ART, not FRIENDS: sprites.js already exports its own derived
-// SPRITES.FRIENDS (id -> {name, frames, drawn}, with squash frames added for
-// a friend drawn only once). This is that object's raw material -- exactly
-// what was imported, nothing derived -- so the two names stay distinct.
+// Named FRIEND_ART, not FRIENDS: sprites.js already exports its own
+// SPRITES.FRIENDS (id -> {name, frames}). This is that object's raw
+// material -- exactly what was imported -- so the two names stay distinct.
 (function () {
 const FRIEND_ART = {
 ${body}
@@ -98,6 +133,16 @@ if (typeof window !== 'undefined') window.FRIEND_ART = FRIEND_ART;
 })();
 `;
 
-const dest = path.join(__dirname, '..', 'renderer', 'friends.js');
-fs.writeFileSync(dest, out);
-console.log('\nwrote ' + path.relative(path.join(__dirname, '..'), dest) + ' (' + out.length + ' bytes)');
+  const dest = path.join(__dirname, '..', 'renderer', 'friends.js');
+  fs.writeFileSync(dest, out);
+  console.log('\nwrote ' + path.relative(path.join(__dirname, '..'), dest) + ' (' + out.length + ' bytes)');
+
+  return friends.map((p) => p.id);
+}
+
+module.exports = { importFriends, DEFAULT_DIR };
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  importFriends({ dir: args[0] || DEFAULT_DIR, names: args.length > 1 ? args.slice(1) : undefined });
+}
