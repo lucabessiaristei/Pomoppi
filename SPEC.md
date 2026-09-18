@@ -35,27 +35,46 @@ placed right after the heading:
   not literally implemented by either the macOS or Windows app.
 - Untagged — **`[both]`**, identical contract on macOS and Windows.
 
-Tagging is progressive: this convention section and the parity ledger below
-are scaffolded in Phase W1, but the existing sections aren't retagged yet —
-that's finished in Phase W9, once the Windows behavior they'd describe
-actually exists.
+**Tagging is complete as of Phase W9 (2026-09-19)** — every `##`/`###`
+heading below carries its tag, and the parity ledger reflects real shipped
+behavior on both platforms, not a plan. Where a tag or ledger row
+describes a gap (Windows has no task-name prompt, no virtual-desktop
+visibility, etc.), that's a genuine, known gap surfaced by this pass, not
+something to silently "fix" as part of a future edit — check
+`WINDOWS_PORT_PLAN.md` for whether any phase already owns it before
+touching one.
 
 ## 0b. Parity ledger
 
-One row per behavior that is known (or planned) to diverge between the two
-platforms. Windows entries land as their corresponding phase (see
-`WINDOWS_PORT_PLAN.md`) ships; until then they read "not yet implemented."
+One row per behavior that is known to diverge between the two platforms.
+As of Phase W8, the Windows port is content-complete except Obsidian
+(§8, deliberately deferred) — every row below reflects real, shipped
+behavior on both sides, not a plan.
 
 | Behavior | macOS | Windows |
 |---|---|---|
-| Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | not yet implemented (Phase W3–W7) |
-| Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | not yet implemented (Phase W3–W7) — no text slot in the notification area; planned as a hover tooltip instead |
-| Settings chrome | SwiftUI `Settings` scene, standard titled window, native tab control (`Tab(_:systemImage:content:)`), 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Obsidian | not yet implemented (Phase W3–W7) — planned as `SysTabControl32` with the same 6 tabs in the same order, same `SettingsStore`/validation, not a pixel match |
-| Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | not yet implemented (Phase W3–W7) — planned as plain text via a new `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` |
-| Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | not yet implemented (Phase W3–W7) — planned as `%APPDATA%\Pomoppi\settings.json` |
-| Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | not yet implemented (Phase W3–W7) — planned as `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
+| Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
+| Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Obsidian | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
+| Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
+| Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
+| Task-name prompt | Real: `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled && vaultPath` (§5) | **None.** `startPause` starts the timer directly — a known, explicitly-flagged gap, not a silent omission (see `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) |
+| Chime playback | **None either.** `soundEnabled`/`ringSeconds` are real, persisted settings with real UI, but no code plays a sound on any phase completion | Same — no audio playback exists on this platform either (§4) |
+| SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
+| Obsidian logging | Real: `ObsidianLogger` instantiated and called from `AppDelegate.swift`, full settings UI (§8) | **None.** `ObsidianLogger` (shared `PomoppiCore`) builds/tests clean here but is never called; no UI exists to enable it — deliberately deferred pending a redesign, not a gap in the port itself |
+| Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
 
-## 1. Art direction (non-negotiable)
+## 1. Art direction (non-negotiable) `[divergent]`
+
+Palette/theming/pixel-art rules below are `[both]` — shared verbatim via
+`PixelCanvas`/`GeneratedSprites`. The one real divergence: **the tray icon's
+tinting mechanism.** macOS gets it for free (a template `NSImage`, tinted by
+the system to match the menu bar — the note below). Windows has no such
+mechanism, so `TrayController.swift` reads `SystemUsesLightTheme` from the
+registry itself (re-checked every 500ms alongside its normal refresh) and
+draws the icon black-on-light / white-on-dark by hand (a follow-up fix after
+Phase W4, not part of W4 itself).
 
 - Palette, and nothing else — **two colours**, `settings.inkColor` and
   `settings.paperColor`:
@@ -95,13 +114,34 @@ platforms. Windows entries land as their corresponding phase (see
   `SPRITES.FRIENDS[id].drawn` reports how many frames are genuinely theirs.
 - `SPRITES.FRIEND_IDS` is display order; `SPRITES.FRIENDS[id].name` is the label.
 
-## 2. Windows
+## 2. Windows `[legacy]`
 
-| Window | Size (px) | Frame | Notes |
-|---|---|---|---|
-| widget | 208 x 256 | **frameless, transparent, `hasShadow: false`** | always-on-top (configurable), draggable, not in taskbar, not resizable, no rounded macOS corners |
-| settings | 460 x 620 | standard titlebar, title "Pomoppi Settings" | opened from gear button or tray; single instance |
-| task | 300 x 120 | frameless, centred | tiny "what are you working on?" input; single instance |
+This table is the original Electron `BrowserWindow` config and is stale
+against both native apps' actual numbers — kept for the *intent* (frameless/
+transparent widget, single-instance settings and task UI), not the literal
+sizes:
+
+- **Widget**: logical canvas is `WidgetLayout.canvasWidth`/`canvasHeight` =
+  118x132 (§3's own heading says 118x138 — also stale; code wins), scaled by
+  `settings.scale` — 236x264 at the default 2×. Identical on both platforms,
+  since both draw through the same shared `PixelCanvas`/`WidgetLayout`.
+  Frameless/transparent/always-on-top/undraggable-from-taskbar all hold on
+  both, achieved with platform-native mechanisms: `NSWindow`
+  (`.borderless`, transparent, floating level) on macOS, `WS_POPUP |
+  WS_EX_LAYERED | WS_EX_TOOLWINDOW` + `UpdateLayeredWindow` on Windows — not
+  Electron's `frame`/`transparent`/`hasShadow` booleans, which no longer
+  exist anywhere in this codebase.
+- **Settings**: macOS is a resizable SwiftUI `Settings` scene
+  (`minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560`).
+  Windows is a fixed, non-resizable `560x480` titled window
+  (`SettingsWindow.clientWidth`/`clientHeight`). Both are single-instance,
+  neither matches this table's `460x620`.
+- **Task ("what are you working on?") prompt**: macOS implements this as a
+  plain `NSAlert` (`StartCoordinator.swift`), not a custom frameless window
+  — this table's `300x120` describes a window that no longer exists even on
+  macOS. **Windows has no task-name prompt at all** — `startPause` starts
+  the timer directly, a known, explicitly-flagged gap (see
+  `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) rather than a silent omission.
 
 The widget must be a genuinely transparent window: macOS draws a rounded
 rectangle behind an opaque frameless window, and the whole point of the pixel
@@ -125,7 +165,18 @@ The outer 4px on every side is a transparent margin. macOS clips a window's
 corners with a squircle, which was shaving the corners off the drawn frame; the
 margin keeps the frame inside the rounded region.
 
-## 3. Widget layout (118 x 138 logical)
+## 3. Widget layout (118 x 138 logical) `[both]`
+
+Every rule below (frame geometry, hit-testing, roommate wandering) is
+shared `PomoppiRender`/`PomoppiCore` code (`WidgetLayout`, `WindowFrame`,
+`WidgetAnimationController`), used identically by both platforms'
+input-handling files (`WidgetPixelView.swift` / `WidgetInput.swift` — the
+latter explicitly ports the former's hit-testing verbatim). The "Dragging"
+subsection's `pointerdown`/`setPointerCapture` references are Electron/
+browser API names with no native equivalent (macOS uses AppKit
+`mouseDown`/`mouseDragged`; Windows uses `WM_LBUTTONDOWN` + `SetCapture`) —
+per this file's own preamble, read that subsection for the *contract* (the
+&lt;3px click-vs-drag threshold), not the literal API.
 
 Everything is 1 logical pixel thick. Nothing is drawn thicker except deliberate
 solid fills (progress bar, filled cycle dots).
@@ -258,7 +309,18 @@ this interactive. Drag manually: on `mousedown` outside every hit region record
 last move, end on `mouseup`. A pointer that moved 3px or more is a drag, never
 a click.
 
-## 4. Animation
+## 4. Animation `[both]`
+
+The state machine below (timing table, shake, ring-inversion, the Zzz
+cycle) is shared `WidgetAnimationController`/`WidgetLayout` code, ticked
+identically by both platforms' own ~60fps render loops. The "Chime (no
+audio files)" subsection is the one exception: **no native platform
+actually plays a chime yet.** `soundEnabled`/`ringSeconds` exist as real,
+persisted, UI-editable settings on both (Sound tab, Phase W6), but neither
+`AppDelegate.swift` nor `Sources/PomoppiWindows/` contains any actual audio
+playback — no `AVAudioEngine`, no `NSSound`, no Windows equivalent. The
+setting is real; the sound behind it isn't, on either platform, not just
+Windows.
 
 Single `requestAnimationFrame` loop. Redraw only when something changed
 (dirty flag) or an animation is active; when idle and paused, stop the loop.
@@ -297,13 +359,24 @@ alone would suggest) would start the next phase's break/Zzz animation
 directly on top of the still-playing shake+ring — the two are never meant to
 overlap; the ring finishes, then the break (and its Zzz) begins.
 
-### Chime (no audio files)
+### Chime (no audio files) `[legacy]`
 Synthesize with Web Audio in the renderer: three square-wave `OscillatorNode`
 blips, ~90ms each, at 880 / 1174 / 1568 Hz, 60ms apart, gain 0.06 with a short
 linear ramp to 0 to avoid clicks. Break-end chime uses the same notes descending.
 Respect `settings.soundEnabled`. Create the `AudioContext` lazily on first use.
 
-## 5. Timer model
+## 5. Timer model `[divergent]`
+
+Phase transitions, `skip()`'s bidirectional semantics, wall-clock timing
+(`endsAt`/`remainingMs`) are all `[both]` — shared `PomodoroTimer`
+(`PomoppiCore`), driven identically by both platforms. **The task-name
+prompt is not.** macOS implements this paragraph for real
+(`StartCoordinator.swift`: prompts via `NSAlert` when `askForTaskName` is
+on, or unconditionally when `loggingEnabled && !vaultPath.isEmpty`, exactly
+as described below). **Windows has no prompt at all** — `startPause` calls
+`timer.start()` directly, a known, explicitly-flagged gap (native Win32
+has no attempted implementation of this dialog yet; see
+`WINDOWS_PORT_PLAN.md`'s W3/W5 notes for why no phase has claimed it).
 
 Phases: `focus` → `shortBreak` → `focus` → … and every `longBreakEvery`
 completed focus sessions the break is a `longBreak` instead. `cycleIndex`
@@ -336,7 +409,15 @@ Timing is **wall-clock based**, not tick-accumulated: store `endsAt`
 (epoch ms) and derive `remainingMs = endsAt - Date.now()`. On pause store
 `remainingMs` and clear `endsAt`. This must stay correct across sleep/wake.
 
-## 6. IPC contract
+## 6. IPC contract `[legacy]`
+
+Neither native app has any IPC layer, `preload` script, or renderer
+process — this section describes Electron main/renderer process
+mechanics that have no equivalent in a single-process Swift app on either
+platform. Kept for historical intent (what state/settings shape flows
+where) — `TimerState`/`PomoppiSettings` (`PomoppiCore`) are the actual
+current shape both native apps use directly, in-process, with no channel
+names or `invoke` boundary at all.
 
 `preload.js` exposes `window.pomoppi` to the widget:
 
@@ -399,7 +480,13 @@ window.pomoppiSettings = {
 
 Channel names: `habitsuu:state`, `habitsuu:settings`, and `habitsuu:<method>` for invokes.
 
-## 7. Settings schema + defaults
+## 7. Settings schema + defaults `[divergent]`
+
+The schema itself, defaults, and validation/clamping rules are `[both]` —
+one `PomoppiSettings` struct (`PomoppiCore/Settings.swift`), one
+`settings.json` file shape read/written identically by both platforms
+(just at different paths — see §0b's parity ledger). The two subsections
+below each carry their own, more specific tag.
 
 Persisted as JSON at `app.getPath('userData')/settings.json`. Unknown keys are
 dropped on load; missing keys fall back to defaults; a corrupt file is replaced
@@ -460,7 +547,17 @@ consumer can compare and blend without re-parsing. Anything else falls back to
 that key's default. If the two come out equal the **pair** is reset to
 black-on-white — see section 1.
 
-### Launch at login
+### Launch at login `[divergent]`
+
+The mechanism differs completely per platform (see §0b's parity ledger for
+the one-line version): macOS uses `SMAppService.mainApp`, real only from an
+installed `.app` bundle, with the two-tier Login-Items-then-LaunchAgent
+fallback described below. Windows uses a single
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value
+(`LoginItem.swift`, Phase W5) — no bundle identifier check, no fallback
+tier, no Automation-permission concern (registry writes need none). Read
+everything below for macOS's own intent only; none of it describes
+Windows.
 
 `launchAtLogin` is **not** `app.setLoginItemSettings`. On macOS 13+ that call
 registers, through `SMAppService.mainApp`, whatever bundle the process is
@@ -508,18 +605,33 @@ is the point of the setting. Removing one boots the job out first, best effort
 — `open` exits as soon as LaunchServices has the app, so a running widget is
 never a child of the job and booting out cannot kill it.
 
-### Settings window layout
+### Settings window layout `[both]`
 
 The form is **tabbed**, one panel per group, and every setting has one flat,
-visible home inside its tab. Order, left to right:
+visible home inside its tab — true on both platforms, same
+`SettingsStore`, same validation, not reimplemented per platform. **This
+table is stale, though: both native apps actually ship 6 tabs, not 5** —
+a **Keys** tab (shortcut recorder, Phase W7) was added after this table
+was written and belongs between Window and Sound. Order, left to right,
+as both platforms actually build it: Rhythm, Appearance, Window, Keys,
+Sound, Obsidian.
 
 | Tab | Holds |
 |---|---|
 | Rhythm | session lengths, long-break interval, auto-start, ask-for-task |
 | Appearance | pet picker, pet movement toggle, theme (ink/paper + presets), window edge, background, size, transparency |
 | Window | always-on-top, pop-to-front-on-end, launch at login, start hidden |
+| Keys *(not in this table — added later)* | one click-to-record row per global shortcut, Reset to Defaults, a static list of the fixed in-app keys |
 | Sound | chime on/off, ring duration |
 | Obsidian | logging on/off, vault path, folder, filename, heading, log-breaks/aborted, test |
+
+Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
+a pixel match for SwiftUI's `Form`/`Section` — see
+`WINDOWS_PORT_PLAN.md`'s locked decisions for why that's accepted (identical
+information architecture, not identical pixels). Everything below this
+point in the subsection (disclosure/ARIA/CSP-era rules) is `[legacy]` —
+written for the Electron HTML settings page, which no longer exists on
+either platform.
 
 Rules that outlive the exact list:
 
@@ -549,7 +661,19 @@ Rules that outlive the exact list:
   **tab bar** scrolls horizontally when it no longer fits. The page body itself
   never scrolls sideways.
 
-## 8. Obsidian logging
+## 8. Obsidian logging `[macOS]`
+
+`ObsidianLogger.swift` itself lives in shared `PomoppiCore` and builds/tests
+clean on Windows too — but it is only ever **instantiated and called** from
+`AppDelegate.swift`. `Sources/PomoppiWindows/` has zero references to it:
+no Windows UI exists to turn `loggingEnabled` on in the first place (the
+Obsidian tab is still the Phase-W6 placeholder), and nothing in
+`main.swift` calls it on phase completion. This is deliberate, not an
+oversight — see the `project-obsidian-logging-redesign` decision: session
+logging is being redesigned into a platform-agnostic JSON format before any
+Windows Obsidian UI gets built, so building one now would mean redoing it
+shortly after. Don't wire this up for Windows without checking that
+decision first.
 
 Target file: `<vaultPath>/<dailyNoteFolder>/<formatted date>.md`, where the
 format supports `YYYY`, `MM`, `DD` (and nothing else). Create parent folders and
@@ -581,13 +705,22 @@ Rules:
 - Never throw into the timer path — a logging failure is reported to the widget
   as a state field, never a crash.
 
-## 9. Tray
+## 9. Tray `[divergent]`
 
 Menu-bar icon from `assets/trayTemplate-N.png` (generated, see §10). Tooltip
 shows the current phase and remaining time.
 
 The menu is **grouped**: what the timer is doing, then how it is configured,
 then the window, then the app.
+
+**This diagram is stale on both platforms, not just Windows.** Neither
+native app has a task-naming feature or the SVG-snapshot feature (§14) at
+all — both were dropped in the rewrite, not merely deferred on one side —
+so neither's real tray menu has a `Set task…`/`Rename task…` row or a
+`Save snapshot to Desktop` row. What both platforms actually build
+(`TrayController.swift`, either one): `Start`/`Pause`, `Skip`, `Reset`,
+`Sessions per long break ▸`, `Show`/`Hide Pomoppi`, `Keep on top`,
+`Settings…`, `Quit` — the diagram below minus those two rows.
 
 ```
 Start / Pause
@@ -686,7 +819,36 @@ Hold the popped `Menu` instance in a local, not the `trayMenu` variable —
 `updateTray` may replace that while the menu is open, so by the time it closes
 the variable may point at a newer one.
 
-## 9b. Window layering
+*(The whole "Dismissing the menu must not send our windows backwards"
+problem above is macOS-specific — it exists because macOS hands
+activation to the status bar while a tray menu is open, then back to
+whichever app was frontmost, which for an accessory app is never Pomoppi.
+Win32's tray context menu (`TrackPopupMenu`) doesn't have this failure
+mode: the owning window keeps its own activation state through a menu
+popup, so `TrayController.swift` on Windows needed no equivalent
+workaround.)*
+
+## 9b. Window layering `[divergent]`
+
+R1 (level) and R3 (raise) are `[both]` in intent — Windows achieves the
+same idempotent floating-level behavior via `SetWindowPos(HWND_TOPMOST/
+HWND_NOTOPMOST)` (`WidgetWindow.swift`) rather than
+`NSFloatingWindowLevel`, and the tray/global-shortcut/`raiseOnEnd` callers
+all funnel through it the same way `raiseWidget()` does here. R0 and R2
+below are real divergences:
+
+- **R0** (accessory app, no Dock icon, never owns the menu bar) is a
+  macOS-specific policy with no literal Windows equivalent — Windows
+  achieves the closest analogous outcome (no taskbar button) via
+  `WS_EX_TOOLWINDOW` on the widget window, a style flag, not an
+  app-wide activation policy; there is no "owns the menu bar" concept on
+  Windows at all.
+- **R2** (`setVisibleOnAllWorkspaces` — the widget follows across every
+  macOS Space) **has no Windows implementation.** Windows 10/11 has an
+  equivalent concept (virtual desktops, via `IVirtualDesktopManager`), but
+  no phase of the port has implemented it — the widget is only visible on
+  whichever virtual desktop it was created on. A real gap, not a
+  by-design omission; see the parity ledger above.
 
 Three rules govern where the widget sits. They are deliberately the whole
 model — this area was once a pile of special cases (a temporary level bump
@@ -762,7 +924,18 @@ requires raising the window's *level*, which is exactly what `alwaysOnTop`
 does. The `Keep on top` menu item is the one-click answer; do not add code to
 defeat this.
 
-## 10. Generated assets
+## 10. Generated assets `[legacy]`
+
+Entirely the old Electron art pipeline (`tools/import-friends.js` →
+`renderer/friends.js`, `tools/make-icons.js`, `tools/make-launcher.js`) —
+none of these files exist in the current tree. The real, current pipeline
+is documented in `CLAUDE.md`, not here: `refresh-art.js` + `Art/tools/
+import-*.js` write `Sources/PomoppiSprites/Sprites.generated.swift`;
+`Scripts/make-app.js` / `Scripts/make-windows-app.js` assemble the
+double-clickable app per platform. Read this section only for *why* each
+step exists (Aseprite as the source of truth, generated-file-never-hand-
+edited, tray frames driven by the art rather than by code), not for any
+literal path or command.
 
 `tools/import-friends.js` (`npm run friends`) re-imports the pet sprites from their
 `.aseprite` sources; re-run it after editing a pet in Aseprite. It requires
@@ -826,7 +999,13 @@ Regenerating replaces an existing bundle only when its `Info.plist` carries our
 bundle identifier — anything else at that path is left alone and the script
 fails instead.
 
-## 11. File ownership
+## 11. File ownership `[legacy]`
+
+Describes a two-agent split over Electron-era file paths (`main.js`,
+`lib/*.js`, `renderer/*.js`) that don't exist in the current Swift tree at
+all. `CLAUDE.md`'s file map (Shared/macOS/Windows tables) is the current
+equivalent, and this port has generally been worked by one agent across
+the whole tree rather than a fixed two-way split.
 
 When the work is split across two agents, one owns, and only touches:
 ```
@@ -852,7 +1031,15 @@ like `sprites.js` — either agent may read it, neither changes it casually.
 Neither edits `package.json`, `SPEC.md`, or `renderer/sprites.js`.
 Neither runs `npm install` or adds a dependency.
 
-## 11b. Script loading (no bundler)
+## 11b. Script loading (no bundler) `[legacy]`
+
+Entirely about `<script>` tag load order for the old renderer HTML pages —
+there is no HTML, no browser, no module system in a compiled Swift binary
+on either platform. The *intent* (one shared source of truth for
+friend/background/shortcut data, read by both settings validation and the
+UI) is `[both]` and still true — it's just `PomoppiCore`/`PomoppiSprites`
+Swift types now, imported normally, not dual-mode `window.*`/
+`module.exports` globals.
 
 There is no build step and no module system. `renderer/sprites.js`,
 `renderer/friends.js`, `renderer/background.js` and `renderer/shortcuts.js` are
@@ -875,7 +1062,14 @@ All renderer scripts are therefore **splotchy `<script>` tags** — no
 pickers' swatches) plus `shortcuts.js`, before `settings.js`. `task.html` needs
 none of them.
 
-## 12. Security posture
+## 12. Security posture `[legacy]`
+
+CSP, `contextIsolation`, `sandbox`, and the IPC-boundary framing are all
+Electron/browser security concepts. Neither native app has any untrusted
+web content, renderer process, or IPC boundary to isolate — a compiled
+Swift binary reads its own settings file and draws its own pixels
+in-process, on both platforms. Nothing here has a native equivalent to
+port.
 
 Every page carries a CSP `<meta>`: `default-src 'none'; script-src 'self';
 style-src 'self'; img-src 'self' data:`. **`style-src 'self'` blocks inline
@@ -887,7 +1081,7 @@ a `.css` file beside its HTML: `widget.css`, `settings.css`, `task.css`.
 window. Renderers touch the filesystem only through IPC. `preload` scripts
 expose the named methods above and nothing more — no generic `invoke` passthrough.
 
-## 13. Keyboard
+## 13. Keyboard `[both]`
 
 Two separate mechanisms, deliberately not one. **Global shortcuts** are
 registered with the OS and fire wherever you are; **in-app keys** work only
@@ -896,11 +1090,21 @@ some other app, so the global set is the one that matters — but a global
 binding is a scarce, machine-wide resource, so it stays small, is fully
 rebindable, and every one of them can be switched off.
 
-### Global shortcuts
+**Two things below don't actually exist on either platform, not just
+Windows**: the `snapshot` action (id + default accelerator only —
+`Shortcuts.swift` defines it, but neither `AppDelegate.swift` nor
+`main.swift` registers a handler for it, since the SVG-snapshot feature
+itself was dropped, §14) and the in-app `T`/`P` rows (task-rename-while-
+running and SVG-snapshot) — neither key does anything on macOS either;
+Windows' own Keys-tab documentation explicitly lists this as why they're
+left out there too. Everything else in this section is real and shared.
 
-The table lives in `renderer/shortcuts.js` — dual-mode, like `sprites.js`
-(§11b), because `lib/settings.js` validates against it and the settings window
-renders from it, and two copies of a list like this drift within a week.
+### Global shortcuts `[both]`
+
+The table lives in shared `PomoppiCore/Shortcuts.swift` — one canonical
+source both platforms validate against and both settings UIs render from
+(the Keys tab, Phase W7, replaces this description's settings-window
+rendering with a real click-to-record UI on both platforms — see §7).
 
 | id | does | default |
 |---|---|---|
@@ -948,7 +1152,7 @@ The handlers do not second-guess the timer: `skip` and `reset` are no-ops from
 idle inside `lib/timer.js` (§5) and are simply forwarded, rather than gated
 here into a third place that has to know the rule.
 
-### In-app keys
+### In-app keys `[both]`
 
 Fixed, not rebindable — they cost nothing globally, and a second binding UI for
 them would be more surface than they are worth. Active while the widget window
@@ -975,7 +1179,16 @@ The settings window closes on `Esc`, except while a shortcut row is recording,
 where `Esc` cancels the recording — the nearer meaning wins, and a capture you
 cannot back out of without also losing the window is a trap.
 
-## 14. Snapshots (SVG)
+## 14. Snapshots (SVG) `[legacy]`
+
+**Not implemented on either platform.** The `snapshot` global-shortcut id
+and its default `Alt+Shift+S` accelerator still exist in
+`PomoppiCore/Shortcuts.swift` (so validation/normalization has a slot for
+it), but no handler is ever registered for it in `AppDelegate.swift` or
+`main.swift`, and `renderer/draw.js`'s recorder-pattern design described
+below has no Swift equivalent — there is no SVG export code anywhere in
+this codebase. Kept for intent only, in case this is revisited; nothing
+below is currently true of either native app.
 
 `Save snapshot to Desktop` — tray item (§9), global shortcut, or `P` on the
 focused widget — writes the widget **exactly as drawn** to
