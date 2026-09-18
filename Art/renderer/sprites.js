@@ -18,40 +18,17 @@ const blank = (w, h) => Array.from({ length: h }, () => new Array(w).fill("."));
 //
 // FRIEND_ART is the raw import (renderer/friends.js) -- exactly what
 // tools/import-friends.js produced, nothing derived. FRIENDS below is built
-// from it: same ids, plus squash frames for anyone drawn only once. Kept as
-// two names on purpose, not one reused for both.
+// from it: same ids, nothing added. Kept as two names on purpose, not one
+// reused for both.
+//
+// No synthesized frames: import-friends.js only imports a friend whose sheet
+// has exactly 2 frames, skipping anything else, so there's nothing here to
+// derive or fake an animation for.
 const FRIEND_ART = typeof module !== "undefined" && module.exports ? require("./friends.js") : window.FRIEND_ART;
-
-function squash(grid, amount) {
-	const h = grid.length,
-		w = grid[0].length;
-	let top = 0;
-	while (top < h && !grid[top].includes("#")) top++;
-	let bottom = h - 1;
-	while (bottom > top && !grid[bottom].includes("#")) bottom--;
-	const mid = Math.floor((top + bottom) / 2);
-
-	const out = Array.from({ length: h }, () => new Array(w).fill("."));
-	for (let y = 0; y < h; y++) {
-		for (let x = 0; x < w; x++) {
-			if (grid[y][x] !== "#") continue;
-			const t = y < mid ? (mid - y) / Math.max(1, mid - top) : 0;
-			const shift = Math.round(amount * t);
-			const ny = Math.min(h - 1, y + shift);
-			out[ny][x] = "#";
-		}
-	}
-	return out.map((row) => row.join(""));
-}
 
 const FRIENDS = {};
 for (const [id, pet] of Object.entries(FRIEND_ART)) {
-	const drawn = pet.frames.length;
-	FRIENDS[id] = {
-		name: pet.name,
-		frames: drawn > 1 ? pet.frames : [pet.frames[0], squash(pet.frames[0], 1), squash(pet.frames[0], 2), squash(pet.frames[0], 1)],
-		drawn,
-	};
+	FRIENDS[id] = { name: pet.name, frames: pet.frames };
 }
 
 const FRIEND_IDS = Object.keys(FRIENDS);

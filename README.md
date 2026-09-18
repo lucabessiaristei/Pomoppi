@@ -48,16 +48,15 @@ Appearance**, or from the **Friend** submenu in the menu bar.
 The sprites are imported verbatim — nothing here generates or retouches them:
 
 ```sh
-node Art/tools/import-friends.js  # re-import after editing a sprite in Aseprite
-node Scripts/generate-sprites.js  # then rewrite Sources/PomoppiSprites/Sprites.generated.swift
+node refresh-art --friends  # re-import from Aseprite, then rewrite Sources/PomoppiSprites/Sprites.generated.swift
 ```
 
 That reads the `.aseprite` files, splits each sheet into 32×32 frames and
-writes `Art/renderer/friends.js`. **Draw more frames and they animate**: a pet with
-several frames plays them in order, and one drawn only once gets a derived
-squash frame so it still breathes. Pace is what tells you the phase — a
-working beat while focusing, drowsy on a break with a `z` beside it, a fast
-flutter when time is up, and completely still when you pause.
+writes `Art/renderer/friends.js`. **Every pet needs exactly 2 frames** — an
+idle/step pair, alternated to animate; a sheet with 1 or 3+ is skipped on
+import rather than padded or trimmed to fit. Pace is what tells you the
+phase — a working beat while focusing, drowsy on a break with a `z` beside
+it, a fast flutter when time is up, and completely still when you pause.
 
 ## Poking at it
 
@@ -207,7 +206,8 @@ Sources/PomoppiCore/      wall-clock timer state machine, settings load/validate
 Sources/PomoppiRender/    the 1px drawing kit and widget layout/animation
 Sources/PomoppiSprites/   digits, icons, window edge, and the generated pet/background art
 Art/                      the Aseprite pixel-art pipeline (sources + importers), independent of the app itself
-Scripts/                  generate-sprites.js, make-app.js
+Scripts/                  make-app.js
+refresh-art.js            re-import Aseprite art + rewrite Sources/PomoppiSprites/Sprites.generated.swift
 Tests/                    swift-testing/XCTest suites mirroring Sources/
 ```
 
@@ -216,19 +216,36 @@ file map and invariants: `CLAUDE.md`.
 
 ## Editing the art
 
-The pets live in `Art/renderer/friends.js`, which is **generated** — edit the
-`.aseprite` files under `Art/import/friends/` and run
-`node Art/tools/import-friends.js` instead. It shells out to Aseprite for the
-decoding, so Aseprite must be installed.
+The pets live in `Art/renderer/friends.js`, backgrounds in
+`Art/renderer/background.js`, and the menu-bar animation in the `TRAY_FRAMES`
+block of `Art/renderer/sprites.js` — all three are **generated**. Edit the
+`.aseprite` source instead and re-import with `node refresh-art`. It shells
+out to Aseprite for the decoding, so Aseprite must be installed.
 
-Everything else is in `Art/renderer/sprites.js` and has no image files at all:
-the clock digits are generated from a seven-segment table so every stroke is
+- **Friends**: drop `Name_ok.aseprite` into `Art/import/friends/`. The `_ok`
+  suffix means "done, ship it" — draft art can sit in the same folder as
+  `Name.aseprite` (no suffix) and stays invisible to the app until renamed.
+  `refresh-art` adds/removes friends from Settings' picker automatically to
+  match whichever `_ok` files exist — nothing to register by hand, in either
+  direction.
+- **Backgrounds**: same as friends — drop `bg-name_ok.aseprite` into
+  `Art/import/bgs/`. `bg-template.aseprite` (a starting point, not a
+  background) is excluded for free: it has no `_ok`, so it never matches.
+- **Tray icon**: `Art/import/icon/` holds the single menu-bar animation
+  source.
+
+Art changes are compiled into the binary, so `node refresh-art` alone won't
+show up in the app you actually run — pass `--rebuild` to also rebuild and
+reinstall `/Applications/Pomoppi.app`.
+
+Everything else in `Art/renderer/sprites.js` has no image files at all: the
+clock digits are generated from a seven-segment table so every stroke is
 exactly 1px, the 16×16 control icons are `0`/`1` grids, and the window edge is
 computed by `windowFrame(style, w, h)`.
 
 ```sh
-node Art/tools/import-friends.js    # re-import pet sprites from Aseprite
-node Art/tools/import-bgs.js        # re-import background patterns from Aseprite
-node Scripts/generate-sprites.js    # rewrite Sources/PomoppiSprites/Sprites.generated.swift
+node refresh-art             # re-import everything, then rewrite Sources/PomoppiSprites/Sprites.generated.swift
+node refresh-art --bgs       # or --friends / --icon, alone or combined, for just one category
+node refresh-art --rebuild   # also rebuilds + reinstalls /Applications/Pomoppi.app when done
 swift test
 ```
