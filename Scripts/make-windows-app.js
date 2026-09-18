@@ -101,12 +101,43 @@ function getVcvarsArch() {
   return 'amd64';
 }
 
+// Builds the `rc.exe ...` command that compiles Sources/PomoppiWindows/
+// Pomoppi.rc (which just points at ID 1 ICON "pomoppi.ico") into a .res,
+// and the matching -Xlinker arg to feed that .res straight to link.exe —
+// link.exe accepts a compiled resource file as an ordinary extra input,
+// same as an .obj. rc.exe is already on PATH once vcvarsall.bat has run
+// (it ships with the Windows SDK, which every VS/Build Tools install
+// pulls in). Returns { rcCmd: null, linkerArg: '' } when
+// assets/pomoppi.ico doesn't exist yet — same "ship without it, don't
+// fail the build" stance copyIconIfPresent below already takes for the
+// loose-file copy.
+function compileIconResourceCmd() {
+  const iconIco = path.join(REPO_ROOT, 'assets', 'pomoppi.ico');
+  if (!fs.existsSync(iconIco)) {
+    return { rcCmd: null, linkerArg: '' };
+  }
+  const rcSource = path.join(REPO_ROOT, 'Sources', 'PomoppiWindows', 'Pomoppi.rc');
+  const resOutput = path.join(REPO_ROOT, '.build', 'Pomoppi.res');
+  fs.mkdirSync(path.dirname(resOutput), { recursive: true });
+  // /I so the .rc's bare "pomoppi.ico" resolves against assets/ regardless
+  // of rc.exe's own working directory.
+  const rcCmd = `rc.exe /I "${path.join(REPO_ROOT, 'assets')}" /fo "${resOutput}" "${rcSource}"`;
+  return { rcCmd, linkerArg: ` -Xlinker "${resOutput}"` };
+}
+
 // Build the release binary with MSVC environment loaded via vcvarsall.bat.
-// Pass -Xlinker flags to produce a GUI app (no console window).
+// Pass -Xlinker flags to produce a GUI app (no console window), plus a
+// compiled icon resource if assets/pomoppi.ico exists (see
+// compileIconResourceCmd below) — embedded straight into the exe's PE
+// resources at link time, not just a loose file dropped alongside it.
 function buildReleaseBinary(vcvarsallBat, arch) {
   logSection('Building release binary (swift build -c release with MSVC environment)...');
 
-  const buildCmd = `call "${vcvarsallBat}" ${arch} && swift build -c release --package-path "${REPO_ROOT}" -Xlinker /SUBSYSTEM:WINDOWS -Xlinker /ENTRY:mainCRTStartup`;
+  const { rcCmd, linkerArg } = compileIconResourceCmd();
+  const buildCmd =
+    `call "${vcvarsallBat}" ${arch}` +
+    (rcCmd ? ` && ${rcCmd}` : '') +
+    ` && swift build -c release --package-path "${REPO_ROOT}" -Xlinker /SUBSYSTEM:WINDOWS -Xlinker /ENTRY:mainCRTStartup${linkerArg}`;
 
   try {
     // windowsVerbatimArguments is required here: buildCmd already contains
@@ -273,7 +304,7 @@ function main() {
   console.log('='.repeat(70));
   console.log(`\nFolder: ${destFolder}`);
   console.log(`Zip:    ${destZip}`);
-  console.log(`Icon:   ${hasIcon ? 'included' : 'not included (add assets/pomoppi.ico to include it)'}`);
+  console.log(`Icon:   ${hasIcon ? 'embedded in Pomoppi.exe, and copied loose alongside it' : 'not included (add assets/pomoppi.ico to include it)'}`);
   console.log(`\nTo distribute: send ${destZip} or unzip it and send the folder contents.`);
 }
 
