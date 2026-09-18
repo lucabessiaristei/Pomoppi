@@ -1,13 +1,13 @@
-// SettingsWindow.swift — Phase W6: a real titled top-level window (unlike
+// SettingsWindow.swift — a real titled top-level window (unlike
 // WidgetWindow's layered popup) holding a SysTabControl32 with the same 6
 // tabs/order as macOS's SettingsView.swift (Rhythm, Appearance, Window,
-// Keys, Sound, Obsidian). Part 2 fills in real controls for Rhythm/Window/
-// Sound, bound directly to SettingsStore; Appearance/Keys/Obsidian stay
-// placeholder pages until W7 (their content needs more than raw common
-// controls — owner-drawn art pickers, a shortcut recorder). One singleton
-// instance, mirroring macOS's single reused `Settings` scene; see
-// WINDOWS_PORT_PLAN.md's W6/W7 entry for the split.
+// Keys, Sound, Obsidian), bound directly to SettingsStore. Obsidian stays a
+// placeholder page — deliberately deferred, see
+// project-obsidian-logging-redesign. One singleton instance, mirroring
+// macOS's single reused `Settings` scene; see WINDOWS_PORT_PLAN.md's W6/W7
+// entry for how this file grew phase by phase.
 import PomoppiCore
+import PomoppiRender
 import WinSDK
 
 // Same "WNDPROC can't capture, dispatch through a shared instance" shape as
@@ -48,8 +48,13 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // for menu mnemonics), and every one of Shortcuts.actions' own default
 // accelerators uses Alt — without it, no default binding could ever be
 // re-recorded to a new Alt combo at all.
+// WM_DRAWITEM forwards the same way, added in W7 for the Appearance tab's
+// owner-drawn picker cards (BS_OWNERDRAW buttons showing a rendered
+// PixelCanvas preview instead of stock button chrome) — like
+// WM_COMMAND/WM_NOTIFY, Windows always sends WM_DRAWITEM to the control's
+// immediate parent, never a grandparent.
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN),
+    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM),
        let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
     }
@@ -116,6 +121,23 @@ final class SettingsWindow {
         let actionID: String
     }
     private var shortcutRecorders: [ShortcutRecorderControl] = []
+
+    // The Appearance tab's picker-grid buttons (roommate/window-edge/
+    // background — added in W7): BS_OWNERDRAW push buttons drawn via
+    // handleDrawItem/drawPickerCard instead of stock button chrome. `kind`
+    // says which PomoppiSettings field a card's own click (routed through
+    // the ordinary pushButtons/BN_CLICKED dispatch, same as any other
+    // button) and its selection-border check both read against; `itemID`
+    // is that field's candidate value this specific card represents.
+    private enum PickerKind {
+        case friend, frameStyle, background
+    }
+    private struct PickerCardControl {
+        let hwnd: HWND
+        let kind: PickerKind
+        let itemID: String
+    }
+    private var pickerCards: [PickerCardControl] = []
     // The Keys tab's own page — SetFocus target while recording, so the
     // capture keystroke's WM_(SYS)KEYDOWN has somewhere of ours to land
     // (see startRecording/handleShortcutRecorderKeyDown below).
@@ -337,13 +359,14 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (settings page) failed with error \(GetLastError())")
         }
 
-        // Rhythm/Window/Sound/Keys get real controls; Appearance/Obsidian
-        // stay the placeholder built for part 1 — Appearance needs more
-        // than raw common controls (owner-drawn art pickers, separate
-        // upcoming work), Obsidian is deliberately deferred.
+        // Rhythm/Window/Sound/Keys/Appearance get real controls; Obsidian
+        // stays the placeholder — deliberately deferred, see
+        // project-obsidian-logging-redesign.
         switch title {
         case "Rhythm":
             buildRhythmTab(page: page, width: width)
+        case "Appearance":
+            buildAppearanceTab(page: page, width: width)
         case "Window":
             buildWindowTab(page: page, width: width)
         case "Sound":
@@ -433,6 +456,180 @@ final class SettingsWindow {
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.askForTaskName = checked }
+        }
+    }
+
+    // -- Appearance tab content -----------------------------------------------
+
+    // Mirrors macOS's AppearanceTab's three CardPickerGrid sections (roommate/
+    // window-edge/background) — the theme-preset grid, ink/paper
+    // ChooseColorW pickers, and the size/opacity controls are a separate,
+    // later chunk of this phase (see WINDOWS_PORT_PLAN.md's W7 entry).
+    private func buildAppearanceTab(page: HWND, width: Int32) {
+        let rowWidth = width - 2 * Self.rowMargin
+        var y = Self.rowMargin
+
+        addLabel("Roommate", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+        y += addPickerGrid(
+            kind: .friend, items: PomoppiSettings.friendIDs, in: page,
+            x: Self.rowMargin, y: y, availableWidth: rowWidth,
+            cardWidth: 56, cardHeight: 56
+        ) { [settingsStore] friend in
+            settingsStore.update { $0.friend = friend }
+        }
+        y += Self.groupGap
+
+        addLabel("Window edge", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+        y += addPickerGrid(
+            kind: .frameStyle, items: PomoppiSettings.frameStyles, in: page,
+            x: Self.rowMargin, y: y, availableWidth: rowWidth,
+            cardWidth: 62, cardHeight: 70
+        ) { [settingsStore] style in
+            settingsStore.update { $0.frameStyle = style }
+        }
+        y += Self.groupGap
+
+        addLabel("Background", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+        addPickerGrid(
+            kind: .background, items: PomoppiSettings.backgroundIDs, in: page,
+            x: Self.rowMargin, y: y, availableWidth: rowWidth,
+            cardWidth: 96, cardHeight: 56
+        ) { [settingsStore] background in
+            settingsStore.update { $0.background = background }
+        }
+    }
+
+    // A plain flow layout (left-to-right, wrapping at `availableWidth`) of
+    // owner-drawn picker cards, one per item, each with a capitalized
+    // STATIC label underneath — not a LazyVGrid-style adaptive column count
+    // that re-centres per row, just enough to lay a handful of same-size
+    // cards out legibly (every grid here fits on one row at this window's
+    // fixed 560pt width, so wrapping is untested but kept as a safety net
+    // rather than assumed away). Returns the total height consumed, so the
+    // caller can advance its own running `y` past it.
+    @discardableResult
+    private func addPickerGrid(
+        kind: PickerKind, items: [String], in page: HWND,
+        x: Int32, y: Int32, availableWidth: Int32,
+        cardWidth: Int32, cardHeight: Int32,
+        onSelect: @escaping (String) -> Void
+    ) -> Int32 {
+        let gap: Int32 = 10
+        let labelHeight: Int32 = 16
+        let cellWidth = cardWidth + gap
+        let columns = max(1, (availableWidth + gap) / cellWidth)
+        let rowHeight = cardHeight + labelHeight + gap
+
+        for (index, item) in items.enumerated() {
+            let col = Int32(index) % columns
+            let row = Int32(index) / columns
+            let cardX = x + col * cellWidth
+            let cardY = y + row * rowHeight
+            addPickerCard(kind: kind, itemID: item, in: page, x: cardX, y: cardY, width: cardWidth, height: cardHeight, onSelect: onSelect)
+            addLabel(displayName(item), in: page, x: cardX, y: cardY + cardHeight + 2, width: cardWidth, height: labelHeight)
+        }
+
+        let rowCount = (Int32(items.count) + columns - 1) / columns
+        return rowCount * rowHeight
+    }
+
+    // A BS_OWNERDRAW push button: still fires the ordinary BN_CLICKED ->
+    // WM_COMMAND that pushButtons/handleCommand already dispatch (owner-draw
+    // only replaces painting, not click semantics), so selecting a card
+    // reuses that exact path rather than a separate one. `onSelect` commits
+    // the new setting; invalidateAllPickerCards then repaints every card so
+    // the moved selection border (and, for a frameStyle change, the
+    // background cards whose preview also depends on it) shows immediately.
+    private func addPickerCard(
+        kind: PickerKind, itemID: String, in page: HWND,
+        x: Int32, y: Int32, width: Int32, height: Int32,
+        onSelect: @escaping (String) -> Void
+    ) {
+        guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+            CreateWindowExW(
+                0, classNamePtr.baseAddress, nil,
+                DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
+                x, y, width, height,
+                page, nil, Self.hInstance, nil)
+        }) else {
+            fatalError("CreateWindowExW (picker card) failed with error \(GetLastError())")
+        }
+        pickerCards.append(PickerCardControl(hwnd: button, kind: kind, itemID: itemID))
+        pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self] in
+            onSelect(itemID)
+            self?.invalidateAllPickerCards()
+        }))
+    }
+
+    private func invalidateAllPickerCards() {
+        for card in pickerCards {
+            InvalidateRect(card.hwnd, nil, true)
+        }
+    }
+
+    // id strings are already lowercase (PomoppiSettings.friendIDs etc.) —
+    // just capitalize the first letter rather than pulling in Foundation's
+    // .capitalized for one line.
+    private func displayName(_ id: String) -> String {
+        guard let first = id.first else { return id }
+        return first.uppercased() + id.dropFirst()
+    }
+
+    // The WM_DRAWITEM handler (forwarded here via pomoppiSettingsPageWndProc
+    // + this window's own handleMessage): looks up which picker card owns
+    // the drawn HWND, builds its current preview (ink/paper/frameStyle read
+    // fresh from settingsStore every time, not cached at button-creation
+    // time, so a later theme/color change — once that lands — repaints
+    // correctly without this code needing to change), and draws it plus a
+    // selection border.
+    private func handleDrawItem(lParam: LPARAM) -> LRESULT {
+        guard let drawItem = UnsafeMutablePointer<DRAWITEMSTRUCT>(bitPattern: UInt(bitPattern: Int(lParam))) else { return 0 }
+        guard let control = pickerCards.first(where: { $0.hwnd == drawItem.pointee.hwndItem }) else { return 0 }
+        drawPickerCard(control, drawItem: drawItem.pointee)
+        return 1
+    }
+
+    private func drawPickerCard(_ control: PickerCardControl, drawItem: DRAWITEMSTRUCT) {
+        let settings = settingsStore.get()
+        let card: AppearancePreviews.Card
+        let isSelected: Bool
+        switch control.kind {
+        case .friend:
+            guard let built = AppearancePreviews.friendIcon(friendID: control.itemID, inkColor: settings.inkColor, paperColor: settings.paperColor) else { return }
+            card = built
+            isSelected = settings.friend == control.itemID
+        case .frameStyle:
+            card = AppearancePreviews.frameEdgeCard(frameStyle: control.itemID, inkColor: settings.inkColor, paperColor: settings.paperColor)
+            isSelected = settings.frameStyle == control.itemID
+        case .background:
+            card = AppearancePreviews.backgroundPatternCard(
+                backgroundID: control.itemID, frameStyle: settings.frameStyle, inkColor: settings.inkColor, paperColor: settings.paperColor)
+            isSelected = settings.background == control.itemID
+        }
+
+        let hdc = drawItem.hDC
+        var rect = drawItem.rcItem
+        if let faceBrush = CreateSolidBrush(GetSysColor(COLOR_BTNFACE)) {
+            FillRect(hdc, &rect, faceBrush)
+            DeleteObject(faceBrush)
+        }
+
+        // Inset a little from the button edge so the selection border below
+        // has room to draw outside the image itself.
+        let margin: Int32 = 3
+        let imageRect = RECT(left: rect.left + margin, top: rect.top + margin, right: rect.right - margin, bottom: rect.bottom - margin)
+        card.canvas.draw(into: hdc, destRect: imageRect, cropX: card.cropX, cropY: card.cropY, cropWidth: card.cropWidth, cropHeight: card.cropHeight)
+
+        if let borderPen = CreatePen(PS_SOLID, isSelected ? 2 : 1, GetSysColor(isSelected ? COLOR_HIGHLIGHT : COLOR_BTNSHADOW)) {
+            let previousPen = SelectObject(hdc, borderPen)
+            let previousBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH))
+            Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom)
+            SelectObject(hdc, previousPen)
+            SelectObject(hdc, previousBrush)
+            DeleteObject(borderPen)
         }
     }
 
@@ -903,6 +1100,8 @@ final class SettingsWindow {
         case WM_COMMAND:
             handleCommand(wParam: wParam, lParam: lParam)
             return 0
+        case WM_DRAWITEM:
+            return handleDrawItem(lParam: lParam)
         case WM_KEYDOWN, WM_SYSKEYDOWN:
             // Always swallowed (return 0) rather than falling through to
             // DefWindowProcW: this only ever arrives forwarded from the
