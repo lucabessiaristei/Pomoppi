@@ -133,6 +133,15 @@ function compileIconResourceCmd() {
 function buildReleaseBinary(vcvarsallBat, arch) {
   logSection('Building release binary (swift build -c release with MSVC environment)...');
 
+  // SwiftPM's incremental build only hashes the -Xlinker flag *string*, not
+  // the .res file's contents it points at — a re-run with an unchanged
+  // command line (same path, different bytes, e.g. after re-editing
+  // pomoppi.ico) silently reuses the stale linked exe instead of relinking.
+  // Deleting the previous output first forces llbuild's own
+  // output-must-exist check to redo the link step for real, every time.
+  const previousBinary = path.join(REPO_ROOT, '.build', 'release', 'PomoppiWindows.exe');
+  if (fs.existsSync(previousBinary)) fs.rmSync(previousBinary);
+
   const { rcCmd, linkerArg } = compileIconResourceCmd();
   const buildCmd =
     `call "${vcvarsallBat}" ${arch}` +
