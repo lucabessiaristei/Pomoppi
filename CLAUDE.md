@@ -54,7 +54,7 @@ both platforms, what's macOS-only, and what's Windows-only.
 | File | What |
 |---|---|
 | `Package.swift` | SPM manifest. Tools-version 6.0 only for `.macOS(.v15)`; every target still opts back into Swift 5 language mode (this app's mutable caches/singletons are single-threaded, main-thread-only state). On a Windows host the manifest evaluates to a different, smaller target set — `PomoppiCore`/`PomoppiSprites`/`PomoppiRender`/`PomoppiWindows` (executable) + `PomoppiCoreTests`/`PomoppiSpritesTests` (no `PomoppiRenderTests`: one test still reads `CGImage` directly, unguarded, and no `PomoppiApp`) — see the `#if os(Windows)` in the file itself |
-| `Sources/PomoppiCore/` | Platform-agnostic core: `Timer.swift` (wall-clock pomodoro state machine), `Settings.swift` (load/validate/persist, no AppKit import), `Shortcuts.swift`, `ObsidianLogger.swift` |
+| `Sources/PomoppiCore/` | Platform-agnostic core: `Timer.swift` (wall-clock pomodoro state machine), `Settings.swift` (load/validate/persist, no AppKit import), `Shortcuts.swift`, `SessionLogger.swift` (session history as a single local JSON file — replaced `ObsidianLogger.swift` in the 2026-09-19 redesign; see `SPEC.md` §8) |
 | `Sources/PomoppiSprites/Sprites.generated.swift` | **Generated** by `refresh-art.js` from `Art/renderer/sprites.js` / `friends.js` / `background.js` — never hand-edit |
 | `Sources/PomoppiSprites/Digits.swift`, `WindowFrame.swift` | Hand-written glyph/frame data (not generated) |
 | `Sources/PomoppiRender/` | Drawing: `PixelCanvas.swift` (the 1px drawing kit, a plain byte buffer with no platform import), `WidgetLayout.swift`, `WidgetAnimationController.swift`, `WidgetRenderer.swift` — all Windows-buildable since Phase W3. The CoreGraphics dependency (`makeImage() -> CGImage?`) lives in `PixelCanvas+CoreGraphics.swift` (macOS); Windows gets two of its own adapters, `PixelCanvas+GDI.swift` (the layered-window/owner-draw blit path, Phase W3/W7) and `PixelCanvas+GDIIcon.swift` (`HICON` for the tray, Phase W4) |
@@ -137,10 +137,11 @@ both platforms, what's macOS-only, and what's Windows-only.
   consistently duplicated small amounts of logic (tray click handling,
   picker-card previews, login-item registration) rather than extracting a
   shared abstraction that would require touching the Mac side to add.
-- **Don't build a Windows Obsidian tab or call `ObsidianLogger` from
-  `Sources/PomoppiWindows/`.** The logger itself lives in shared
-  `PomoppiCore` and builds/tests fine on Windows, but session logging is
-  slated for a redesign into a platform-agnostic JSON format before any
-  Windows UI for it gets built — building one now means redoing it shortly
-  after. The Obsidian tab stays the Phase-W6 placeholder until that
-  redesign lands.
+- **Session logging (`SessionLogger.swift`, `SPEC.md` §8) is wired
+  identically on both platforms as of 2026-09-19** — this used to be a
+  macOS-only feature (writing Obsidian markdown) with Windows carrying a
+  placeholder tab; that's done and shouldn't regress. Don't reintroduce a
+  vault/folder/heading concept — the whole point of the redesign was
+  dropping that. A future "Diary" tab that syncs this JSON log to
+  Obsidian/other editors is planned but not built — don't build it
+  speculatively; ask first if it looks like the next task.

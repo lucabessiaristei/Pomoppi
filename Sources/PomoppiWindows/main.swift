@@ -1,13 +1,12 @@
-// main.swift — Phase W3 part 2: real wiring, replacing the Phase W1
-// skeleton. Mirrors AppDelegate.applicationDidFinishLaunching's construction
-// order for exactly what exists on this platform so far: SettingsStore ->
-// PomodoroTimer -> WidgetWindow -> settingsStore.onChange -> show/hide based
-// on startHidden -> the message loop. No settings window, no Obsidian
-// logger yet — those are later phases (see WINDOWS_PORT_PLAN.md).
+// main.swift — real wiring, replacing the Phase W1 skeleton. Mirrors
+// AppDelegate.applicationDidFinishLaunching's construction order: SettingsStore
+// -> PomodoroTimer -> SessionLogger -> WidgetWindow -> settingsStore.onChange
+// -> show/hide based on startHidden -> the message loop.
 import PomoppiCore
 import WinSDK
 
 let settingsStore = SettingsStore(storageDir: storageDir())
+let sessionLogger = SessionLogger(getSettings: { settingsStore.get() }, storageDir: storageDir())
 
 let timer = PomodoroTimer(settingsGetter: {
     let s = settingsStore.get()
@@ -17,6 +16,12 @@ let timer = PomodoroTimer(settingsGetter: {
         autoStartBreaks: s.autoStartBreaks, autoStartFocus: s.autoStartFocus,
         ringSeconds: s.ringSeconds)
 })
+// This is the first phase-completion consumer on Windows at all — macOS's
+// equivalent (AppDelegate.swift) has always logged to Obsidian; Windows
+// never had any logging wired in until this session log replaced it.
+timer.onPhaseComplete = { event in
+    Task { await sessionLogger.logSession(event) }
+}
 
 let widgetWindow = WidgetWindow(timer: timer, settingsStore: settingsStore)
 let trayController = TrayController(window: widgetWindow)
@@ -77,7 +82,7 @@ func reapplyGlobalShortcuts() {
 }
 
 widgetWindow.onOpenSettingsRequested = {
-    SettingsWindow.show(settingsStore: settingsStore, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reapplyGlobalShortcuts)
+    SettingsWindow.show(settingsStore: settingsStore, sessionLogger: sessionLogger, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reapplyGlobalShortcuts)
 }
 
 // -- login item ---------------------------------------------------------

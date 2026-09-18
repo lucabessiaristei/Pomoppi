@@ -85,6 +85,13 @@ final class SettingsWindow {
 
     let hwnd: HWND
     private let settingsStore: SettingsStore
+    // Owned by main.swift (the same instance the timer's onPhaseComplete
+    // logs through) — the Log tab reads its synchronous, nonisolated
+    // fileSizeBytes()/eraseAllSync() helpers directly (see SessionLogger's
+    // own comments for why those two are safe to call off-actor from a
+    // synchronous Win32 message loop with no MainActor-integrated executor
+    // to hop back through).
+    private let sessionLogger: SessionLogger
     // Owned by main.swift (WidgetWindow's own instance) — the Keys tab's
     // shortcut recorder needs to unregister every live global hotkey while
     // capturing a new one (see startRecording below), and reregisterShortcuts
@@ -217,6 +224,11 @@ final class SettingsWindow {
     private var opacityTrackbar: HWND?
     private var opacityValueLabel: HWND?
 
+    // The Log tab's cache-size readout — refreshed after Erase Cached
+    // Sessions completes, same "cache the label, update its text in
+    // place" pattern as opacityValueLabel above.
+    private var logCacheSizeLabel: HWND?
+
     // The Appearance page's own scroll state — it's the only page whose
     // content is taller than the fixed window (12 theme swatches + 3
     // picker grids + 2 color rows + size/opacity controls easily clears
@@ -257,7 +269,7 @@ final class SettingsWindow {
     private var recordingActionID: String?
 
     // Exact order macOS's SettingsView.swift uses.
-    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Obsidian"]
+    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log"]
 
     // Not resizable this phase (see task scope) — a fixed client size in the
     // ballpark of macOS's idealWidth/idealHeight (520x400).
@@ -342,7 +354,7 @@ final class SettingsWindow {
     // onOpenSettingsRequested and main.swift's wiring): creates the window
     // on first call, or brings the existing one to front on every call
     // after that — never a second instance.
-    static func show(settingsStore: SettingsStore, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
+    static func show(settingsStore: SettingsStore, sessionLogger: SessionLogger, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
         if let existing = shared {
             if IsIconic(existing.hwnd) {
                 ShowWindow(existing.hwnd, SW_RESTORE)
@@ -350,14 +362,15 @@ final class SettingsWindow {
             SetForegroundWindow(existing.hwnd)
             return
         }
-        let window = SettingsWindow(settingsStore: settingsStore, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reregisterShortcuts)
+        let window = SettingsWindow(settingsStore: settingsStore, sessionLogger: sessionLogger, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reregisterShortcuts)
         shared = window
         ShowWindow(window.hwnd, SW_SHOW)
         SetForegroundWindow(window.hwnd)
     }
 
-    private init(settingsStore: SettingsStore, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
+    private init(settingsStore: SettingsStore, sessionLogger: SessionLogger, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
         self.settingsStore = settingsStore
+        self.sessionLogger = sessionLogger
         self.globalShortcutManager = globalShortcutManager
         self.reregisterShortcuts = reregisterShortcuts
         Self.registerClassesIfNeeded()
@@ -477,9 +490,9 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (settings page) failed with error \(GetLastError())")
         }
 
-        // Rhythm/Window/Sound/Keys/Appearance get real controls; Obsidian
-        // stays the placeholder — deliberately deferred, see
-        // project-obsidian-logging-redesign.
+        // Every tab gets real controls now — Log (renamed from the
+        // Obsidian placeholder, Phase W9-era session-logging redesign) was
+        // the last one still deferred.
         switch title {
         case "Rhythm":
             buildRhythmTab(page: page, width: width)
@@ -496,6 +509,8 @@ final class SettingsWindow {
             buildSoundTab(page: page, width: width)
         case "Keys":
             buildKeysTab(page: page, width: width)
+        case "Log":
+            buildLogTab(page: page, width: width)
         default:
             buildPlaceholder(page: page, title: title, width: width, height: height)
         }
@@ -1316,6 +1331,71 @@ final class SettingsWindow {
         WidgetKeyBinding(keys: "Esc", action: "Dismiss the ring, or hide the widget"),
         WidgetKeyBinding(keys: "Up / Down", action: "Adjust focus length, while idle"),
     ]
+
+    // -- Log tab (session history) ---------------------------------------------
+
+    // Mirrors macOS's new LogTab: an enable toggle for the local JSON
+    // session log (SessionLogger), a live cache-size readout, and an
+    // "Erase Cached Sessions" button with a real confirmation — this tab
+    // was "Obsidian" (vault path/folder/filename/heading fields, a "Test
+    // Connection" button) until the 2026-09-19 redesign replaced direct
+    // Obsidian-markdown writing with this platform-agnostic internal
+    // record (see project-obsidian-logging-redesign). Nothing to
+    // configure anymore: no vault, no folder, just on/off.
+    private func buildLogTab(page: HWND, width: Int32) {
+        let settings = settingsStore.get()
+        let rowWidth = width - 2 * Self.rowMargin
+        var y = Self.rowMargin
+
+        addCheckbox(
+            "Log sessions", in: page, checked: settings.loggingEnabled,
+            x: Self.rowMargin, y: y, width: rowWidth
+        ) { [settingsStore] checked in
+            settingsStore.update { $0.loggingEnabled = checked }
+        }
+        y += Self.rowHeight + Self.groupGap
+
+        logCacheSizeLabel = addLabel(Self.formatCacheSize(sessionLogger.fileSizeBytes()), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += Self.rowHeight
+
+        addButton("Erase Cached Sessions…", in: page, x: Self.rowMargin, y: y, width: 180, height: 24) { [weak self] in
+            self?.confirmEraseSessionLog()
+        }
+    }
+
+    // MessageBoxW blocks the message loop until dismissed — same "modal,
+    // no async ceremony needed" shape as ChooseColorW in the Appearance
+    // tab. IDYES is the only outcome that erases anything; Cancel/No/the
+    // window's own close box are all treated as "do nothing."
+    private func confirmEraseSessionLog() {
+        let text = Array("Erase all cached session history? This can't be undone.".utf16) + [0]
+        let title = Array("Erase Cached Sessions".utf16) + [0]
+        let result = text.withUnsafeBufferPointer { textPtr in
+            title.withUnsafeBufferPointer { titlePtr in
+                MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
+            }
+        }
+        guard result == IDYES else { return }
+        sessionLogger.eraseAllSync()
+        if let label = logCacheSizeLabel {
+            setWindowText(label, Self.formatCacheSize(sessionLogger.fileSizeBytes()))
+        }
+    }
+
+    private static func formatCacheSize(_ bytes: Int64) -> String {
+        // A handful of sessions is only a few hundred bytes — rounding
+        // straight to KB read as "0 KB" for anything real yet non-empty,
+        // which looks like the erase didn't work. Bytes below 1 KB, then
+        // KB, then MB.
+        if bytes < 1024 {
+            return "Cache size: \(bytes) bytes"
+        }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 {
+            return "Cache size: \(Int(kb.rounded())) KB"
+        }
+        return "Cache size: \(String(format: "%.1f", kb / 1024)) MB"
+    }
 
     // -- Keys tab: shortcut recording ------------------------------------------
 

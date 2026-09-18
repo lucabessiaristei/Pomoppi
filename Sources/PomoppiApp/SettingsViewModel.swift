@@ -10,11 +10,11 @@ import PomoppiCore
 final class SettingsViewModel: ObservableObject {
     @Published private(set) var settings: PomoppiSettings
     private let settingsStore: SettingsStore
-    let obsidianLogger: ObsidianLogger
+    let sessionLogger: SessionLogger
 
-    init(settingsStore: SettingsStore, obsidianLogger: ObsidianLogger) {
+    init(settingsStore: SettingsStore, sessionLogger: SessionLogger) {
         self.settingsStore = settingsStore
-        self.obsidianLogger = obsidianLogger
+        self.sessionLogger = sessionLogger
         self.settings = settingsStore.get()
     }
 

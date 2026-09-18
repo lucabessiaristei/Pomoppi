@@ -26,8 +26,8 @@ struct SettingsView: View {
             Tab("Sound", systemImage: "speaker.wave.2", value: "sound") {
                 SoundTab(viewModel: viewModel)
             }
-            Tab("Obsidian", systemImage: "book.closed", value: "obsidian") {
-                ObsidianTab(viewModel: viewModel)
+            Tab("Log", systemImage: "clock.arrow.circlepath", value: "log") {
+                LogTab(viewModel: viewModel)
             }
         }
         .scenePadding()
@@ -375,77 +375,53 @@ private struct SoundTab: View {
     }
 }
 
-// MARK: - Obsidian
+// MARK: - Log
 
-private struct ObsidianTab: View {
+// Replaces the old ObsidianTab (2026-09-19 session-log redesign, SPEC.md
+// §8): no vault/folder/filename/heading to configure anymore, no "Test
+// Connection" — SessionLogger always writes to sessions.json next to
+// settings.json, so there's nothing to point it at first.
+private struct LogTab: View {
     @ObservedObject var viewModel: SettingsViewModel
-    @State private var testResult: String?
-    @State private var isTesting = false
+    @State private var cacheSizeBytes: Int64 = 0
+    @State private var showingEraseConfirmation = false
 
     var body: some View {
         Form {
             Section("Logging") {
-                Toggle("Log sessions to Obsidian", isOn: viewModel.binding(\.loggingEnabled))
+                Toggle("Log sessions", isOn: viewModel.binding(\.loggingEnabled))
             }
-            Section("Vault") {
-                LabeledContent("Vault") {
-                    HStack(spacing: 8) {
-                        Text(viewModel.settings.vaultPath.isEmpty ? "None chosen" : viewModel.settings.vaultPath)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: 220, alignment: .trailing)
-                        Button("Choose…", action: pickVault)
-                    }
-                }
-                TextField("Folder", text: viewModel.binding(\.dailyNoteFolder), prompt: Text("Pomodoro"))
-                TextField("Filename", text: viewModel.binding(\.dailyNoteFormat), prompt: Text("YYYY-MM-DD"))
-                TextField("Heading", text: viewModel.binding(\.logHeading), prompt: Text("## Pomodoros"))
-            }
-            .disabled(!viewModel.settings.loggingEnabled)
-            Section("What to log") {
-                Toggle("Completed breaks", isOn: viewModel.binding(\.logBreaks))
-                Toggle("Aborted sessions", isOn: viewModel.binding(\.logAborted))
-            }
-            .disabled(!viewModel.settings.loggingEnabled)
             Section {
-                HStack {
-                    Button(isTesting ? "Testing…" : "Test Connection", action: runTest)
-                        .disabled(isTesting || !viewModel.settings.loggingEnabled)
-                    if let testResult {
-                        Text(testResult)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                    }
+                LabeledContent("Cache size", value: Self.formattedSize(cacheSizeBytes))
+                Button("Erase Cached Sessions…", role: .destructive) {
+                    showingEraseConfirmation = true
                 }
             }
         }
         .settingsForm()
-    }
-
-    private func pickVault() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        viewModel.update { $0.vaultPath = url.path }
-    }
-
-    private func runTest() {
-        isTesting = true
-        testResult = nil
-        let logger = viewModel.obsidianLogger
-        Task {
-            let result = await logger.test()
-            await MainActor.run {
-                isTesting = false
-                testResult = result.ok ? "Wrote to \(result.path ?? "")" : (result.error ?? "Failed")
+        .task { await refreshCacheSize() }
+        .confirmationDialog(
+            "Erase all cached session history?",
+            isPresented: $showingEraseConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Erase Cached Sessions", role: .destructive) {
+                Task {
+                    await viewModel.sessionLogger.eraseAll()
+                    await refreshCacheSize()
+                }
             }
+        } message: {
+            Text("This can't be undone.")
         }
+    }
+
+    private func refreshCacheSize() async {
+        cacheSizeBytes = viewModel.sessionLogger.fileSizeBytes()
+    }
+
+    private static func formattedSize(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 
