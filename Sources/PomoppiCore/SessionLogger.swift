@@ -111,7 +111,20 @@ public actor SessionLogger {
         try? "{\"sessions\":[]}".write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
-    private func readFile() -> SessionLogFile? {
+    // The Diary tab's "Sessions logged" count and the Export/Sync actions
+    // themselves all just need a snapshot of what's there right now, then
+    // go write somewhere else entirely (a user-chosen export file, or an
+    // Obsidian day-note) — none of that needs to serialize against
+    // `logSession`'s own writes to *this* file, only avoid reading a
+    // half-written one, which an atomic write already guarantees (a
+    // reader always sees either the old or the new content, never a torn
+    // mix). `nonisolated`/synchronous for the same same-thread-on-Windows
+    // reason as `fileSizeBytes()`/`eraseAllSync()` above.
+    public nonisolated func allSessionsSync() -> [SessionLogEntry] {
+        readFile()?.sessions ?? []
+    }
+
+    private nonisolated func readFile() -> SessionLogFile? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

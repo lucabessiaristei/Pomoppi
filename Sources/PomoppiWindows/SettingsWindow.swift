@@ -1,11 +1,10 @@
 // SettingsWindow.swift — a real titled top-level window (unlike
-// WidgetWindow's layered popup) holding a SysTabControl32 with the same 6
+// WidgetWindow's layered popup) holding a SysTabControl32 with the same 7
 // tabs/order as macOS's SettingsView.swift (Rhythm, Appearance, Window,
-// Keys, Sound, Obsidian), bound directly to SettingsStore. Obsidian stays a
-// placeholder page — deliberately deferred, see
-// project-obsidian-logging-redesign. One singleton instance, mirroring
-// macOS's single reused `Settings` scene; see WINDOWS_PORT_PLAN.md's W6/W7
-// entry for how this file grew phase by phase.
+// Keys, Sound, Log, Diary), bound directly to SettingsStore. One
+// singleton instance, mirroring macOS's single reused `Settings` scene;
+// see WINDOWS_PORT_PLAN.md's W6/W7 entry for how this file grew phase by
+// phase.
 import Foundation
 import PomoppiCore
 import PomoppiRender
@@ -229,6 +228,17 @@ final class SettingsWindow {
     // place" pattern as opacityValueLabel above.
     private var logCacheSizeLabel: HWND?
 
+    // The Diary tab's own live-updated labels/button, same pattern as
+    // logCacheSizeLabel above. Two status labels rather than one — Export
+    // and Sync each report their own last outcome independently, mirroring
+    // macOS DiaryTab's separate exportStatus/syncStatus @State.
+    private var diarySessionCountLabel: HWND?
+    private var diaryExportStatusLabel: HWND?
+    private var diaryFolderLabel: HWND?
+    private var diarySyncButton: HWND?
+    private var diaryLastSyncedLabel: HWND?
+    private var diarySyncStatusLabel: HWND?
+
     // The Appearance page's own scroll state — it's the only page whose
     // content is taller than the fixed window (12 theme swatches + 3
     // picker grids + 2 color rows + size/opacity controls easily clears
@@ -269,7 +279,7 @@ final class SettingsWindow {
     private var recordingActionID: String?
 
     // Exact order macOS's SettingsView.swift uses.
-    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log"]
+    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log", "Diary"]
 
     // Not resizable this phase (see task scope) — a fixed client size in the
     // ballpark of macOS's idealWidth/idealHeight (520x400).
@@ -511,6 +521,8 @@ final class SettingsWindow {
             buildKeysTab(page: page, width: width)
         case "Log":
             buildLogTab(page: page, width: width)
+        case "Diary":
+            buildDiaryTab(page: page, width: width)
         default:
             buildPlaceholder(page: page, title: title, width: width, height: height)
         }
@@ -1377,6 +1389,10 @@ final class SettingsWindow {
         }
         guard result == IDYES else { return }
         sessionLogger.eraseAllSync()
+        // The Diary tab's sync cursor is an index into the log array this
+        // just wiped — left non-zero it would skip every session logged
+        // after the erase (dropFirst(stale-count) on a shorter array).
+        settingsStore.update { $0.diaryLastSyncedCount = 0 }
         if let label = logCacheSizeLabel {
             setWindowText(label, Self.formatCacheSize(sessionLogger.fileSizeBytes()))
         }
@@ -1395,6 +1411,205 @@ final class SettingsWindow {
             return "Cache size: \(Int(kb.rounded())) KB"
         }
         return "Cache size: \(String(format: "%.1f", kb / 1024)) MB"
+    }
+
+    // -- Diary tab (export + Obsidian-style sync) ------------------------------
+
+    // Mirrors macOS's DiaryTab (SettingsView.swift, SPEC.md §8b): Export is
+    // a stateless one-shot snapshot (DiaryExporter.exportMarkdown), Sync is
+    // incremental into a user-chosen folder (DiaryExporter.syncToFolder) —
+    // both read `sessionLogger.allSessionsSync()` directly, same as the Log
+    // tab above, never writing to sessions.json themselves.
+    private func buildDiaryTab(page: HWND, width: Int32) {
+        let settings = settingsStore.get()
+        let rowWidth = width - 2 * Self.rowMargin
+        var y = Self.rowMargin
+
+        addLabel("Export", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+
+        diarySessionCountLabel = addLabel(
+            Self.sessionCountText(sessionLogger.allSessionsSync().count),
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += Self.rowHeight
+
+        addButton("Export Diary…", in: page, x: Self.rowMargin, y: y, width: 140, height: 24) { [weak self] in
+            self?.exportDiary()
+        }
+        y += 24 + 4
+
+        diaryExportStatusLabel = addLabel("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += Self.rowHeight + Self.groupGap
+
+        addLabel("Obsidian", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+
+        diaryFolderLabel = addLabel(
+            Self.folderDisplayText(settings.diaryFolderPath),
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += Self.rowHeight
+
+        addButton("Choose…", in: page, x: Self.rowMargin, y: y, width: 100, height: 24) { [weak self] in
+            self?.chooseDiaryFolder()
+        }
+        let syncButton = addButton("Sync Now", in: page, x: Self.rowMargin + 108, y: y, width: 100, height: 24) { [weak self] in
+            self?.syncDiaryNow()
+        }
+        diarySyncButton = syncButton
+        // Matches macOS's `.disabled(viewModel.settings.diaryFolderPath.isEmpty)`.
+        EnableWindow(syncButton, !settings.diaryFolderPath.isEmpty)
+        y += 24 + 4
+
+        diaryLastSyncedLabel = addLabel(
+            Self.lastSyncedText(settings.diaryLastSyncedCount),
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += Self.rowHeight
+
+        diarySyncStatusLabel = addLabel("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+    }
+
+    private static func sessionCountText(_ count: Int) -> String {
+        "Sessions logged: \(count)"
+    }
+
+    private static func folderDisplayText(_ path: String) -> String {
+        path.isEmpty ? "Diary folder: Not set" : "Diary folder: \(path)"
+    }
+
+    // `diaryLastSyncedCount` is an index into the session log, not a
+    // timestamp — see DiaryExporter.swift's own header comment — so this
+    // reports how many sessions have been synced rather than a relative
+    // time, exactly like macOS's lastSyncedLabel.
+    private static func lastSyncedText(_ count: Int) -> String {
+        count == 0 ? "Last synced: Never" : "Last synced: \(count) session\(count == 1 ? "" : "s")"
+    }
+
+    private func exportDiary() {
+        guard let path = promptDiaryExportPath() else { return }
+        let url = URL(fileURLWithPath: path)
+        let markdown = DiaryExporter.exportMarkdown(sessions: sessionLogger.allSessionsSync())
+        do {
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            if let diaryExportStatusLabel {
+                setWindowText(diaryExportStatusLabel, "Exported to \(url.lastPathComponent).")
+            }
+        } catch {
+            if let diaryExportStatusLabel {
+                setWindowText(diaryExportStatusLabel, "Export failed.")
+            }
+        }
+    }
+
+    private func chooseDiaryFolder() {
+        guard let path = promptDiaryFolder() else { return }
+        settingsStore.update { $0.diaryFolderPath = path }
+        if let diaryFolderLabel {
+            setWindowText(diaryFolderLabel, Self.folderDisplayText(path))
+        }
+        if let diarySyncButton {
+            EnableWindow(diarySyncButton, true)
+        }
+        // Matches macOS's `syncStatus = nil` on a fresh folder choice — the
+        // previous folder's last sync outcome no longer means anything.
+        if let diarySyncStatusLabel {
+            setWindowText(diarySyncStatusLabel, "")
+        }
+    }
+
+    private func syncDiaryNow() {
+        let settings = settingsStore.get()
+        let allSessions = sessionLogger.allSessionsSync()
+        let alreadySynced = min(settings.diaryLastSyncedCount, allSessions.count)
+        let newEntries = Array(allSessions.dropFirst(alreadySynced))
+        let folderURL = URL(fileURLWithPath: settings.diaryFolderPath)
+        do {
+            let written = try DiaryExporter.syncToFolder(folderURL, newEntries: newEntries)
+            settingsStore.update { $0.diaryLastSyncedCount = allSessions.count }
+            if let diarySyncStatusLabel {
+                setWindowText(diarySyncStatusLabel, written == 0 ? "Nothing new to sync." : "Synced \(written) session\(written == 1 ? "" : "s").")
+            }
+            if let diaryLastSyncedLabel {
+                setWindowText(diaryLastSyncedLabel, Self.lastSyncedText(allSessions.count))
+            }
+        } catch {
+            if let diarySyncStatusLabel {
+                setWindowText(diarySyncStatusLabel, "Sync failed.")
+            }
+        }
+    }
+
+    // GetSaveFileNameW is comdlg32's plain save-dialog counterpart to
+    // ChooseColorW above — same "build a struct, call the Win32 API, check
+    // the result" shape, also a real modal that blocks this WndProc until
+    // OK/Cancel. lpstrFile must point at a real writable buffer that's
+    // pre-seeded with the default filename (Explorer overwrites it in place
+    // with whatever the user actually chose, extension appended per
+    // lpstrDefExt if they typed none) — same "caller-owned buffer" shape as
+    // ChooseColorW's lpCustColors, just stack-local here since nothing
+    // needs it to outlive this one call.
+    private func promptDiaryExportPath() -> String? {
+        var pathBuffer = [UInt16](repeating: 0, count: 260)
+        for (index, unit) in Array("Pomoppi Diary.md".utf16).enumerated() {
+            pathBuffer[index] = unit
+        }
+        // Double-NUL-terminated filter pairs, the OPENFILENAMEW convention:
+        // display string, then pattern, repeated, ending in an extra NUL.
+        let filter = Array("Markdown (*.md)\0*.md\0\0".utf16)
+        let defExt = Array("md".utf16) + [0]
+
+        var dialog = OPENFILENAMEW()
+        dialog.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
+        dialog.hwndOwner = hwnd
+        dialog.Flags = DWORD(OFN_OVERWRITEPROMPT) | DWORD(OFN_HIDEREADONLY)
+
+        let picked = filter.withUnsafeBufferPointer { filterPtr in
+            defExt.withUnsafeBufferPointer { defExtPtr in
+                pathBuffer.withUnsafeMutableBufferPointer { bufferPtr -> Bool in
+                    dialog.lpstrFilter = filterPtr.baseAddress
+                    dialog.lpstrDefExt = defExtPtr.baseAddress
+                    dialog.lpstrFile = bufferPtr.baseAddress
+                    dialog.nMaxFile = DWORD(bufferPtr.count)
+                    return GetSaveFileNameW(&dialog)
+                }
+            }
+        }
+        guard picked else { return nil }
+        return pathBuffer.withUnsafeBufferPointer { String(decodingCString: $0.baseAddress!, as: UTF16.self) }
+    }
+
+    // SHBrowseForFolderW (shell32) is the folder-only counterpart to
+    // GetSaveFileNameW above — no file dialog here restricts to
+    // directories, hence the older, separate API. It hands back a PIDL (an
+    // opaque shell item-identifier list), not a path directly;
+    // SHGetPathFromIDListW resolves that to a real path, and the PIDL
+    // itself must be freed via CoTaskMemFree once done — same
+    // caller-frees-it shell convention as AppStorage.storageDir()'s own
+    // SHGetKnownFolderPath.
+    private func promptDiaryFolder() -> String? {
+        var displayName = [UInt16](repeating: 0, count: Int(MAX_PATH))
+        let title = Array("Choose a folder for your diary".utf16) + [0]
+
+        var info = BROWSEINFOW()
+        info.hwndOwner = hwnd
+        info.ulFlags = UINT(BIF_RETURNONLYFSDIRS)
+
+        let pidl: UnsafeMutablePointer<ITEMIDLIST>? = displayName.withUnsafeMutableBufferPointer { namePtr in
+            title.withUnsafeBufferPointer { titlePtr in
+                info.pszDisplayName = namePtr.baseAddress
+                info.lpszTitle = titlePtr.baseAddress
+                return SHBrowseForFolderW(&info)
+            }
+        }
+        guard let pidl else { return nil }
+        defer { CoTaskMemFree(pidl) }
+
+        var pathBuffer = [UInt16](repeating: 0, count: Int(MAX_PATH))
+        let resolved = pathBuffer.withUnsafeMutableBufferPointer { SHGetPathFromIDListW(pidl, $0.baseAddress) }
+        guard resolved else { return nil }
+        return pathBuffer.withUnsafeBufferPointer { String(decodingCString: $0.baseAddress!, as: UTF16.self) }
     }
 
     // -- Keys tab: shortcut recording ------------------------------------------

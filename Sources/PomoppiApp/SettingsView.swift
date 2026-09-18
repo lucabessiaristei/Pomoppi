@@ -29,6 +29,9 @@ struct SettingsView: View {
             Tab("Log", systemImage: "clock.arrow.circlepath", value: "log") {
                 LogTab(viewModel: viewModel)
             }
+            Tab("Diary", systemImage: "book.closed", value: "diary") {
+                DiaryTab(viewModel: viewModel)
+            }
         }
         .scenePadding()
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
@@ -408,6 +411,11 @@ private struct LogTab: View {
             Button("Erase Cached Sessions", role: .destructive) {
                 Task {
                     await viewModel.sessionLogger.eraseAll()
+                    // The Diary tab's sync cursor is an index into the log
+                    // array this just wiped — it's meaningless now, and
+                    // left non-zero would skip every session logged after
+                    // the erase (dropFirst(stale-count) on a shorter array).
+                    viewModel.update { $0.diaryLastSyncedCount = 0 }
                     await refreshCacheSize()
                 }
             }
@@ -422,6 +430,100 @@ private struct LogTab: View {
 
     private static func formattedSize(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+// MARK: - Diary
+
+// The Diary tab (SPEC.md §8b): Export is a stateless one-shot snapshot,
+// Sync is incremental into a user-chosen folder (e.g. an Obsidian vault —
+// Pomoppi doesn't need to know that's what it is). `diaryLastSyncedCount`
+// is an index into the session log, not a timestamp, so "Last synced"
+// reports how many sessions have been synced rather than a relative time.
+private struct DiaryTab: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @State private var sessionCount = 0
+    @State private var exportStatus: String?
+    @State private var syncStatus: String?
+
+    var body: some View {
+        Form {
+            Section("Export") {
+                LabeledContent("Sessions logged", value: "\(sessionCount)")
+                Button("Export Diary…") { exportDiary() }
+                if let exportStatus {
+                    Text(exportStatus).foregroundStyle(.secondary)
+                }
+            }
+            Section("Obsidian") {
+                LabeledContent("Diary folder") {
+                    Text(folderDisplayPath)
+                        .foregroundStyle(viewModel.settings.diaryFolderPath.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                Button("Choose…") { chooseFolder() }
+                Button("Sync Now") { syncNow() }
+                    .disabled(viewModel.settings.diaryFolderPath.isEmpty)
+                LabeledContent("Last synced", value: lastSyncedLabel)
+                if let syncStatus {
+                    Text(syncStatus).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .settingsForm()
+        .task { refreshCount() }
+    }
+
+    private var folderDisplayPath: String {
+        viewModel.settings.diaryFolderPath.isEmpty ? "Not set" : viewModel.settings.diaryFolderPath
+    }
+
+    private var lastSyncedLabel: String {
+        let count = viewModel.settings.diaryLastSyncedCount
+        return count == 0 ? "Never" : "\(count) session\(count == 1 ? "" : "s")"
+    }
+
+    private func refreshCount() {
+        sessionCount = viewModel.sessionLogger.allSessionsSync().count
+    }
+
+    private func exportDiary() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Pomoppi Diary.md"
+        panel.allowedContentTypes = [.text]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let markdown = DiaryExporter.exportMarkdown(sessions: viewModel.sessionLogger.allSessionsSync())
+        do {
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            exportStatus = "Exported to \(url.lastPathComponent)."
+        } catch {
+            exportStatus = "Export failed."
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        viewModel.update { $0.diaryFolderPath = url.path }
+        syncStatus = nil
+    }
+
+    private func syncNow() {
+        let allSessions = viewModel.sessionLogger.allSessionsSync()
+        let alreadySynced = min(viewModel.settings.diaryLastSyncedCount, allSessions.count)
+        let newEntries = Array(allSessions.dropFirst(alreadySynced))
+        let folderURL = URL(fileURLWithPath: viewModel.settings.diaryFolderPath)
+        do {
+            let written = try DiaryExporter.syncToFolder(folderURL, newEntries: newEntries)
+            viewModel.update { $0.diaryLastSyncedCount = allSessions.count }
+            syncStatus = written == 0 ? "Nothing new to sync." : "Synced \(written) session\(written == 1 ? "" : "s")."
+        } catch {
+            syncStatus = "Sync failed."
+        }
     }
 }
 
