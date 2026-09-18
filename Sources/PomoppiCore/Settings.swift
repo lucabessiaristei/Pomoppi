@@ -19,12 +19,13 @@ public struct PomoppiSettings: Codable, Equatable {
     public var autoStartBreaks: Bool
     public var autoStartFocus: Bool
 
-    public var vaultPath: String
-    public var dailyNoteFolder: String
-    public var dailyNoteFormat: String
-    public var logHeading: String
-    public var logBreaks: Bool
-    public var logAborted: Bool
+    // Session history (SPEC.md §8, redesigned 2026-09-19): every completed
+    // or aborted phase is appended to a single local JSON file
+    // (`SessionLogger`, next to settings.json) whenever this is on — no
+    // vault/folder/heading to configure anymore, and no per-phase-kind
+    // toggle (logBreaks/logAborted are gone; the log is meant to be a
+    // complete internal record, with filtering left to whatever reads it
+    // later — see project-obsidian-logging-redesign).
     public var loggingEnabled: Bool
 
     public var friend: String
@@ -61,9 +62,10 @@ public struct PomoppiSettings: Codable, Equatable {
     public static let defaults = PomoppiSettings(
         focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4,
         autoStartBreaks: true, autoStartFocus: false,
-        vaultPath: "/Users/lucabessiaristei/Documents/Opal", dailyNoteFolder: "Pomodoro",
-        dailyNoteFormat: "YYYY-MM-DD", logHeading: "## Pomodoros",
-        logBreaks: false, logAborted: false, loggingEnabled: false,
+        // No vault to configure anymore, so there's nothing to misconfigure —
+        // unlike the old Obsidian-only default (false, "a fresh install has
+        // no vault configured yet"), this is safe to default on.
+        loggingEnabled: true,
         friend: friendIDs[0], frameStyle: "scallopy", background: backgroundIDs[0],
         inkColor: "#000000", paperColor: "#FFFFFF",
         alwaysOnTop: true, raiseOnEnd: true, scale: 2, opacity: 1.0,
@@ -74,8 +76,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public init(
         focusMinutes: Double, shortBreakMinutes: Double, longBreakMinutes: Double, longBreakEvery: Int,
         autoStartBreaks: Bool, autoStartFocus: Bool,
-        vaultPath: String, dailyNoteFolder: String, dailyNoteFormat: String, logHeading: String,
-        logBreaks: Bool, logAborted: Bool, loggingEnabled: Bool,
+        loggingEnabled: Bool,
         friend: String, frameStyle: String, background: String,
         inkColor: String, paperColor: String,
         alwaysOnTop: Bool, raiseOnEnd: Bool, scale: Int, opacity: Double,
@@ -89,12 +90,6 @@ public struct PomoppiSettings: Codable, Equatable {
         self.longBreakEvery = longBreakEvery
         self.autoStartBreaks = autoStartBreaks
         self.autoStartFocus = autoStartFocus
-        self.vaultPath = vaultPath
-        self.dailyNoteFolder = dailyNoteFolder
-        self.dailyNoteFormat = dailyNoteFormat
-        self.logHeading = logHeading
-        self.logBreaks = logBreaks
-        self.logAborted = logAborted
         self.loggingEnabled = loggingEnabled
         self.friend = friend
         self.frameStyle = frameStyle
@@ -118,7 +113,7 @@ public struct PomoppiSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case autoStartBreaks, autoStartFocus
-        case vaultPath, dailyNoteFolder, dailyNoteFormat, logHeading, logBreaks, logAborted, loggingEnabled
+        case loggingEnabled
         case friend, frameStyle, background, inkColor, paperColor
         case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
         case soundEnabled, ringSeconds, askForTaskName, shortcuts
@@ -148,12 +143,6 @@ public struct PomoppiSettings: Codable, Equatable {
         autoStartBreaks = (try? c.decodeIfPresent(Bool.self, forKey: .autoStartBreaks)) ?? d.autoStartBreaks
         autoStartFocus = (try? c.decodeIfPresent(Bool.self, forKey: .autoStartFocus)) ?? d.autoStartFocus
 
-        vaultPath = (try? c.decodeIfPresent(String.self, forKey: .vaultPath)) ?? d.vaultPath
-        dailyNoteFolder = (try? c.decodeIfPresent(String.self, forKey: .dailyNoteFolder)) ?? d.dailyNoteFolder
-        dailyNoteFormat = (try? c.decodeIfPresent(String.self, forKey: .dailyNoteFormat)) ?? d.dailyNoteFormat
-        logHeading = (try? c.decodeIfPresent(String.self, forKey: .logHeading)) ?? d.logHeading
-        logBreaks = (try? c.decodeIfPresent(Bool.self, forKey: .logBreaks)) ?? d.logBreaks
-        logAborted = (try? c.decodeIfPresent(Bool.self, forKey: .logAborted)) ?? d.logAborted
         loggingEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .loggingEnabled)) ?? d.loggingEnabled
 
         // `friend` was called `mascot` until the rename; read the old key only

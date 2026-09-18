@@ -8,7 +8,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var settingsStore: SettingsStore!
     private var timer: PomodoroTimer!
-    private var obsidianLogger: ObsidianLogger!
+    private var sessionLogger: SessionLogger!
     private var widgetWindow: WidgetWindow!
     private var trayController: TrayController!
 
@@ -36,10 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         settingsStore = SettingsStore(storageDir: Self.storageDir())
         timer = PomodoroTimer(settingsGetter: { [unowned self] in self.timerSettingsSnapshot() })
-        obsidianLogger = ObsidianLogger(getSettings: { [unowned self] in self.settingsStore.get() })
-        settingsViewModel = SettingsViewModel(settingsStore: settingsStore, obsidianLogger: obsidianLogger)
+        sessionLogger = SessionLogger(getSettings: { [unowned self] in self.settingsStore.get() }, storageDir: Self.storageDir())
+        settingsViewModel = SettingsViewModel(settingsStore: settingsStore, sessionLogger: sessionLogger)
         timer.onPhaseComplete = { [unowned self] event in
-            Task { await self.obsidianLogger.logSession(event) }
+            Task { await self.sessionLogger.logSession(event) }
         }
 
         widgetWindow = WidgetWindow(

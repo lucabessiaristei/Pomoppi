@@ -47,22 +47,21 @@ touching one.
 ## 0b. Parity ledger
 
 One row per behavior that is known to diverge between the two platforms.
-As of Phase W8, the Windows port is content-complete except Obsidian
-(§8, deliberately deferred) — every row below reflects real, shipped
-behavior on both sides, not a plan.
+As of the 2026-09-19 session-log redesign, every remaining known gap is
+listed here — every row reflects real, shipped behavior on both sides,
+not a plan.
 
 | Behavior | macOS | Windows |
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Obsidian | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Log | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
-| Task-name prompt | Real: `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled && vaultPath` (§5) | **None.** `startPause` starts the timer directly — a known, explicitly-flagged gap, not a silent omission (see `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) |
-| Chime playback | **None either.** `soundEnabled`/`ringSeconds` are real, persisted settings with real UI, but no code plays a sound on any phase completion | Same — no audio playback exists on this platform either (§4) |
+| Task-name prompt | Real: `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | **None.** `startPause` starts the timer directly — a known, explicitly-flagged gap, not a silent omission (see `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) |
+| Chime playback | **None either.** `soundEnabled`/`ringSeconds` are real, persisted settings with real UI, but no code plays a sound on any phase completion (paused, see the chime folder/options request — not built yet) | Same — no audio playback exists on this platform either (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
-| Obsidian logging | Real: `ObsidianLogger` instantiated and called from `AppDelegate.swift`, full settings UI (§8) | **None.** `ObsidianLogger` (shared `PomoppiCore`) builds/tests clean here but is never called; no UI exists to enable it — deliberately deferred pending a redesign, not a gap in the port itself |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
 
 ## 1. Art direction (non-negotiable) `[divergent]`
@@ -372,8 +371,8 @@ Phase transitions, `skip()`'s bidirectional semantics, wall-clock timing
 (`PomoppiCore`), driven identically by both platforms. **The task-name
 prompt is not.** macOS implements this paragraph for real
 (`StartCoordinator.swift`: prompts via `NSAlert` when `askForTaskName` is
-on, or unconditionally when `loggingEnabled && !vaultPath.isEmpty`, exactly
-as described below). **Windows has no prompt at all** — `startPause` calls
+on, or unconditionally when `loggingEnabled` (§8), exactly as described
+below). **Windows has no prompt at all** — `startPause` calls
 `timer.start()` directly, a known, explicitly-flagged gap (native Win32
 has no attempted implementation of this dialog yet; see
 `WINDOWS_PORT_PLAN.md`'s W3/W5 notes for why no phase has claimed it).
@@ -399,11 +398,13 @@ no task is set yet**. Prompting unconditionally meant naming a session ahead of
 time (tray > Set task…) and then pressing play re-opened the same dialog on top
 of the name just typed, which made setting a task in advance pointless.
 **Native additionally makes the prompt mandatory** — regardless of
-`askForTaskName`'s stored value — whenever `loggingEnabled` is true and
-`vaultPath` is non-empty: an Obsidian entry with no task name isn't a useful
-line to have logged, so that combination forces the ask rather than silently
-skipping it. Cancelling that forced prompt leaves the timer idle instead of
-starting; cancelling the ordinary, optional prompt still starts the timer.
+`askForTaskName`'s stored value — whenever `loggingEnabled` is true: a
+logged session with no task name isn't a useful line to have recorded, so
+that alone forces the ask rather than silently skipping it (before the
+2026-09-19 session-log redesign, this also required a configured Obsidian
+vault; there's no vault concept left to check). Cancelling that forced
+prompt leaves the timer idle instead of starting; cancelling the ordinary,
+optional prompt still starts the timer.
 
 Timing is **wall-clock based**, not tick-accumulated: store `endsAt`
 (epoch ms) and derive `remainingMs = endsAt - Date.now()`. On pause store
@@ -501,13 +502,8 @@ with defaults (and the bad file renamed `settings.json.bak`).
   autoStartBreaks: true,
   autoStartFocus: false,
 
-  vaultPath: '/Users/lucabessiaristei/Documents/Opal',
-  dailyNoteFolder: '',              // '' = vault root
-  dailyNoteFormat: 'YYYY-MM-DD',
-  logHeading: '## Pomodoros',
-  logBreaks: false,
-  logAborted: false,
-  loggingEnabled: false,             // off by default: a fresh install has no vault configured yet
+  loggingEnabled: true,              // on by default since the 2026-09-19 redesign -- no vault/folder
+                                     // to misconfigure first anymore, see §8
 
   friend: <first of SPRITES.FRIEND_IDS>,
   frameStyle: 'scallopy',            // one of SPRITES.FRAME_STYLES
@@ -525,7 +521,7 @@ with defaults (and the bad file renamed `settings.json.bak`).
   ringSeconds: 10,
   askForTaskName: true,             // prompt for a task when starting focus; native additionally
                                      // forces this on (regardless of the stored value) whenever
-                                     // loggingEnabled is true and vaultPath is non-empty -- see §5
+                                     // loggingEnabled is true -- see §5
 
   shortcuts: { ... },               // the schema's one nested object -- see §13
 }
@@ -612,9 +608,10 @@ visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. **This
 table is stale, though: both native apps actually ship 6 tabs, not 5** —
 a **Keys** tab (shortcut recorder, Phase W7) was added after this table
-was written and belongs between Window and Sound. Order, left to right,
-as both platforms actually build it: Rhythm, Appearance, Window, Keys,
-Sound, Obsidian.
+was written and belongs between Window and Sound; the last tab itself
+was renamed from **Obsidian** to **Log** in the 2026-09-19 session-log
+redesign (§8). Order, left to right, as both platforms actually build it:
+Rhythm, Appearance, Window, Keys, Sound, Log.
 
 | Tab | Holds |
 |---|---|
@@ -623,7 +620,7 @@ Sound, Obsidian.
 | Window | always-on-top, pop-to-front-on-end, launch at login, start hidden |
 | Keys *(not in this table — added later)* | one click-to-record row per global shortcut, Reset to Defaults, a static list of the fixed in-app keys |
 | Sound | chime on/off, ring duration |
-| Obsidian | logging on/off, vault path, folder, filename, heading, log-breaks/aborted, test |
+| Log *(renamed from Obsidian, and its contents replaced along with it)* | logging on/off, cache-size readout, Erase Cached Sessions |
 
 Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
 a pixel match for SwiftUI's `Form`/`Section` — see
@@ -661,49 +658,78 @@ Rules that outlive the exact list:
   **tab bar** scrolls horizontally when it no longer fits. The page body itself
   never scrolls sideways.
 
-## 8. Obsidian logging `[macOS]`
+## 8. Session log `[both]`
 
-`ObsidianLogger.swift` itself lives in shared `PomoppiCore` and builds/tests
-clean on Windows too — but it is only ever **instantiated and called** from
-`AppDelegate.swift`. `Sources/PomoppiWindows/` has zero references to it:
-no Windows UI exists to turn `loggingEnabled` on in the first place (the
-Obsidian tab is still the Phase-W6 placeholder), and nothing in
-`main.swift` calls it on phase completion. This is deliberate, not an
-oversight — see the `project-obsidian-logging-redesign` decision: session
-logging is being redesigned into a platform-agnostic JSON format before any
-Windows Obsidian UI gets built, so building one now would mean redoing it
-shortly after. Don't wire this up for Windows without checking that
-decision first.
+**Redesigned 2026-09-19, replacing Obsidian-markdown logging entirely** —
+everything below this point in the section describes the current design;
+see the note at the very end for what it replaced. `SessionLogger.swift`
+(`PomoppiCore`) is real and wired on **both** platforms now — the Windows
+gap the previous version of this section described (no UI, no call site)
+no longer exists; `main.swift` logs every phase completion the same way
+`AppDelegate.swift` does.
 
-Target file: `<vaultPath>/<dailyNoteFolder>/<formatted date>.md`, where the
-format supports `YYYY`, `MM`, `DD` (and nothing else). Create parent folders and
-the file if missing.
+No vault, no folder, no filename format, no heading string — those
+settings are gone. The only remaining setting is `loggingEnabled` (default
+`true` now — there's nothing left to misconfigure before turning it on).
 
-On a **completed focus session** (and on completed breaks only when
-`logBreaks`), append under the `logHeading` section:
+Target file: `<storageDir>/sessions.json` — the same directory
+`settings.json` already lives in (`AppDelegate.storageDir()` / Windows'
+`storageDir()`), not a user-chosen vault. One continuous file, not one per
+day: `{"sessions": [ {…}, {…}, … ]}`, newest appended last. Rewriting the
+whole array on every append is a deliberate, accepted simplification —
+not solved for the case where session history grows large enough for that
+to matter.
 
-```markdown
-## Pomodoros
-- 09:15–09:40 (25m) — writing spec ✅
-- 09:45–09:50 (5m break)
-- 10:00–10:25 (25m) — refactor auth ✅
+Every completed **or aborted** phase (focus, short break, and long break
+alike) is logged unconditionally when `loggingEnabled` is on — no
+`logBreaks`/`logAborted`-style filtering anymore. This is meant to be a
+complete internal record; deciding what to show or export is a job for
+whatever reads the file later (see the note below), not for the logger.
 
-**Total focus: 50m across 2 pomodoros**
+Each entry:
+
+```json
+{
+  "phase": "focus",
+  "task": "writing spec",
+  "day": 19, "month": 9, "year": 2026,
+  "startTime": "2026-09-19T09:15:00Z",
+  "endTime": "2026-09-19T09:40:00Z",
+  "durationMinutes": 25,
+  "completed": true
+}
 ```
 
-Rules:
-- If the heading is absent, append it (preceded by a blank line) at end of file.
-- Insert each new entry as the last `- ` line of that section, i.e. before the
-  `**Total focus:` line and before the next `## ` heading, whichever comes first.
-- Recompute the `**Total focus:` line on every write from the `- ` lines in the
-  section; create it if absent, replace it in place if present. Count only
-  lines ending in ✅.
-- Aborted sessions (`logAborted`) use `❌` and the elapsed time, not the target.
-- En-dash `–` between times. Task omitted entirely (no `— `) when empty.
-- Writes are **atomic**: write to `<file>.tmp` then `fs.rename`. Serialise
-  writes through a promise chain so two sessions can never interleave.
-- Never throw into the timer path — a logging failure is reported to the widget
-  as a state field, never a crash.
+`day`/`month`/`year` sit alongside the full ISO8601 `startTime`/`endTime`
+(not derived from them by whatever reads the file) so trivial date
+filtering doesn't require every consumer to parse a timestamp first.
+`durationMinutes` is the *planned* length for a completed phase, the
+*actual* elapsed time for an aborted one — same distinction the old
+Obsidian format made between a session's target and its real length.
+
+Writes are atomic (write to `<file>.tmp`, then rename over the real file)
+and go through an actor on both platforms, so two phases completing close
+together can never interleave a read-modify-write of the same file — see
+`SessionLogger`'s own comments for the one deliberate exception (a
+synchronous, non-actor-isolated `eraseAllSync()`, used only by the
+Log tab's "Erase Cached Sessions" button after its own confirmation
+dialog, an accepted simplification for a rare, user-initiated action, not
+a hot path).
+
+The Log tab (renamed from "Obsidian," §7's settings-window-layout
+subsection) holds: the `loggingEnabled` toggle, a live cache-size readout,
+and that Erase button.
+
+**What this replaced**: Electron/the original Swift rewrite wrote directly
+to an Obsidian daily note (`<vaultPath>/<dailyNoteFolder>/<date>.md`,
+inserting `- ` lines under a configurable heading and recomputing a
+running `**Total focus:** ` line on every write) — Obsidian-markdown-
+specific, and only ever wired up on macOS. The intent going forward (not
+built yet — see `project-obsidian-logging-redesign`) is a "Diary" tab that
+reads *this* JSON file and either syncs it to Obsidian/Apple Notes/OneNote/
+etc., or exports it as nicely-formatted text (`.md`/`.odt`) — an export
+built on top of the internal record, rather than writing a specific
+editor's format directly the way the old design did.
 
 ## 9. Tray `[divergent]`
 

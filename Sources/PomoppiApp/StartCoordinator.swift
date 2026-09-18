@@ -5,9 +5,12 @@ import PomoppiCore
 // by the widget's play button, the tray menu, and the startPause global
 // shortcut alike, so the task-name prompt only has to be wired once —
 // mirrors requestStart() in main.js. The "must ask" gate is stricter here
-// than askForTaskName alone: once Obsidian logging is turned on and pointed
-// at a vault, asking becomes mandatory regardless of that toggle, because
-// without a task name there's no good line to write to the daily note.
+// than askForTaskName alone: once session logging is on, asking becomes
+// mandatory regardless of that toggle, because without a task name
+// there's no good line to log. (Before the 2026-09-19 session-log
+// redesign, this also required a configured Obsidian vault — that check
+// is gone along with vaultPath itself; logging is meaningful the moment
+// it's turned on now, no vault to point it at first.)
 enum StartCoordinator {
     static func requestStart(timer: PomodoroTimer, settingsStore: SettingsStore) {
         let state = timer.getState()
@@ -17,21 +20,20 @@ enum StartCoordinator {
         }
 
         let settings = settingsStore.get()
-        let vaultConfigured = !settings.vaultPath.trimmingCharacters(in: .whitespaces).isEmpty
-        let obsidianMandatory = settings.loggingEnabled && vaultConfigured
-        guard settings.askForTaskName || obsidianMandatory else {
+        let loggingMandatory = settings.loggingEnabled
+        guard settings.askForTaskName || loggingMandatory else {
             timer.start()
             return
         }
 
-        switch promptForTaskName(mandatory: obsidianMandatory) {
+        switch promptForTaskName(mandatory: loggingMandatory) {
         case .started(let task):
             if !task.isEmpty { timer.setTask(task) }
             timer.start()
         case .cancelled:
             // A purely optional prompt still starts on cancel — only the
-            // Obsidian-mandated ask actually blocks starting the timer.
-            if !obsidianMandatory { timer.start() }
+            // logging-mandated ask actually blocks starting the timer.
+            if !loggingMandatory { timer.start() }
         }
     }
 
@@ -45,7 +47,7 @@ enum StartCoordinator {
         let alert = NSAlert()
         alert.messageText = "What are you working on?"
         alert.informativeText = mandatory
-            ? "Obsidian logging is on, so this session needs a task name to log a useful line."
+            ? "Session logging is on, so this session needs a task name to log a useful line."
             : "Optional — leave blank to skip."
         alert.addButton(withTitle: "Start")
         alert.addButton(withTitle: "Cancel")
