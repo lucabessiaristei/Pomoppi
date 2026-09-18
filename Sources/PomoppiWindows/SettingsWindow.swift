@@ -6,6 +6,7 @@
 // project-obsidian-logging-redesign. One singleton instance, mirroring
 // macOS's single reused `Settings` scene; see WINDOWS_PORT_PLAN.md's W6/W7
 // entry for how this file grew phase by phase.
+import Foundation
 import PomoppiCore
 import PomoppiRender
 import WinSDK
@@ -52,11 +53,26 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // owner-drawn picker cards (BS_OWNERDRAW buttons showing a rendered
 // PixelCanvas preview instead of stock button chrome) — like
 // WM_COMMAND/WM_NOTIFY, Windows always sends WM_DRAWITEM to the control's
-// immediate parent, never a grandparent.
+// immediate parent, never a grandparent. WM_HSCROLL forwards the same way
+// too, added for the opacity Trackbar32: a horizontal trackbar's scroll
+// notification is, like BN_CLICKED, delivered to its immediate parent.
+//
+// WM_VSCROLL is different and deliberately NOT forwarded: it's not a child
+// control's notification at all here, it's the Appearance page's *own*
+// built-in scrollbar (WS_VSCROLL on the page itself, only on that one page
+// — see createPage) reporting a drag/click on its own non-client-area
+// scrollbar, which Windows always delivers straight to the window that
+// owns that scrollbar. Routed to the shared instance the same way
+// pomoppiSettingsWndProc routes the top-level window's own messages,
+// since a plain top-level function has no instance state of its own to
+// track scroll position in.
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM),
+    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL),
        let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
+    }
+    if message == UINT(WM_VSCROLL), let hwnd {
+        return SettingsWindow.shared?.handlePageScroll(page: hwnd, wParam: wParam) ?? DefWindowProcW(hwnd, message, wParam, lParam)
     }
     return DefWindowProcW(hwnd, message, wParam, lParam)
 }
@@ -138,6 +154,100 @@ final class SettingsWindow {
         let itemID: String
     }
     private var pickerCards: [PickerCardControl] = []
+
+    // The Appearance tab's theme-preset swatches: a plain two-color card
+    // (paper fill + ink dot, no PixelCanvas involved — these aren't art
+    // previews) that sets ink AND paper together on click. Mirrors macOS's
+    // ThemePresetPicker/themePresets exactly (same 12 presets, same names).
+    private struct ThemePreset {
+        let name: String
+        let ink: String
+        let paper: String
+    }
+    private static let themePresets: [ThemePreset] = [
+        ThemePreset(name: "Classic", ink: "#000000", paper: "#FFFFFF"),
+        ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
+        ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
+        ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
+        ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
+        ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
+        ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
+        ThemePreset(name: "Berry", ink: "#FDE4ED", paper: "#3B1C2A"),
+        ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
+        ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
+        ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
+        ThemePreset(name: "Peach", ink: "#683525", paper: "#FFE1CF"),
+    ]
+    private struct ThemeSwatchControl {
+        let hwnd: HWND
+        let preset: ThemePreset
+    }
+    private var themeSwatches: [ThemeSwatchControl] = []
+
+    // The ink/paper ChooseColorW pickers: each is a plain owner-drawn
+    // swatch button (fills with the current color, thin border) that opens
+    // the common color dialog on click. `keyPath` says which
+    // PomoppiSettings field this row edits — both rows share the exact
+    // same wiring, only the keyPath differs.
+    private struct ColorPickerControl {
+        let hwnd: HWND
+        let keyPath: WritableKeyPath<PomoppiSettings, String>
+    }
+    private var colorPickers: [ColorPickerControl] = []
+    // ChooseColorW's custom-color swatches persist only for as long as the
+    // array backing lpCustColors stays alive — kept at instance scope (not
+    // a local var inside pickColor) so a color picked as "custom" in one
+    // call is still offered as a recent custom color the next time this
+    // same settings window instance opens the dialog again.
+    private var customColors: [DWORD] = [DWORD](repeating: 0x00FF_FFFF, count: 16)
+
+    // The scale picker's 4 options (1x-4x) — plain owner-drawn buttons
+    // standing in for macOS's segmented Picker; each shows its own
+    // "N×" text and a highlighted background when selected.
+    private struct ScaleOptionControl {
+        let hwnd: HWND
+        let value: Int
+    }
+    private var scaleOptions: [ScaleOptionControl] = []
+
+    // The opacity Trackbar32 and its live "NN%" readout — both cached so
+    // handleOpacityScroll (WM_HSCROLL) can update the label text without
+    // re-querying settingsStore for anything but the trackbar's own
+    // current position.
+    private var opacityTrackbar: HWND?
+    private var opacityValueLabel: HWND?
+
+    // The Appearance page's own scroll state — it's the only page whose
+    // content is taller than the fixed window (12 theme swatches + 3
+    // picker grids + 2 color rows + size/opacity controls easily clears
+    // 650px against a ~450px visible page area), so it's the only page
+    // built with WS_VSCROLL (see createPage). `appearanceContentHeight` is
+    // set once at the end of buildAppearanceTab from the running `y` every
+    // add*/build* helper below already returns/advances.
+    private var appearancePage: HWND?
+    private var appearanceContentHeight: Int32 = 0
+    private var appearanceScrollY: Int32 = 0
+
+    // Every one of the Appearance page's own children (labels included),
+    // recorded at its un-scrolled ("base") position the moment it's
+    // created. scrollAppearance repositions each one directly via
+    // SetWindowPos rather than ScrollWindowEx — see scrollAppearance's own
+    // comment for why: ScrollWindowEx's SW_SCROLLCHILDREN blit-and-shift
+    // approach turned out to visibly corrupt this page live in the VM
+    // (confirmed by screenshot — stale fragments of labels/cards left
+    // behind after scrolling), a real, documented MSDN caveat of that
+    // flag, not a fluke of this one call.
+    private struct AppearanceControlPosition {
+        let hwnd: HWND
+        let baseX: Int32
+        let baseY: Int32
+    }
+    private var appearanceControlPositions: [AppearanceControlPosition] = []
+
+    private func trackAppearanceControl(_ hwnd: HWND, x: Int32, y: Int32) {
+        appearanceControlPositions.append(AppearanceControlPosition(hwnd: hwnd, baseX: x, baseY: y))
+    }
+
     // The Keys tab's own page — SetFocus target while recording, so the
     // capture keystroke's WM_(SYS)KEYDOWN has somewhere of ours to land
     // (see startRecording/handleShortcutRecorderKeyDown below).
@@ -162,6 +272,7 @@ final class SettingsWindow {
     private static let buttonClassName: [UInt16] = Array("BUTTON".utf16) + [0]
     private static let editClassName: [UInt16] = Array("EDIT".utf16) + [0]
     private static let upDownClassName: [UInt16] = Array("msctls_updown32".utf16) + [0]
+    private static let trackbarClassName: [UInt16] = Array("msctls_trackbar32".utf16) + [0]
     private static let hInstance = GetModuleHandleW(nil)
 
     // Shared row geometry for the plain vertical stacks the 3 real tabs
@@ -214,12 +325,14 @@ final class SettingsWindow {
 
     // Process-wide, once, before the first SysTabControl32/msctls_updown32
     // is created — ICC_TAB_CLASSES for the tab strip (part 1), plus
-    // ICC_UPDOWN_CLASS for the Rhythm/Sound numeric steppers (part 2).
+    // ICC_UPDOWN_CLASS for the Rhythm/Sound numeric steppers (part 2), plus
+    // ICC_BAR_CLASSES for the Appearance tab's opacity msctls_trackbar32
+    // (part 2 of W7).
     private static func initCommonControlsIfNeeded() {
         guard !commonControlsInitialized else { return }
         var icc = INITCOMMONCONTROLSEX()
         icc.dwSize = DWORD(MemoryLayout<INITCOMMONCONTROLSEX>.size)
-        icc.dwICC = DWORD(ICC_TAB_CLASSES) | DWORD(ICC_UPDOWN_CLASS)
+        icc.dwICC = DWORD(ICC_TAB_CLASSES) | DWORD(ICC_UPDOWN_CLASS) | DWORD(ICC_BAR_CLASSES)
         InitCommonControlsEx(&icc)
         commonControlsInitialized = true
     }
@@ -333,6 +446,11 @@ final class SettingsWindow {
     private func createPage(title: String, rect: RECT) -> HWND {
         let width = rect.right - rect.left
         let height = rect.bottom - rect.top
+        // Only the Appearance page gets its own scrollbar — it's the only
+        // page whose content is taller than the fixed window (see
+        // appearanceContentHeight's own comment). The other 5 pages fit
+        // comfortably and stay exactly as before.
+        let scrollStyle: Int32 = (title == "Appearance") ? WS_VSCROLL : 0
         guard let page = (Self.pageClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
@@ -352,7 +470,7 @@ final class SettingsWindow {
                 // region and never reaches the screen. WS_CLIPSIBLINGS only
                 // matters when overlapping siblings can be visible at the
                 // same time, which never happens here.
-                DWORD(WS_CHILD),
+                DWORD(WS_CHILD) | DWORD(bitPattern: scrollStyle),
                 rect.left, rect.top, width, height,
                 hwnd, nil, Self.hInstance, nil)
         }) else {
@@ -366,7 +484,12 @@ final class SettingsWindow {
         case "Rhythm":
             buildRhythmTab(page: page, width: width)
         case "Appearance":
-            buildAppearanceTab(page: page, width: width)
+            appearancePage = page
+            // Layout uses a narrower width than the page's own physical
+            // size so nothing sits under the vertical scrollbar this page
+            // alone gets (see scrollStyle above).
+            buildAppearanceTab(page: page, width: width - GetSystemMetrics(SM_CXVSCROLL))
+            updateAppearanceScrollRange(pageHeight: height)
         case "Window":
             buildWindowTab(page: page, width: width)
         case "Sound":
@@ -469,7 +592,7 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        addLabel("Roommate", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        addLabel("Roommate", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
         y += 20
         y += addPickerGrid(
             kind: .friend, items: PomoppiSettings.friendIDs, in: page,
@@ -480,7 +603,7 @@ final class SettingsWindow {
         }
         y += Self.groupGap
 
-        addLabel("Window edge", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        addLabel("Window edge", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
         y += 20
         y += addPickerGrid(
             kind: .frameStyle, items: PomoppiSettings.frameStyles, in: page,
@@ -491,15 +614,33 @@ final class SettingsWindow {
         }
         y += Self.groupGap
 
-        addLabel("Background", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        addLabel("Background", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
         y += 20
-        addPickerGrid(
+        y += addPickerGrid(
             kind: .background, items: PomoppiSettings.backgroundIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
             cardWidth: 96, cardHeight: 56
         ) { [settingsStore] background in
             settingsStore.update { $0.background = background }
         }
+        y += Self.groupGap
+
+        addLabel("Theme", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
+        y += 20
+        y += addThemePresetGrid(in: page, x: Self.rowMargin, y: y, availableWidth: rowWidth)
+        y += Self.groupGap
+
+        y += addColorPickerRow(label: "Ink", keyPath: \.inkColor, in: page, x: Self.rowMargin, y: y)
+        y += addColorPickerRow(label: "Paper", keyPath: \.paperColor, in: page, x: Self.rowMargin, y: y)
+        y += Self.groupGap
+
+        addLabel("Size & transparency", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
+        y += 20
+        y += addScalePicker(in: page, x: Self.rowMargin, y: y)
+        y += addOpacitySlider(in: page, x: Self.rowMargin, y: y)
+        y += Self.rowMargin
+
+        appearanceContentHeight = y
     }
 
     // A plain flow layout (left-to-right, wrapping at `availableWidth`) of
@@ -529,7 +670,7 @@ final class SettingsWindow {
             let cardX = x + col * cellWidth
             let cardY = y + row * rowHeight
             addPickerCard(kind: kind, itemID: item, in: page, x: cardX, y: cardY, width: cardWidth, height: cardHeight, onSelect: onSelect)
-            addLabel(displayName(item), in: page, x: cardX, y: cardY + cardHeight + 2, width: cardWidth, height: labelHeight)
+            addLabel(displayName(item), in: page, x: cardX, y: cardY + cardHeight + 2, width: cardWidth, height: labelHeight, trackForScroll: true)
         }
 
         let rowCount = (Int32(items.count) + columns - 1) / columns
@@ -558,6 +699,7 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (picker card) failed with error \(GetLastError())")
         }
         pickerCards.append(PickerCardControl(hwnd: button, kind: kind, itemID: itemID))
+        trackAppearanceControl(button, x: x, y: y)
         pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self] in
             onSelect(itemID)
             self?.invalidateAllPickerCards()
@@ -579,17 +721,33 @@ final class SettingsWindow {
     }
 
     // The WM_DRAWITEM handler (forwarded here via pomoppiSettingsPageWndProc
-    // + this window's own handleMessage): looks up which picker card owns
-    // the drawn HWND, builds its current preview (ink/paper/frameStyle read
-    // fresh from settingsStore every time, not cached at button-creation
-    // time, so a later theme/color change — once that lands — repaints
-    // correctly without this code needing to change), and draws it plus a
-    // selection border.
+    // + this window's own handleMessage): looks up which owner-drawn
+    // control owns the drawn HWND — across all four kinds this tab now has
+    // (picker cards, theme swatches, color-picker swatches, scale
+    // options) — builds its current appearance fresh from settingsStore
+    // every time (not cached at button-creation time, so a later
+    // color/theme change always repaints every dependent control
+    // correctly), and draws it plus a selection border where relevant.
     private func handleDrawItem(lParam: LPARAM) -> LRESULT {
         guard let drawItem = UnsafeMutablePointer<DRAWITEMSTRUCT>(bitPattern: UInt(bitPattern: Int(lParam))) else { return 0 }
-        guard let control = pickerCards.first(where: { $0.hwnd == drawItem.pointee.hwndItem }) else { return 0 }
-        drawPickerCard(control, drawItem: drawItem.pointee)
-        return 1
+        let hwndItem = drawItem.pointee.hwndItem
+        if let control = pickerCards.first(where: { $0.hwnd == hwndItem }) {
+            drawPickerCard(control, drawItem: drawItem.pointee)
+            return 1
+        }
+        if let swatch = themeSwatches.first(where: { $0.hwnd == hwndItem }) {
+            drawThemeSwatch(swatch, drawItem: drawItem.pointee)
+            return 1
+        }
+        if let picker = colorPickers.first(where: { $0.hwnd == hwndItem }) {
+            drawColorSwatch(picker, drawItem: drawItem.pointee)
+            return 1
+        }
+        if let option = scaleOptions.first(where: { $0.hwnd == hwndItem }) {
+            drawScaleOption(option, drawItem: drawItem.pointee)
+            return 1
+        }
+        return 0
     }
 
     private func drawPickerCard(_ control: PickerCardControl, drawItem: DRAWITEMSTRUCT) {
@@ -631,6 +789,387 @@ final class SettingsWindow {
             SelectObject(hdc, previousBrush)
             DeleteObject(borderPen)
         }
+    }
+
+    // A generic bordered-rectangle helper every owner-drawn control below
+    // ends its own painting with — the exact border-drawing tail of
+    // drawPickerCard above, pulled out once it started repeating a third
+    // time (theme swatches, color swatches, scale options all want the
+    // same "1px shadow, 2px highlight when selected" frame).
+    private func drawSelectionBorder(hdc: HDC?, rect: RECT, isSelected: Bool) {
+        guard let borderPen = CreatePen(PS_SOLID, isSelected ? 2 : 1, GetSysColor(isSelected ? COLOR_HIGHLIGHT : COLOR_BTNSHADOW)) else { return }
+        let previousPen = SelectObject(hdc, borderPen)
+        let previousBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH))
+        Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom)
+        SelectObject(hdc, previousPen)
+        SelectObject(hdc, previousBrush)
+        DeleteObject(borderPen)
+    }
+
+    // hex "#RRGGBB" -> (r,g,b) — a local copy of PixelCanvas's own private
+    // rgb(hex:) (that one stays private to PixelCanvas.swift), needed here
+    // for the plain GDI-brush swatches below that don't go through
+    // PixelCanvas/AppearancePreviews at all.
+    private static func rgbComponents(hex: String) -> (UInt8, UInt8, UInt8) {
+        var s = hex
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let value = UInt32(s, radix: 16) else { return (0, 0, 0) }
+        return (UInt8((value >> 16) & 0xFF), UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF))
+    }
+
+    private static func colorref(hex: String) -> COLORREF {
+        let (r, g, b) = rgbComponents(hex: hex)
+        return COLORREF(DWORD(r) | (DWORD(g) << 8) | (DWORD(b) << 16))
+    }
+
+    // -- Appearance tab: theme presets ----------------------------------------
+
+    // Mirrors macOS's ThemePresetPicker: a plain two-color swatch (paper
+    // fill + ink dot) per preset, no PixelCanvas involved since there's no
+    // art to preview here, just the two colors themselves. Same flow-layout
+    // shape as addPickerGrid, just with a smaller/plainer card.
+    @discardableResult
+    private func addThemePresetGrid(in page: HWND, x: Int32, y: Int32, availableWidth: Int32) -> Int32 {
+        let swatchSize: Int32 = 36
+        let gap: Int32 = 10
+        let labelHeight: Int32 = 14
+        let cellWidth = swatchSize + gap
+        let columns = max(1, (availableWidth + gap) / cellWidth)
+        let rowHeight = swatchSize + labelHeight + 2 + gap
+
+        for (index, preset) in Self.themePresets.enumerated() {
+            let col = Int32(index) % columns
+            let row = Int32(index) / columns
+            let swatchX = x + col * cellWidth
+            let swatchY = y + row * rowHeight
+            guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, nil,
+                    DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
+                    swatchX, swatchY, swatchSize, swatchSize,
+                    page, nil, Self.hInstance, nil)
+            }) else {
+                fatalError("CreateWindowExW (theme swatch) failed with error \(GetLastError())")
+            }
+            themeSwatches.append(ThemeSwatchControl(hwnd: button, preset: preset))
+            trackAppearanceControl(button, x: swatchX, y: swatchY)
+            pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
+                settingsStore.update {
+                    $0.inkColor = preset.ink
+                    $0.paperColor = preset.paper
+                }
+                self?.invalidateEverythingColorDependent()
+            }))
+            addLabel(preset.name, in: page, x: swatchX - 7, y: swatchY + swatchSize + 2, width: swatchSize + 14, height: labelHeight, centered: true, trackForScroll: true)
+        }
+
+        let rowCount = (Int32(Self.themePresets.count) + columns - 1) / columns
+        return rowCount * rowHeight
+    }
+
+    private func drawThemeSwatch(_ swatch: ThemeSwatchControl, drawItem: DRAWITEMSTRUCT) {
+        let settings = settingsStore.get()
+        let isSelected = settings.inkColor == swatch.preset.ink && settings.paperColor == swatch.preset.paper
+        let hdc = drawItem.hDC
+        var rect = drawItem.rcItem
+
+        if let paperBrush = CreateSolidBrush(Self.colorref(hex: swatch.preset.paper)) {
+            FillRect(hdc, &rect, paperBrush)
+            DeleteObject(paperBrush)
+        }
+
+        // The ink dot: a filled circle centred in the swatch, inset by a
+        // third on each side (mirrors the ZStack's Circle sized well
+        // inside the RoundedRectangle on macOS). NULL_PEN skips an outline
+        // so the fill alone defines the dot's edge.
+        let inset = (rect.right - rect.left) / 3
+        if let inkBrush = CreateSolidBrush(Self.colorref(hex: swatch.preset.ink)) {
+            let previousBrush = SelectObject(hdc, inkBrush)
+            let previousPen = SelectObject(hdc, GetStockObject(NULL_PEN))
+            Ellipse(hdc, rect.left + inset, rect.top + inset, rect.right - inset, rect.bottom - inset)
+            SelectObject(hdc, previousBrush)
+            SelectObject(hdc, previousPen)
+            DeleteObject(inkBrush)
+        }
+
+        drawSelectionBorder(hdc: hdc, rect: rect, isSelected: isSelected)
+    }
+
+    // -- Appearance tab: ink/paper color pickers -------------------------------
+
+    // Mirrors macOS's ColorPicker("Ink"/"Paper", ...): a plain swatch
+    // button showing the current color that opens the Win32 common color
+    // dialog (ChooseColorW) on click. `keyPath` is the only thing that
+    // differs between the Ink and Paper rows — everything else is shared.
+    @discardableResult
+    private func addColorPickerRow(label: String, keyPath: WritableKeyPath<PomoppiSettings, String>, in page: HWND, x: Int32, y: Int32) -> Int32 {
+        addLabel(label, in: page, x: x, y: y + 3, width: 100, trackForScroll: true)
+        let swatchWidth: Int32 = 60
+        guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+            CreateWindowExW(
+                0, classNamePtr.baseAddress, nil,
+                DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
+                x + 108, y, swatchWidth, 22,
+                page, nil, Self.hInstance, nil)
+        }) else {
+            fatalError("CreateWindowExW (color picker) failed with error \(GetLastError())")
+        }
+        colorPickers.append(ColorPickerControl(hwnd: button, keyPath: keyPath))
+        trackAppearanceControl(button, x: x + 108, y: y)
+        pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self] in
+            self?.pickColor(keyPath: keyPath)
+        }))
+        return Self.rowHeight
+    }
+
+    private func drawColorSwatch(_ picker: ColorPickerControl, drawItem: DRAWITEMSTRUCT) {
+        let hex = settingsStore.get()[keyPath: picker.keyPath]
+        let hdc = drawItem.hDC
+        var rect = drawItem.rcItem
+        if let fillBrush = CreateSolidBrush(Self.colorref(hex: hex)) {
+            FillRect(hdc, &rect, fillBrush)
+            DeleteObject(fillBrush)
+        }
+        drawSelectionBorder(hdc: hdc, rect: rect, isSelected: false)
+    }
+
+    // ChooseColorW is a real modal common dialog — it runs its own message
+    // loop until OK/Cancel, blocking this WndProc for that stretch, same as
+    // any other Win32 common dialog (identical in spirit to how a
+    // recording row's key capture already "blocks" the rest of the UI
+    // conceptually, just via a real OS-owned modal here instead of our own
+    // state machine). lpCustColors must point at memory that outlives the
+    // call, hence `customColors` living at instance scope rather than as a
+    // local var here.
+    private func pickColor(keyPath: WritableKeyPath<PomoppiSettings, String>) {
+        let currentHex = settingsStore.get()[keyPath: keyPath]
+        var colorDialog = CHOOSECOLORW()
+        colorDialog.lStructSize = DWORD(MemoryLayout<CHOOSECOLORW>.size)
+        colorDialog.hwndOwner = hwnd
+        colorDialog.rgbResult = Self.colorref(hex: currentHex)
+        colorDialog.Flags = DWORD(CC_RGBINIT) | DWORD(CC_FULLOPEN)
+
+        let picked = customColors.withUnsafeMutableBufferPointer { buffer -> Bool in
+            colorDialog.lpCustColors = buffer.baseAddress
+            return ChooseColorW(&colorDialog)
+        }
+        guard picked else { return }
+
+        let r = UInt8(colorDialog.rgbResult & 0xFF)
+        let g = UInt8((colorDialog.rgbResult >> 8) & 0xFF)
+        let b = UInt8((colorDialog.rgbResult >> 16) & 0xFF)
+        let hex = String(format: "#%02X%02X%02X", r, g, b)
+        settingsStore.update { $0[keyPath: keyPath] = hex }
+        invalidateEverythingColorDependent()
+    }
+
+    // ink/paper affect the picker-card previews (friend/frameStyle/
+    // background all tint with the current colors) and the theme-preset
+    // grid's own selection border (an exact ink+paper match), plus both
+    // color-picker swatches themselves — every color-dependent surface,
+    // invalidated together rather than tracking which one caller actually
+    // needs which subset (cheap: at most ~20 tiny owner-drawn buttons).
+    private func invalidateEverythingColorDependent() {
+        invalidateAllPickerCards()
+        for swatch in themeSwatches { InvalidateRect(swatch.hwnd, nil, true) }
+        for picker in colorPickers { InvalidateRect(picker.hwnd, nil, true) }
+    }
+
+    // -- Appearance tab: scale + opacity ---------------------------------------
+
+    // Mirrors macOS's segmented Picker("Size", ...) over [1,2,3,4] — 4
+    // plain owner-drawn buttons standing in for the segmented control Win32
+    // has no native equivalent of, each showing its own "N×" and a
+    // highlighted fill when selected.
+    @discardableResult
+    private func addScalePicker(in page: HWND, x: Int32, y: Int32) -> Int32 {
+        addLabel("Size", in: page, x: x, y: y + 3, width: 100, trackForScroll: true)
+        let buttonWidth: Int32 = 50
+        let height: Int32 = 24
+        let gap: Int32 = 6
+        for (index, value) in [1, 2, 3, 4].enumerated() {
+            let bx = x + 108 + Int32(index) * (buttonWidth + gap)
+            guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, nil,
+                    DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
+                    bx, y, buttonWidth, height,
+                    page, nil, Self.hInstance, nil)
+            }) else {
+                fatalError("CreateWindowExW (scale option) failed with error \(GetLastError())")
+            }
+            scaleOptions.append(ScaleOptionControl(hwnd: button, value: value))
+            trackAppearanceControl(button, x: bx, y: y)
+            pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
+                settingsStore.update { $0.scale = value }
+                self?.invalidateAllScaleOptions()
+            }))
+        }
+        return height
+    }
+
+    private func invalidateAllScaleOptions() {
+        for option in scaleOptions {
+            InvalidateRect(option.hwnd, nil, true)
+        }
+    }
+
+    private func drawScaleOption(_ option: ScaleOptionControl, drawItem: DRAWITEMSTRUCT) {
+        let isSelected = settingsStore.get().scale == option.value
+        let hdc = drawItem.hDC
+        var rect = drawItem.rcItem
+        let backgroundColor = isSelected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE)
+        if let backgroundBrush = CreateSolidBrush(backgroundColor) {
+            FillRect(hdc, &rect, backgroundBrush)
+            DeleteObject(backgroundBrush)
+        }
+
+        let text = Array("\(option.value)×".utf16) + [0]
+        SetBkMode(hdc, Int32(TRANSPARENT))
+        SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_BTNTEXT))
+        var textRect = rect
+        _ = text.withUnsafeBufferPointer { ptr in
+            DrawTextW(hdc, ptr.baseAddress, -1, &textRect, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE))
+        }
+
+        drawSelectionBorder(hdc: hdc, rect: rect, isSelected: false)
+    }
+
+    // Mirrors macOS's Slider(value: opacity, in: 0.3...1.0, step: 0.1) plus
+    // its trailing "NN%" readout. Trackbar32 positions are plain integers,
+    // so opacity (a Double 0.3...1.0) maps to ticks 3...10 and back by a
+    // factor of 10 — TBM_SETRANGE's lParam is the traditional
+    // MAKELONG(min, max) packing (unlike UDM_SETRANGE32's separate
+    // wParam/lParam), safe to build by hand here since both bounds fit
+    // comfortably in 16 bits.
+    @discardableResult
+    private func addOpacitySlider(in page: HWND, x: Int32, y: Int32) -> Int32 {
+        addLabel("Opacity", in: page, x: x, y: y + 3, width: 100, trackForScroll: true)
+        let settings = settingsStore.get()
+        let trackWidth: Int32 = 200
+        let height: Int32 = 24
+        guard let trackbar = (Self.trackbarClassName.withUnsafeBufferPointer { classNamePtr in
+            CreateWindowExW(
+                0, classNamePtr.baseAddress, nil,
+                DWORD(WS_CHILD | WS_VISIBLE) | DWORD(bitPattern: TBS_HORZ) | DWORD(bitPattern: TBS_AUTOTICKS),
+                x + 108, y, trackWidth, height,
+                page, nil, Self.hInstance, nil)
+        }) else {
+            fatalError("CreateWindowExW (opacity trackbar) failed with error \(GetLastError())")
+        }
+        applyDefaultFont(trackbar)
+        SendMessageW(trackbar, UINT(TBM_SETRANGE), WPARAM(1), LPARAM(Int(3) | (Int(10) << 16)))
+        SendMessageW(trackbar, UINT(TBM_SETPOS), WPARAM(1), LPARAM(Int((settings.opacity * 10).rounded())))
+        opacityTrackbar = trackbar
+        trackAppearanceControl(trackbar, x: x + 108, y: y)
+
+        let percent = Int((settings.opacity * 100).rounded())
+        opacityValueLabel = addLabel("\(percent)%", in: page, x: x + 108 + trackWidth + 8, y: y + 4, width: 44, height: 18, trackForScroll: true)
+        return height
+    }
+
+    // WM_HSCROLL from the opacity trackbar (forwarded here via
+    // pomoppiSettingsPageWndProc + handleMessage) — fires on every arrow
+    // click, drag step, and thumb release alike, so just re-reading the
+    // trackbar's own current position covers every notification code
+    // without switching on which one this particular message was.
+    private func handleOpacityScroll(lParam: LPARAM) {
+        guard let trackbar = opacityTrackbar, HWND(bitPattern: Int(lParam)) == trackbar else { return }
+        let pos = Int(SendMessageW(trackbar, UINT(TBM_GETPOS), 0, 0))
+        let opacity = Double(pos) / 10.0
+        settingsStore.update { $0.opacity = opacity }
+        if let label = opacityValueLabel {
+            setWindowText(label, "\(Int((opacity * 100).rounded()))%")
+        }
+    }
+
+    // -- Appearance tab: scrolling ---------------------------------------------
+
+    // Called once, right after buildAppearanceTab finishes and has set
+    // appearanceContentHeight from its own final running `y`. SIF_PAGE
+    // tells the scrollbar how big a "page" is relative to the total range,
+    // which is also what sizes its thumb.
+    private func updateAppearanceScrollRange(pageHeight: Int32) {
+        guard let page = appearancePage else { return }
+        var info = SCROLLINFO()
+        info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+        info.fMask = UINT(SIF_RANGE) | UINT(SIF_PAGE)
+        info.nMin = 0
+        info.nMax = appearanceContentHeight
+        info.nPage = UINT(pageHeight)
+        SetScrollInfo(page, Int32(SB_VERT), &info, true)
+    }
+
+    // Repositions every tracked child directly via SetWindowPos rather than
+    // ScrollWindowEx's SW_SCROLLCHILDREN (tried first — see
+    // AppearanceControlPosition's own comment for why that broke live:
+    // MSDN documents that SW_SCROLLCHILDREN "does not properly update the
+    // screen" for children straddling the scroll boundary, and this page's
+    // owner-drawn buttons hit exactly that case, confirmed by a real
+    // screenshot showing stale ghosted fragments after scrolling). This
+    // approach can't have that failure mode: every control gets an
+    // explicit absolute position computed from its own recorded base
+    // position minus the new scroll offset, then the whole page is
+    // invalidated for a single clean repaint — no partial/stale bitmap
+    // blit involved anywhere. Owner-drawn buttons still need no changes of
+    // their own: DRAWITEMSTRUCT.rcItem is always in the control's own
+    // client-rect terms, independent of where it currently sits.
+    private func scrollAppearance(by delta: Int32) {
+        guard let page = appearancePage else { return }
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        let visibleHeight = clientRect.bottom - clientRect.top
+        let maxScroll = max(0, appearanceContentHeight - visibleHeight)
+        let newScrollY = min(max(0, appearanceScrollY + delta), maxScroll)
+        guard newScrollY != appearanceScrollY else { return }
+        appearanceScrollY = newScrollY
+
+        for control in appearanceControlPositions {
+            SetWindowPos(
+                control.hwnd, nil, control.baseX, control.baseY - newScrollY, 0, 0,
+                UINT(SWP_NOZORDER) | UINT(SWP_NOSIZE) | UINT(SWP_NOACTIVATE))
+        }
+        // RDW_ERASE + RDW_UPDATENOW force one clean, synchronous, full
+        // repaint right here rather than however many separate posted
+        // WM_PAINTs the SetWindowPos calls above individually queued —
+        // also what keeps two WM_VSCROLL messages arriving back-to-back
+        // (confirmed live, no delay between them) from ever seeing a
+        // half-updated page.
+        RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
+
+        var info = SCROLLINFO()
+        info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+        info.fMask = UINT(SIF_POS)
+        info.nPos = newScrollY
+        SetScrollInfo(page, Int32(SB_VERT), &info, true)
+    }
+
+    // WM_VSCROLL routed here from pomoppiSettingsPageWndProc — this is the
+    // Appearance page's *own* scrollbar (WS_VSCROLL on the page itself,
+    // see createPage), not a child control's notification, so there's no
+    // "immediate parent" forwarding step to undo here; Windows already
+    // delivered it to the right place. Mouse-wheel scrolling is a
+    // deliberate scope cut for this pass — the real scrollbar (drag the
+    // thumb, click the arrows/track) covers the page fully; wheel input
+    // would need bubbling up from whichever child control currently has
+    // focus, extra plumbing not worth it yet.
+    func handlePageScroll(page: HWND, wParam: WPARAM) -> LRESULT {
+        let action = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) & 0xFFFF)
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        let visibleHeight = clientRect.bottom - clientRect.top
+        switch action {
+        case SB_LINEUP: scrollAppearance(by: -20)
+        case SB_LINEDOWN: scrollAppearance(by: 20)
+        case SB_PAGEUP: scrollAppearance(by: -visibleHeight)
+        case SB_PAGEDOWN: scrollAppearance(by: visibleHeight)
+        case SB_THUMBTRACK, SB_THUMBPOSITION:
+            let pos = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
+            scrollAppearance(by: pos - appearanceScrollY)
+        default:
+            break
+        }
+        return 0
     }
 
     // Mirrors macOS's WindowTab: widget behavior, the reverseTrayClick
@@ -944,14 +1483,25 @@ final class SettingsWindow {
         SendMessageW(hwnd, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: font)), LPARAM(1))
     }
 
+    // `trackForScroll` opts this specific call into the Appearance page's
+    // own manual-scroll bookkeeping (see AppearanceControlPosition) — every
+    // other tab leaves it at the default `false` since only Appearance
+    // ever moves its children after creation. SS_NOPREFIX is always on:
+    // STATIC text otherwise treats a bare '&' as an Alt-mnemonic marker —
+    // consumed rather than drawn, with an underline moved onto whatever
+    // character follows it — confirmed live via "Size & transparency"
+    // rendering as "Size_transparency". None of this app's labels are
+    // meant to carry a keyboard mnemonic, so this is unconditional rather
+    // than something each call site has to remember to ask for.
     @discardableResult
-    private func addLabel(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 18) -> HWND {
+    private func addLabel(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 18, centered: Bool = false, trackForScroll: Bool = false) -> HWND {
         let wide = Array(text.utf16) + [0]
+        let alignmentStyle: Int32 = (centered ? SS_CENTER : 0) | SS_NOPREFIX
         guard let label = (Self.staticClassName.withUnsafeBufferPointer { classNamePtr in
             wide.withUnsafeBufferPointer { textPtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, textPtr.baseAddress,
-                    DWORD(WS_CHILD | WS_VISIBLE),
+                    DWORD(WS_CHILD | WS_VISIBLE) | DWORD(bitPattern: alignmentStyle),
                     x, y, width, height,
                     page, nil, Self.hInstance, nil)
             }
@@ -959,6 +1509,9 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (label) failed with error \(GetLastError())")
         }
         applyDefaultFont(label)
+        if trackForScroll {
+            trackAppearanceControl(label, x: x, y: y)
+        }
         return label
     }
 
@@ -1102,6 +1655,9 @@ final class SettingsWindow {
             return 0
         case WM_DRAWITEM:
             return handleDrawItem(lParam: lParam)
+        case WM_HSCROLL:
+            handleOpacityScroll(lParam: lParam)
+            return 0
         case WM_KEYDOWN, WM_SYSKEYDOWN:
             // Always swallowed (return 0) rather than falling through to
             // DefWindowProcW: this only ever arrives forwarded from the
