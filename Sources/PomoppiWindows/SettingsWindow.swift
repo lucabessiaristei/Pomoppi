@@ -56,24 +56,34 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // too, added for the opacity Trackbar32: a horizontal trackbar's scroll
 // notification is, like BN_CLICKED, delivered to its immediate parent.
 //
-// WM_VSCROLL is different and deliberately NOT forwarded: it's not a child
-// control's notification at all here, it's the Appearance page's *own*
-// built-in scrollbar (WS_VSCROLL on the page itself, only on that one page
-// — see createPage) reporting a drag/click on its own non-client-area
-// scrollbar, which Windows always delivers straight to the window that
-// owns that scrollbar. Routed to the shared instance the same way
-// pomoppiSettingsWndProc routes the top-level window's own messages,
-// since a plain top-level function has no instance state of its own to
-// track scroll position in.
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
     if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL),
        let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
     }
-    if message == UINT(WM_VSCROLL), let hwnd {
-        return SettingsWindow.shared?.handlePageScroll(page: hwnd, wParam: wParam) ?? DefWindowProcW(hwnd, message, wParam, lParam)
-    }
     return DefWindowProcW(hwnd, message, wParam, lParam)
+}
+
+// The Appearance page's custom scroll rail (added to replace the native
+// WS_VSCROLL scrollbar the user found visually dated) is its own window
+// class rather than a BS_OWNERDRAW BUTTON reusing pageClassName's
+// WM_DRAWITEM-via-parent-forwarding pattern above: a real owner-draw
+// BUTTON's own default WndProc captures WM_LBUTTONDOWN/WM_MOUSEMOVE/
+// WM_LBUTTONUP itself to drive its own press/release click tracking (fine
+// for every other owner-drawn control on this tab, which only ever needs a
+// single click), which would need subclassing to get out of the way for a
+// dragged thumb's continuous WM_MOUSEMOVE deltas. Simpler to own the
+// WndProc outright, the same "can't capture, dispatch through the shared
+// instance" shape as pomoppiSettingsWndProc/pomoppiSettingsPageWndProc
+// above, and build a real DRAWITEMSTRUCT by hand on WM_PAINT so painting
+// still goes through handleDrawItem's existing dispatch (see
+// SettingsWindow.handleScrollRailMessage) rather than inventing a second
+// drawing path just for this one control.
+private func pomoppiScrollRailWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
+    guard let window = SettingsWindow.shared, let hwnd, window.appearanceScrollRail == hwnd else {
+        return DefWindowProcW(hwnd, message, wParam, lParam)
+    }
+    return window.handleScrollRailMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
 }
 
 final class SettingsWindow {
@@ -242,15 +252,31 @@ final class SettingsWindow {
     private var diarySyncStatusLabel: HWND?
 
     // The Appearance page's own scroll state — it's the only page whose
-    // content is taller than the fixed window (12 theme swatches + 3
-    // picker grids + 2 color rows + size/opacity controls easily clears
-    // 650px against a ~450px visible page area), so it's the only page
-    // built with WS_VSCROLL (see createPage). `appearanceContentHeight` is
-    // set once at the end of buildAppearanceTab from the running `y` every
-    // add*/build* helper below already returns/advances.
+    // content is taller than the window's own floor size (11 theme
+    // swatches + 3 picker grids + 2 color rows + size/opacity controls
+    // easily clears 650px against a ~450px visible page area at 560x480),
+    // so it's the only page with its own scroll rail (see
+    // createAppearanceScrollRail). `appearanceContentHeight` is set once at
+    // the end of buildAppearanceTab from the running `y` every add*/build*
+    // helper below already returns/advances.
     private var appearancePage: HWND?
     private var appearanceContentHeight: Int32 = 0
     private var appearanceScrollY: Int32 = 0
+    // The custom scroll rail itself (replaces the native WS_VSCROLL
+    // scrollbar this page used to have — see pomoppiScrollRailWndProc's own
+    // comment for why it's a whole separate window class rather than an
+    // owner-draw button). Deliberately not registered via
+    // trackAppearanceControl below: unlike every other tracked control on
+    // this page, the rail must stay fixed in the viewport as content
+    // scrolls past it, never moving itself. Not `private` — same reason
+    // `hwnd` above isn't: pomoppiScrollRailWndProc needs it to identify
+    // which HWND it's dispatching for, same shape as every other WndProc
+    // free function in this file.
+    var appearanceScrollRail: HWND?
+    // Set only while the thumb itself (not the track) is being dragged —
+    // see handleScrollRailMouseDown/handleScrollRailMouseMove.
+    private var railDragging = false
+    private var railLastY: Int32 = 0
 
     // Every one of the Appearance page's own children (labels included),
     // recorded at its un-scrolled ("base") position the moment it's
@@ -283,14 +309,26 @@ final class SettingsWindow {
     // Exact order macOS's SettingsView.swift uses.
     private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log", "Diary"]
 
-    // Not resizable this phase (see task scope) — a fixed client size in the
-    // ballpark of macOS's idealWidth/idealHeight (520x400).
+    // clientWidth/clientHeight is the *minimum* size now, not a fixed one
+    // (WS_THICKFRAME below makes the window user-resizable) — in the
+    // ballpark of macOS's idealWidth/idealHeight (520x400), and proven to
+    // fit every tab's content (Appearance excepted, which scrolls). Never
+    // let a drag-resize go smaller than this (see WM_GETMINMAXINFO in
+    // handleMessage) — a smaller window with no scrollbar anywhere but
+    // Appearance would make some controls on other tabs unreachable.
     private static let clientWidth: Int32 = 560
     private static let clientHeight: Int32 = 480
+
+    // WS_THICKFRAME (aka WS_SIZEBOX) is what makes the window user-
+    // resizable — shared between window creation and WM_GETMINMAXINFO's
+    // AdjustWindowRectEx call so both agree on exactly the same frame
+    // geometry.
+    private static let windowStyle = DWORD(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME)
 
     private static let className: [UInt16] = Array("PomoppiSettingsWindowClass".utf16) + [0]
     private static let windowTitle: [UInt16] = Array("Pomoppi Settings".utf16) + [0]
     private static let pageClassName: [UInt16] = Array("PomoppiSettingsPageClass".utf16) + [0]
+    private static let scrollRailClassName: [UInt16] = Array("PomoppiScrollRailClass".utf16) + [0]
     private static let tabClassName: [UInt16] = Array("SysTabControl32".utf16) + [0]
     private static let staticClassName: [UInt16] = Array("STATIC".utf16) + [0]
     private static let buttonClassName: [UInt16] = Array("BUTTON".utf16) + [0]
@@ -368,6 +406,26 @@ final class SettingsWindow {
             fatalError("RegisterClassW (settings page) failed with error \(GetLastError())")
         }
 
+        // The Appearance page's scroll rail — its own class rather than a
+        // stock BUTTON (see pomoppiScrollRailWndProc's comment for why),
+        // with the same plain page-matching background and arrow cursor as
+        // the top-level window itself (nothing else in this file bothers
+        // setting hCursor on a child, but this one is real, standalone,
+        // click-and-drag chrome rather than something a BUTTON/EDIT/etc.
+        // already handles for free).
+        let scrollRailAtom: ATOM = scrollRailClassName.withUnsafeBufferPointer { classNamePtr in
+            var windowClass = WNDCLASSW()
+            windowClass.lpfnWndProc = pomoppiScrollRailWndProc
+            windowClass.hInstance = hInstance
+            windowClass.lpszClassName = classNamePtr.baseAddress
+            windowClass.hCursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
+            windowClass.hbrBackground = HBRUSH(bitPattern: Int(COLOR_BTNFACE + 1))
+            return RegisterClassW(&windowClass)
+        }
+        guard scrollRailAtom != 0 else {
+            fatalError("RegisterClassW (scroll rail) failed with error \(GetLastError())")
+        }
+
         classesRegistered = true
     }
 
@@ -418,8 +476,7 @@ final class SettingsWindow {
         // margin by hand, same technique as any other fixed-content Win32
         // dialog-shaped window.
         var rect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.clientHeight)
-        let style = DWORD(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)
-        AdjustWindowRectEx(&rect, style, false, 0)
+        AdjustWindowRectEx(&rect, Self.windowStyle, false, 0)
         let windowWidth = rect.right - rect.left
         let windowHeight = rect.bottom - rect.top
 
@@ -434,7 +491,7 @@ final class SettingsWindow {
                     0,
                     classNamePtr.baseAddress,
                     titlePtr.baseAddress,
-                    style,
+                    Self.windowStyle,
                     x, y, windowWidth, windowHeight,
                     nil, nil, Self.hInstance, nil)
             }
@@ -504,14 +561,62 @@ final class SettingsWindow {
         }
     }
 
+    // WM_SIZE (user drag-resize, now that WS_THICKFRAME makes that
+    // possible) — resizes the tab strip and every page to match the new
+    // client rect via the exact same TCM_ADJUSTRECT technique
+    // setUpTabsAndPages already uses once at creation. Deliberately not a
+    // real layout system: existing child controls inside each page stay at
+    // their own absolute positions, nothing reflows or anchors to the new
+    // edges — a bigger window just leaves more inert margin below/right of
+    // whatever a tab already draws, same look as today's "short tab in a
+    // fixed window", just user-controlled now instead of a fixed 560x480.
+    private func handleResize() {
+        guard let tab = tabControl else { return }
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        SetWindowPos(tab, nil, 0, 0, clientRect.right - clientRect.left, clientRect.bottom - clientRect.top, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+
+        var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: clientRect.bottom - clientRect.top)
+        withUnsafeMutablePointer(to: &displayRect) { rectPtr in
+            _ = SendMessageW(tab, UINT(TCM_ADJUSTRECT), WPARAM(0), LPARAM(Int(bitPattern: rectPtr)))
+        }
+        let pageWidth = displayRect.right - displayRect.left
+        let pageHeight = displayRect.bottom - displayRect.top
+        for page in pages {
+            SetWindowPos(page, nil, displayRect.left, displayRect.top, pageWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        }
+
+        // Appearance is the only page whose own scroll math depends on the
+        // page's visible height — every other page just gets more/less
+        // inert margin, nothing to recompute.
+        if let rail = appearanceScrollRail {
+            let railWidth = GetSystemMetrics(SM_CXVSCROLL)
+            SetWindowPos(rail, nil, pageWidth - railWidth, 0, railWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+            // scrollAppearance's own clamp (maxScroll = max(0,
+            // appearanceContentHeight - visibleHeight)) already re-derives
+            // a valid appearanceScrollY from the new pageHeight — a by-0
+            // "scroll" is enough to trigger that clamp (and the resulting
+            // reposition/repaint) without duplicating its math here. A
+            // no-op delta when nothing needs to move (window grew and
+            // appearanceScrollY was already 0) is exactly scrollAppearance's
+            // own early-return case, so this is safe to call unconditionally
+            // on every resize. Confirmed live: shrinking the window back
+            // down after growing it past appearanceContentHeight correctly
+            // re-clamps rather than leaving the page scrolled past its own
+            // (now shorter) content.
+            scrollAppearance(by: 0)
+            // scrollAppearance above only repaints if the scroll offset
+            // actually changed (its own early-return) — the rail's *thumb
+            // size* still depends on the new pageHeight even when the
+            // offset didn't move (e.g. growing from an already-top-scrolled
+            // page), so it needs its own unconditional invalidate here.
+            InvalidateRect(rail, nil, true)
+        }
+    }
+
     private func createPage(title: String, rect: RECT) -> HWND {
         let width = rect.right - rect.left
         let height = rect.bottom - rect.top
-        // Only the Appearance page gets its own scrollbar — it's the only
-        // page whose content is taller than the fixed window (see
-        // appearanceContentHeight's own comment). The other 5 pages fit
-        // comfortably and stay exactly as before.
-        let scrollStyle: Int32 = (title == "Appearance") ? WS_VSCROLL : 0
         guard let page = (Self.pageClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
@@ -531,7 +636,7 @@ final class SettingsWindow {
                 // region and never reaches the screen. WS_CLIPSIBLINGS only
                 // matters when overlapping siblings can be visible at the
                 // same time, which never happens here.
-                DWORD(WS_CHILD) | DWORD(bitPattern: scrollStyle),
+                DWORD(WS_CHILD),
                 rect.left, rect.top, width, height,
                 hwnd, nil, Self.hInstance, nil)
         }) else {
@@ -547,10 +652,12 @@ final class SettingsWindow {
         case "Appearance":
             appearancePage = page
             // Layout uses a narrower width than the page's own physical
-            // size so nothing sits under the vertical scrollbar this page
-            // alone gets (see scrollStyle above).
+            // size so nothing sits under the scroll rail this page alone
+            // gets (see createAppearanceScrollRail, which reuses this exact
+            // same reserved gutter rather than the page needing a second
+            // width adjustment of its own).
             buildAppearanceTab(page: page, width: width - GetSystemMetrics(SM_CXVSCROLL))
-            updateAppearanceScrollRange(pageHeight: height)
+            createAppearanceScrollRail(page: page, pageWidth: width, pageHeight: height)
         case "Window":
             buildWindowTab(page: page, width: width)
         case "Sound":
@@ -804,12 +911,13 @@ final class SettingsWindow {
     }
 
     // The WM_DRAWITEM handler (forwarded here via pomoppiSettingsPageWndProc
-    // + this window's own handleMessage): looks up which owner-drawn
-    // control owns the drawn HWND — across all four kinds this tab now has
-    // (picker cards, theme swatches, color-picker swatches, scale
-    // options) — builds its current appearance fresh from settingsStore
-    // every time (not cached at button-creation time, so a later
-    // color/theme change always repaints every dependent control
+    // + this window's own handleMessage, or built by hand for the scroll
+    // rail — see handleScrollRailPaint): looks up which owner-drawn control
+    // owns the drawn HWND — across all five kinds this tab now has (picker
+    // cards, theme swatches, color-picker swatches, scale options, the
+    // scroll rail) — builds its current appearance fresh from
+    // settingsStore every time (not cached at button-creation time, so a
+    // later color/theme change always repaints every dependent control
     // correctly), and draws it plus a selection border where relevant.
     private func handleDrawItem(lParam: LPARAM) -> LRESULT {
         guard let drawItem = UnsafeMutablePointer<DRAWITEMSTRUCT>(bitPattern: UInt(bitPattern: Int(lParam))) else { return 0 }
@@ -828,6 +936,10 @@ final class SettingsWindow {
         }
         if let option = scaleOptions.first(where: { $0.hwnd == hwndItem }) {
             drawScaleOption(option, drawItem: drawItem.pointee)
+            return 1
+        }
+        if let rail = appearanceScrollRail, rail == hwndItem {
+            drawScrollRail(drawItem: drawItem.pointee)
             return 1
         }
         return 0
@@ -1168,21 +1280,6 @@ final class SettingsWindow {
 
     // -- Appearance tab: scrolling ---------------------------------------------
 
-    // Called once, right after buildAppearanceTab finishes and has set
-    // appearanceContentHeight from its own final running `y`. SIF_PAGE
-    // tells the scrollbar how big a "page" is relative to the total range,
-    // which is also what sizes its thumb.
-    private func updateAppearanceScrollRange(pageHeight: Int32) {
-        guard let page = appearancePage else { return }
-        var info = SCROLLINFO()
-        info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        info.fMask = UINT(SIF_RANGE) | UINT(SIF_PAGE)
-        info.nMin = 0
-        info.nMax = appearanceContentHeight
-        info.nPage = UINT(pageHeight)
-        SetScrollInfo(page, Int32(SB_VERT), &info, true)
-    }
-
     // Repositions every tracked child directly via SetWindowPos rather than
     // ScrollWindowEx's SW_SCROLLCHILDREN (tried first — see
     // AppearanceControlPosition's own comment for why that broke live:
@@ -1215,54 +1312,25 @@ final class SettingsWindow {
         // RDW_ERASE + RDW_UPDATENOW force one clean, synchronous, full
         // repaint right here rather than however many separate posted
         // WM_PAINTs the SetWindowPos calls above individually queued —
-        // also what keeps two WM_VSCROLL messages arriving back-to-back
+        // also what keeps a drag's rapid-fire WM_MOUSEMOVE deltas
         // (confirmed live, no delay between them) from ever seeing a
-        // half-updated page.
+        // half-updated page. RDW_ALLCHILDREN also covers the scroll rail
+        // itself, repainting its thumb at the new position in the same
+        // pass rather than needing a separate InvalidateRect call here.
         RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
-
-        var info = SCROLLINFO()
-        info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        info.fMask = UINT(SIF_POS)
-        info.nPos = newScrollY
-        SetScrollInfo(page, Int32(SB_VERT), &info, true)
     }
 
-    // WM_VSCROLL routed here from pomoppiSettingsPageWndProc — this is the
-    // Appearance page's *own* scrollbar (WS_VSCROLL on the page itself,
-    // see createPage), not a child control's notification, so there's no
-    // "immediate parent" forwarding step to undo here; Windows already
-    // delivered it to the right place.
-    func handlePageScroll(page: HWND, wParam: WPARAM) -> LRESULT {
-        let action = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) & 0xFFFF)
-        var clientRect = RECT()
-        GetClientRect(page, &clientRect)
-        let visibleHeight = clientRect.bottom - clientRect.top
-        switch action {
-        case SB_LINEUP: scrollAppearance(by: -20)
-        case SB_LINEDOWN: scrollAppearance(by: 20)
-        case SB_PAGEUP: scrollAppearance(by: -visibleHeight)
-        case SB_PAGEDOWN: scrollAppearance(by: visibleHeight)
-        case SB_THUMBTRACK, SB_THUMBPOSITION:
-            let pos = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
-            scrollAppearance(by: pos - appearanceScrollY)
-        default:
-            break
-        }
-        return 0
-    }
-
-    // WM_MOUSEWHEEL, unlike WM_VSCROLL above, isn't a scrollbar
-    // notification at all — it's delivered straight to whichever HWND
-    // currently owns keyboard focus (the Appearance page's own owner-drawn
-    // buttons grab focus on click, same as any BUTTON-derived control),
-    // *not* whatever the cursor happens to be hovering. This app never
-    // has to chase that down by hand, though: DefWindowProc itself walks
-    // an unhandled WM_MOUSEWHEEL up the parent chain automatically (a
-    // real, documented Win32 behavior, not something this app opts into),
-    // so neither pomoppiSettingsPageWndProc nor any owner-drawn button
-    // needs its own forwarding case for this message the way
-    // WM_COMMAND/WM_NOTIFY/WM_HSCROLL above do — it simply arrives here
-    // once it bubbles all the way up to the top-level window.
+    // WM_MOUSEWHEEL isn't a scrollbar notification at all — it's delivered
+    // straight to whichever HWND currently owns keyboard focus (the
+    // Appearance page's own owner-drawn buttons grab focus on click, same
+    // as any BUTTON-derived control), *not* whatever the cursor happens to
+    // be hovering. This app never has to chase that down by hand, though:
+    // DefWindowProc itself walks an unhandled WM_MOUSEWHEEL up the parent
+    // chain automatically (a real, documented Win32 behavior, not
+    // something this app opts into), so neither pomoppiSettingsPageWndProc
+    // nor any owner-drawn button needs its own forwarding case for this
+    // message the way WM_COMMAND/WM_NOTIFY/WM_HSCROLL above do — it simply
+    // arrives here once it bubbles all the way up to the top-level window.
     // Guarded to the Appearance page specifically so the exact same
     // message, delivered while any other tab happens to have focus, is a
     // no-op rather than silently repositioning an invisible page's
@@ -1274,24 +1342,193 @@ final class SettingsWindow {
         // GET_WHEEL_DELTA_WPARAM: wParam's high word, a *signed* 16-bit
         // multiple of WHEEL_DELTA (120) per notch — reconstructed via
         // Int16(bitPattern:) rather than this file's usual
-        // Int32(truncatingIfNeeded:) idiom (see handlePageScroll's
-        // SB_THUMBTRACK case) since that one doesn't sign-extend a 16-bit
-        // negative value out of a 32-bit unsigned intermediate. Positive =
-        // wheel rotated forward/away from the user; that sign already
-        // reflects whatever scroll-direction preference the user has set
-        // system-wide (mouse wheel settings, or a touchpad driver's own
-        // "reverse scrolling" toggle) — forwarded through unmodified into
-        // scrollAppearance's existing up=negative/down=positive convention
-        // (SB_LINEUP above already does `scrollAppearance(by: -20)`), so
-        // forward/positive decreases the offset, matching every other
-        // scroll entry point without this code re-deciding direction.
+        // Int32(truncatingIfNeeded:) idiom (see handleCommand's
+        // notificationCode extraction for that one) since that one doesn't
+        // sign-extend a 16-bit negative value out of a 32-bit unsigned
+        // intermediate. Positive = wheel rotated forward/away from the
+        // user; that sign already reflects whatever scroll-direction
+        // preference the user has set system-wide (mouse wheel settings,
+        // or a touchpad driver's own "reverse scrolling" toggle) —
+        // forwarded through unmodified into scrollAppearance's existing
+        // up=negative/down=positive convention, so forward/positive
+        // decreases the offset, matching every other scroll entry point
+        // (the rail's own drag/track-click below included) without this
+        // code re-deciding direction.
         let highWord = UInt16(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
         let notches = Double(Int16(bitPattern: highWord)) / 120.0
-        // 60px per notch: three of the existing 20px SB_LINEUP/SB_LINEDOWN
-        // steps — tuned by feel against a real wheel in the VM, not a
-        // derived value.
+        // 60px per notch — tuned by feel against a real wheel in the VM,
+        // not a derived value.
         scrollAppearance(by: Int32((-notches * 60).rounded()))
         return 0
+    }
+
+    // -- Appearance tab: scroll rail ---------------------------------------
+
+    // Reuses the exact gutter width buildAppearanceTab's caller already
+    // reserved for a scrollbar (see createPage's Appearance case) —
+    // spanning the page's own full visible height, flush against its right
+    // edge. Not tracked via trackAppearanceControl: every other control on
+    // this page scrolls with the content, but the rail itself is the thing
+    // doing the scrolling and must stay put.
+    private func createAppearanceScrollRail(page: HWND, pageWidth: Int32, pageHeight: Int32) {
+        let railWidth = GetSystemMetrics(SM_CXVSCROLL)
+        guard let rail = (Self.scrollRailClassName.withUnsafeBufferPointer { classNamePtr in
+            CreateWindowExW(
+                0, classNamePtr.baseAddress, nil,
+                DWORD(WS_CHILD | WS_VISIBLE),
+                pageWidth - railWidth, 0, railWidth, pageHeight,
+                page, nil, Self.hInstance, nil)
+        }) else {
+            fatalError("CreateWindowExW (scroll rail) failed with error \(GetLastError())")
+        }
+        appearanceScrollRail = rail
+    }
+
+    // Same three numbers SetScrollInfo used to receive before this control
+    // replaced the native scrollbar (content height, current scroll
+    // offset, and the page's own visible height — here just `visibleHeight`
+    // since the rail is always resized to exactly match it, see
+    // createAppearanceScrollRail/handleResize) — shared by the paint
+    // handler (draws the thumb) and the mouse-down handler (hit-tests
+    // against it) so painting and interaction can never disagree about
+    // where the thumb actually is.
+    private func railThumbRect(visibleHeight: Int32) -> RECT {
+        let railWidth = GetSystemMetrics(SM_CXVSCROLL)
+        let contentHeight = max(appearanceContentHeight, visibleHeight)
+        let maxScroll = contentHeight - visibleHeight
+        guard maxScroll > 0 else {
+            // Nothing to scroll: a full-height thumb reads as "everything
+            // is already visible" rather than an oddly-floating short one
+            // sitting at the top of an otherwise-empty rail.
+            return RECT(left: 0, top: 0, right: railWidth, bottom: visibleHeight)
+        }
+        let minThumbHeight: Int32 = 24
+        let thumbHeight = min(visibleHeight, max(minThumbHeight, visibleHeight * visibleHeight / contentHeight))
+        let travel = visibleHeight - thumbHeight
+        let thumbY = (travel * appearanceScrollY) / maxScroll
+        return RECT(left: 0, top: thumbY, right: railWidth, bottom: thumbY + thumbHeight)
+    }
+
+    // hwnd here is always appearanceScrollRail itself (pomoppiScrollRailWndProc
+    // already guarded that before calling in) — threaded through as a
+    // parameter anyway rather than force-unwrapping the instance property
+    // again in every case below.
+    func handleScrollRailMessage(hwnd: HWND, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        switch Int32(message) {
+        case WM_PAINT:
+            handleScrollRailPaint(hwnd: hwnd)
+            return 0
+        case WM_LBUTTONDOWN:
+            handleScrollRailMouseDown(hwnd: hwnd, lParam: lParam)
+            return 0
+        case WM_MOUSEMOVE:
+            handleScrollRailMouseMove(lParam: lParam)
+            return 0
+        case WM_LBUTTONUP:
+            handleScrollRailMouseUp()
+            return 0
+        default:
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+        }
+    }
+
+    // Builds a real DRAWITEMSTRUCT by hand and hands it to handleDrawItem
+    // exactly like a genuine WM_DRAWITEM would carry one — this control is
+    // its own window class rather than a stock owner-draw BUTTON (see
+    // pomoppiScrollRailWndProc's comment), so nothing generates that
+    // message for it automatically; building one here is simpler than
+    // teaching handleDrawItem a second, rail-specific entry point.
+    private func handleScrollRailPaint(hwnd: HWND) {
+        var paint = PAINTSTRUCT()
+        guard let hdc = BeginPaint(hwnd, &paint) else { return }
+        defer { EndPaint(hwnd, &paint) }
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        var drawItem = DRAWITEMSTRUCT()
+        drawItem.hwndItem = hwnd
+        drawItem.hDC = hdc
+        drawItem.rcItem = clientRect
+        withUnsafeMutablePointer(to: &drawItem) { ptr in
+            _ = handleDrawItem(lParam: LPARAM(Int(bitPattern: ptr)))
+        }
+    }
+
+    // WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP pack client-area coordinates
+    // into lParam as two signed 16-bit words (the GET_X_LPARAM/GET_Y_LPARAM
+    // macros, which don't import into Swift — see WidgetInput.swift's own
+    // logicalPoint for the same story); only Y matters here, the rail is a
+    // vertical strip with no horizontal hit-testing of its own.
+    private func railMouseY(fromLParam lParam: LPARAM) -> Int32 {
+        let raw = UInt32(truncatingIfNeeded: lParam)
+        return Int32(Int16(bitPattern: UInt16(truncatingIfNeeded: raw >> 16)))
+    }
+
+    // Hit-tests against the thumb rect painting already uses: inside it
+    // starts a drag (SetCapture so WM_MOUSEMOVE keeps arriving here even
+    // once the cursor wanders outside the rail's own narrow strip
+    // mid-drag), above/below it pages up/down exactly like SB_PAGEUP/
+    // SB_PAGEDOWN used to.
+    private func handleScrollRailMouseDown(hwnd: HWND, lParam: LPARAM) {
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        let visibleHeight = clientRect.bottom - clientRect.top
+        let y = railMouseY(fromLParam: lParam)
+        let thumb = railThumbRect(visibleHeight: visibleHeight)
+        if y >= thumb.top && y < thumb.bottom {
+            railDragging = true
+            railLastY = y
+            SetCapture(hwnd)
+        } else if y < thumb.top {
+            scrollAppearance(by: -visibleHeight)
+        } else {
+            scrollAppearance(by: visibleHeight)
+        }
+    }
+
+    // Straight pixel-delta pass-through into the same scrollAppearance
+    // every other input source already calls (WM_MOUSEWHEEL above,
+    // formerly WM_VSCROLL) — no separate thumb-to-content ratio to
+    // compute. One consequence of that simplicity: since the thumb is
+    // usually shorter than its own travel range (it shrinks with the
+    // content/visible ratio, see railThumbRect), a full top-to-bottom drag
+    // needs the cursor to travel further than the thumb's own rendered
+    // height — same tradeoff a plain "drag distance = scroll distance"
+    // model always has, and still reaches the full range since scrolling
+    // continues to accumulate for as long as the button stays down,
+    // clamped by scrollAppearance itself rather than by how far the thumb
+    // visually travels.
+    private func handleScrollRailMouseMove(lParam: LPARAM) {
+        guard railDragging else { return }
+        let y = railMouseY(fromLParam: lParam)
+        scrollAppearance(by: y - railLastY)
+        railLastY = y
+    }
+
+    private func handleScrollRailMouseUp() {
+        guard railDragging else { return }
+        railDragging = false
+        ReleaseCapture()
+    }
+
+    // Painted through the exact same WM_DRAWITEM/handleDrawItem path as
+    // every other owner-drawn control on this tab, reusing
+    // drawSelectionBorder's "1px shadow / 2px highlight" grammar for the
+    // thumb rather than inventing new chrome — a thin BTNFACE track (the
+    // same fill drawPickerCard etc. already use for their own background)
+    // with a BTNHIGHLIGHT thumb on top of it.
+    private func drawScrollRail(drawItem: DRAWITEMSTRUCT) {
+        let hdc = drawItem.hDC
+        var rect = drawItem.rcItem
+        if let trackBrush = CreateSolidBrush(GetSysColor(COLOR_BTNFACE)) {
+            FillRect(hdc, &rect, trackBrush)
+            DeleteObject(trackBrush)
+        }
+        var thumbRect = railThumbRect(visibleHeight: rect.bottom - rect.top)
+        if let thumbBrush = CreateSolidBrush(GetSysColor(COLOR_BTNHIGHLIGHT)) {
+            FillRect(hdc, &thumbRect, thumbBrush)
+            DeleteObject(thumbBrush)
+        }
+        drawSelectionBorder(hdc: hdc, rect: thumbRect, isSelected: false)
     }
 
     // Mirrors macOS's WindowTab: widget behavior, the reverseTrayClick
@@ -2050,6 +2287,27 @@ final class SettingsWindow {
             return 0
         case WM_MOUSEWHEEL:
             return handleMouseWheel(wParam: wParam, lParam: lParam)
+        case WM_GETMINMAXINFO:
+            // Floors a drag-resize at exactly clientWidth/clientHeight (the
+            // size every tab's content is proven to fit at, Appearance's
+            // own scroll excepted) — never a maximum, letting the window
+            // grow as large as Windows' own default track-size logic
+            // allows. Sent once during CreateWindowExW itself too, before
+            // `shared` is assigned (pomoppiSettingsWndProc's guard falls
+            // through to DefWindowProcW for that one), which is harmless:
+            // the window is already created at exactly windowWidth/
+            // windowHeight above regardless of what this handler would
+            // have said.
+            guard let info = UnsafeMutablePointer<MINMAXINFO>(bitPattern: UInt(bitPattern: Int(lParam))) else {
+                return DefWindowProcW(hwnd, message, wParam, lParam)
+            }
+            var minRect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.clientHeight)
+            AdjustWindowRectEx(&minRect, Self.windowStyle, false, 0)
+            info.pointee.ptMinTrackSize = POINT(x: minRect.right - minRect.left, y: minRect.bottom - minRect.top)
+            return 0
+        case WM_SIZE:
+            handleResize()
+            return 0
         case WM_KEYDOWN, WM_SYSKEYDOWN:
             // Always swallowed (return 0) rather than falling through to
             // DefWindowProcW: this only ever arrives forwarded from the
