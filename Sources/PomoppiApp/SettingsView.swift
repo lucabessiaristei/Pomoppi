@@ -277,7 +277,6 @@ private let themePresets: [ThemePreset] = [
     ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
     ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
     ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
-    ThemePreset(name: "Berry", ink: "#FDE4ED", paper: "#3B1C2A"),
     ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
     ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
     ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
