@@ -51,8 +51,10 @@ function removeExistingFolderIfOurs(folder) {
 }
 
 // Find vswhere.exe (present on any machine with VS/Build-Tools installed),
-// then query it for the latest VS install root, then join VC\Auxiliary\Build\vcvarsall.bat
-function findVcvarsallBat() {
+// then query it for the latest VS install root — shared by findVcvarsallBat
+// and findDumpbin below, both of which just join a fixed relative path onto
+// this same installationPath.
+function findVsInstallPath() {
   const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
   const vswhere = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
 
@@ -86,12 +88,15 @@ function findVcvarsallBat() {
     process.exit(1);
   }
 
+  return vsPath;
+}
+
+function findVcvarsallBat(vsPath) {
   const vcvarsall = path.join(vsPath, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat');
   if (!fs.existsSync(vcvarsall)) {
     console.error(`Cannot find vcvarsall.bat at ${vcvarsall}.`);
     process.exit(1);
   }
-
   return vcvarsall;
 }
 
@@ -99,6 +104,42 @@ function findVcvarsallBat() {
 function getVcvarsArch() {
   if (process.arch === 'arm64') return 'arm64';
   return 'amd64';
+}
+
+// The MSVC Tools folder uses "arm64"/"x64" for its Host<X>\<X> naming,
+// unlike vcvarsall.bat's own "arm64"/"amd64" argument convention above —
+// two different naming schemes for the same two architectures.
+function getMsvcToolsArch() {
+  if (process.arch === 'arm64') return 'arm64';
+  return 'x64';
+}
+
+// dumpbin.exe lives under VC\Tools\MSVC\<version>\bin\Host<arch>\<arch>\ —
+// confirmed by listing it directly on this project's dev VM. Picks the
+// highest MSVC tools version if more than one is installed, same
+// highest-version-wins convention as copySwiftRuntimeDlls uses for the
+// Swift toolchain below.
+function findDumpbin(vsPath, msvcArch) {
+  const msvcToolsBase = path.join(vsPath, 'VC', 'Tools', 'MSVC');
+  if (!fs.existsSync(msvcToolsBase)) {
+    console.error(`Cannot find MSVC tools directory at ${msvcToolsBase}.`);
+    process.exit(1);
+  }
+  const versions = fs
+    .readdirSync(msvcToolsBase)
+    .filter((f) => fs.statSync(path.join(msvcToolsBase, f)).isDirectory())
+    .sort()
+    .reverse();
+  if (versions.length === 0) {
+    console.error(`No MSVC tool versions found under ${msvcToolsBase}.`);
+    process.exit(1);
+  }
+  const dumpbin = path.join(msvcToolsBase, versions[0], 'bin', `Host${msvcArch}`, msvcArch, 'dumpbin.exe');
+  if (!fs.existsSync(dumpbin)) {
+    console.error(`Cannot find dumpbin.exe at ${dumpbin}.`);
+    process.exit(1);
+  }
+  return dumpbin;
 }
 
 // Builds the `rc.exe ...` command that compiles Sources/PomoppiWindows/
@@ -211,10 +252,82 @@ function copyIconIfPresent(destFolder) {
   return false;
 }
 
-// Find the Swift runtime DLLs and copy them all to the destination folder.
-// Globs %LOCALAPPDATA%\Programs\Swift\Runtimes\*\usr\bin\*.dll, picking
-// the highest version if multiple exist, and copies every DLL found.
-function copySwiftRuntimeDlls(destFolder) {
+// Parses `dumpbin /dependents <binary>`'s "Image has the following
+// dependencies:" block into a plain list of imported DLL filenames — the
+// only section we care about. dumpbin's own format has a blank line
+// *right after* that header line before the indented list starts, then
+// another blank line once the list ends (before the "Summary" section,
+// or a delay-load-dependencies block this app's own binaries don't have)
+// — so the first blank line doesn't end the list, only one seen *after*
+// at least one real entry does.
+function directDependencies(dumpbinPath, binaryPath) {
+  const output = execFileSync(dumpbinPath, ['/dependents', binaryPath], { encoding: 'utf8' });
+  const lines = output.split(/\r?\n/);
+  const deps = [];
+  let inDeps = false;
+  for (const line of lines) {
+    if (line.includes('Image has the following dependencies:')) {
+      inDeps = true;
+      continue;
+    }
+    if (!inDeps) continue;
+    const trimmed = line.trim();
+    if (trimmed === '') {
+      if (deps.length > 0) break;
+      continue;
+    }
+    deps.push(trimmed);
+  }
+  return deps;
+}
+
+// Computes exactly the set of Swift-toolchain DLLs Pomoppi.exe needs, by
+// walking its real import table rather than hand-maintaining a list —
+// so a Swift toolchain upgrade that changes which runtime pieces a given
+// feature pulls in can't silently go stale here the way a hardcoded list
+// would. Starts from the exe's own direct dependencies (dumpbin only ever
+// shows one binary's first-level imports, never the full transitive
+// closure), and for every one that's actually a file in dllDir (as
+// opposed to a Windows system DLL like KERNEL32.dll or an
+// api-ms-win-crt-*.dll, always present on Windows and never ours to
+// ship), recurses into *that* DLL's own dependencies too — e.g.
+// Foundation.dll pulling in FoundationInternationalization.dll and
+// _FoundationICU.dll, neither of which shows up in Pomoppi.exe's own
+// direct import list. A DLL not found in dllDir simply has nothing to
+// recurse into and terminates that branch, exactly the system-DLL case.
+function resolveSwiftRuntimeDlls(dumpbinPath, dllDir, entryBinaryPath) {
+  const resolved = new Set();
+  const queue = [entryBinaryPath];
+  const visited = new Set([path.basename(entryBinaryPath).toLowerCase()]);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const dep of directDependencies(dumpbinPath, current)) {
+      const key = dep.toLowerCase();
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const candidatePath = path.join(dllDir, dep);
+      if (fs.existsSync(candidatePath)) {
+        resolved.add(dep);
+        queue.push(candidatePath);
+      }
+    }
+  }
+  return Array.from(resolved).sort();
+}
+
+// Finds the Swift runtime DLLs and copies only the ones
+// resolveSwiftRuntimeDlls actually found Pomoppi.exe (transitively)
+// depending on — not "every .dll in the folder" (Swift's Windows runtime
+// distribution bundles support for every language feature any Swift
+// program might use — Differentiation, Distributed actors, regex
+// literals, @Observable, RemoteMirror's debugger-only reflection,
+// XML/HTTP support in swift-corelibs-foundation — none of which this app
+// touches, confirmed by this exact resolution never finding them
+// reachable from the exe). Globs
+// %LOCALAPPDATA%\Programs\Swift\Runtimes\*\usr\bin, picking the highest
+// version if multiple exist.
+function copySwiftRuntimeDlls(destFolder, dumpbinPath, exePath) {
   logSection('Copying Swift runtime DLLs...');
 
   const localAppData = process.env.LOCALAPPDATA;
@@ -251,26 +364,20 @@ function copySwiftRuntimeDlls(destFolder) {
     process.exit(1);
   }
 
-  // Find all .dll files
-  const dlls = fs
-    .readdirSync(dllDir)
-    .filter((f) => f.endsWith('.dll'))
-    .sort();
-
-  if (dlls.length === 0) {
-    console.error(`No DLL files found in ${dllDir}.`);
+  const requiredDlls = resolveSwiftRuntimeDlls(dumpbinPath, dllDir, exePath);
+  if (requiredDlls.length === 0) {
+    console.error(`dumpbin found no Swift-toolchain dependencies for ${exePath} — that's almost certainly wrong.`);
     process.exit(1);
   }
 
-  dlls.forEach((dll) => {
+  requiredDlls.forEach((dll) => {
     const src = path.join(dllDir, dll);
     const dst = path.join(destFolder, dll);
     fs.copyFileSync(src, dst);
   });
 
-  console.log(`  copied ${dlls.length} DLLs from Swift ${selectedVersion}`);
-  dlls.slice(0, 5).forEach((dll) => console.log(`    - ${dll}`));
-  if (dlls.length > 5) console.log(`    ... and ${dlls.length - 5} more`);
+  console.log(`  copied ${requiredDlls.length} DLLs from Swift ${selectedVersion} (resolved via dumpbin, not the whole folder)`);
+  requiredDlls.forEach((dll) => console.log(`    - ${dll}`));
 }
 
 // Create a zip file of the destFolder's *contents* (not a wrapper folder).
@@ -294,8 +401,10 @@ function createZip(sourceFolder, zipPath) {
 }
 
 function main() {
-  const vcvarsallBat = findVcvarsallBat();
+  const vsPath = findVsInstallPath();
+  const vcvarsallBat = findVcvarsallBat(vsPath);
   const arch = getVcvarsArch();
+  const dumpbinPath = findDumpbin(vsPath, getMsvcToolsArch());
 
   const binary = buildReleaseBinary(vcvarsallBat, arch);
 
@@ -304,7 +413,7 @@ function main() {
   copyExe(binary, destFolder);
   copyManifest(destFolder);
   const hasIcon = copyIconIfPresent(destFolder);
-  copySwiftRuntimeDlls(destFolder);
+  copySwiftRuntimeDlls(destFolder, dumpbinPath, path.join(destFolder, `${APP_NAME}.exe`));
 
   createZip(destFolder, destZip);
 
