@@ -660,7 +660,16 @@ final class SettingsWindow {
         y += addPickerGrid(
             kind: .friend, items: PomoppiSettings.friendIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
-            cardWidth: 56, cardHeight: 56
+            // 70 = 64 (image area, after drawPickerCard's 3px margin each
+            // side) + 6 — an exact 2x of the native 32x32 sprite. A
+            // non-integer ratio here (the old 56, i.e. 50/32 = 1.5625x)
+            // can't produce uniform pixel blocks no matter how careful the
+            // nearest-neighbor resample is — some source pixels must map
+            // to 1 dest pixel and others to 2, which reads as "grainy" on
+            // real pixel art. Confirmed live: even after fixing draw(into:)
+            // itself (PixelCanvas+GDI.swift) to resample cleanly, cards
+            // stayed visibly uneven until the ratio became a true integer.
+            cardWidth: 70, cardHeight: 70
         ) { [settingsStore] friend in
             settingsStore.update { $0.friend = friend }
         }
@@ -671,7 +680,11 @@ final class SettingsWindow {
         y += addPickerGrid(
             kind: .frameStyle, items: PomoppiSettings.frameStyles, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
-            cardWidth: 62, cardHeight: 70
+            // 61x68 = 55x62 (image area, after the 3px margin) + 6 — the
+            // frame preview's native crop (WidgetLayout.frameWidth/2,
+            // frameHeight/2) at an exact 1x, same reasoning as the friend
+            // grid above.
+            cardWidth: 61, cardHeight: 68
         ) { [settingsStore] style in
             settingsStore.update { $0.frameStyle = style }
         }
@@ -682,7 +695,11 @@ final class SettingsWindow {
         y += addPickerGrid(
             kind: .background, items: PomoppiSettings.backgroundIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
-            cardWidth: 96, cardHeight: 56
+            // 116x68 = 110x62 (image area, after the 3px margin) + 6 — the
+            // background preview's native crop (WidgetLayout.frameWidth,
+            // frameHeight/2) at an exact 1x, same reasoning as the friend
+            // grid above.
+            cardWidth: 116, cardHeight: 68
         ) { [settingsStore] background in
             settingsStore.update { $0.background = background }
         }
