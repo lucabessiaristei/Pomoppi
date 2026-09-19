@@ -164,7 +164,10 @@ final class SettingsWindow {
     // The Appearance tab's theme-preset swatches: a plain two-color card
     // (paper fill + ink dot, no PixelCanvas involved — these aren't art
     // previews) that sets ink AND paper together on click. Mirrors macOS's
-    // ThemePresetPicker/themePresets exactly (same 12 presets, same names).
+    // ThemePresetPicker/themePresets exactly (same 11 presets, same names —
+    // deliberately 11, not 12: at this tab's column math, 11 items fill a
+    // single row exactly, where 12 stranded one swatch alone on a second
+    // row).
     private struct ThemePreset {
         let name: String
         let ink: String
@@ -178,7 +181,6 @@ final class SettingsWindow {
         ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
         ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
         ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
-        ThemePreset(name: "Berry", ink: "#FDE4ED", paper: "#3B1C2A"),
         ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
         ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
         ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
