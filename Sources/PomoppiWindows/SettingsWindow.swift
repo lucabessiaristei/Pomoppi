@@ -660,8 +660,9 @@ final class SettingsWindow {
         y += addPickerGrid(
             kind: .friend, items: PomoppiSettings.friendIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
-            // 70 = 64 (image area, after drawPickerCard's 3px margin each
-            // side) + 6 — an exact 2x of the native 32x32 sprite. A
+            // 38 = 32 (image area, after drawPickerCard's 3px margin each
+            // side) + 6 — the native 32x32 sprite at an exact 1x (the
+            // user's preferred size for this grid specifically). A
             // non-integer ratio here (the old 56, i.e. 50/32 = 1.5625x)
             // can't produce uniform pixel blocks no matter how careful the
             // nearest-neighbor resample is — some source pixels must map
@@ -669,7 +670,7 @@ final class SettingsWindow {
             // real pixel art. Confirmed live: even after fixing draw(into:)
             // itself (PixelCanvas+GDI.swift) to resample cleanly, cards
             // stayed visibly uneven until the ratio became a true integer.
-            cardWidth: 70, cardHeight: 70
+            cardWidth: 38, cardHeight: 38
         ) { [settingsStore] friend in
             settingsStore.update { $0.friend = friend }
         }
