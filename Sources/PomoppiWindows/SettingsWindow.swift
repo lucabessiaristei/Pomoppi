@@ -55,9 +55,16 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // immediate parent, never a grandparent. WM_HSCROLL forwards the same way
 // too, added for the opacity Trackbar32: a horizontal trackbar's scroll
 // notification is, like BN_CLICKED, delivered to its immediate parent.
+// WM_ERASEBKGND and WM_CTLCOLORSTATIC/WM_CTLCOLORBTN forward the same way
+// too, added for dark mode: WM_ERASEBKGND is sent to whichever window is
+// actually being erased (a page itself, not the settings window), and
+// WM_CTLCOLORSTATIC/BTN are sent to a STATIC/BUTTON's immediate parent —
+// which is always the page, same story as WM_COMMAND/WM_NOTIFY above, not
+// the settings window either way. See applyTheme/handleEraseBackground/
+// handleCtlColor for what each one actually does once it arrives there.
 //
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL),
+    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL) || message == UINT(WM_ERASEBKGND) || message == UINT(WM_CTLCOLORSTATIC) || message == UINT(WM_CTLCOLORBTN),
        let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
     }
@@ -306,6 +313,14 @@ final class SettingsWindow {
     // one row records at a time (see toggleShortcutRecording).
     private var recordingActionID: String?
 
+    // Whether this window is currently drawing itself dark — set from
+    // systemPrefersDarkTheme() at creation and again on every live
+    // WM_SETTINGCHANGE (see applyTheme/handleSettingChange). Every
+    // owner-drawn paint below reads this fresh rather than being told
+    // per-call, so a live theme flip repaints correctly with no extra
+    // bookkeeping at each call site.
+    private var isDarkMode = false
+
     // Exact order macOS's SettingsView.swift uses.
     private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log", "Diary"]
 
@@ -370,6 +385,10 @@ final class SettingsWindow {
     // A normal titled window and a normal titled window's own child page —
     // neither is WidgetWindow's layered/tool-window popup, so both get a
     // plain background brush rather than being left to draw nothing.
+    // hbrBackground here is fixed for the process's lifetime once
+    // RegisterClassW runs — dark mode can't just swap it live, and instead
+    // repaints over it via WM_ERASEBKGND (see applyTheme/
+    // handleEraseBackground).
     private static func registerClassesIfNeeded() {
         guard !classesRegistered else { return }
 
@@ -512,7 +531,14 @@ final class SettingsWindow {
             SendMessageW(hwnd, UINT(WM_SETICON), WPARAM(UInt(ICON_SMALL)), LPARAM(Int(bitPattern: smallIcon)))
         }
 
+        // Detected once here, before any tab/control exists (a second
+        // detection happens later, live, in handleSettingChange) — the
+        // actual recolor work waits for applyTheme() just below, since
+        // that needs the tab control/steppers/trackbar setUpTabsAndPages
+        // is about to create.
+        isDarkMode = Self.systemPrefersDarkTheme()
         setUpTabsAndPages()
+        applyTheme()
     }
 
     // -- tab control + pages -------------------------------------------------
@@ -965,7 +991,7 @@ final class SettingsWindow {
 
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
-        if let faceBrush = CreateSolidBrush(GetSysColor(COLOR_BTNFACE)) {
+        if let faceBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE)) {
             FillRect(hdc, &rect, faceBrush)
             DeleteObject(faceBrush)
         }
@@ -976,29 +1002,69 @@ final class SettingsWindow {
         let imageRect = RECT(left: rect.left + margin, top: rect.top + margin, right: rect.right - margin, bottom: rect.bottom - margin)
         card.canvas.draw(into: hdc, destRect: imageRect, cropX: card.cropX, cropY: card.cropY, cropWidth: card.cropWidth, cropHeight: card.cropHeight)
 
-        if let borderPen = CreatePen(PS_SOLID, isSelected ? 2 : 1, GetSysColor(isSelected ? COLOR_HIGHLIGHT : COLOR_BTNSHADOW)) {
-            let previousPen = SelectObject(hdc, borderPen)
-            let previousBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH))
-            Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom)
-            SelectObject(hdc, previousPen)
-            SelectObject(hdc, previousBrush)
-            DeleteObject(borderPen)
+        // A real Win32 bevel via DrawEdge rather than a flat colored
+        // stroke — see drawSelectionBorder's own comment just below for
+        // the full reasoning (raised/sunken + accent ring), duplicated
+        // here rather than called into since this card's border has
+        // always drawn its own copy of this block (it predates
+        // drawSelectionBorder's own extraction). BF_RECT itself doesn't
+        // import (ClangImporter marks it "structure not supported" since
+        // it's defined as an OR of the four edge flags rather than its
+        // own literal) — spelled out by hand instead.
+        DrawEdge(hdc, &rect, UINT(isSelected ? EDGE_SUNKEN : EDGE_RAISED), UINT(BF_LEFT | BF_TOP | BF_RIGHT | BF_BOTTOM))
+        if isSelected {
+            let inset: Int32 = 2
+            let accentRect = RECT(left: rect.left + inset, top: rect.top + inset, right: rect.right - inset, bottom: rect.bottom - inset)
+            if let accentPen = CreatePen(PS_SOLID, 2, GetSysColor(COLOR_HIGHLIGHT)) {
+                let previousPen = SelectObject(hdc, accentPen)
+                let previousBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH))
+                Rectangle(hdc, accentRect.left, accentRect.top, accentRect.right, accentRect.bottom)
+                SelectObject(hdc, previousPen)
+                SelectObject(hdc, previousBrush)
+                DeleteObject(accentPen)
+            }
         }
     }
 
     // A generic bordered-rectangle helper every owner-drawn control below
-    // ends its own painting with — the exact border-drawing tail of
-    // drawPickerCard above, pulled out once it started repeating a third
-    // time (theme swatches, color swatches, scale options all want the
-    // same "1px shadow, 2px highlight when selected" frame).
+    // ends its own painting with — pulled out once drawPickerCard's own
+    // border block started repeating a third time (theme swatches, color
+    // swatches, scale options all want the same frame). A real Win32
+    // bevel via DrawEdge (EDGE_RAISED unselected, EDGE_SUNKEN selected —
+    // the user's own explicit ask, replacing a flat single-color stroke
+    // this used to draw) rather than GDI+'s RoundRect, which has no
+    // anti-aliasing and reads worse, not better, at these card sizes
+    // (rejected in design review). DrawEdge's own bevel colors
+    // (COLOR_BTNSHADOW/COLOR_BTNHIGHLIGHT/COLOR_3DDKSHADOW/...) come from
+    // GetSysColor like everything else, and — confirmed live via a pixel-
+    // level screenshot comparison, same RGB values at the same physical
+    // spot in both themes — don't themselves shift under the OS dark/light
+    // setting either, same as COLOR_BTNFACE; the bevel still reads fine
+    // against a dark background regardless, so unlike drawPickerCard's own
+    // background fill this needs no dark-mode branch of its own. Selected
+    // state keeps a thin COLOR_HIGHLIGHT ring inset inside the sunken
+    // bevel — also confirmed identical pixel-for-pixel between themes (it
+    // tracks the user's accent-color choice, not light/dark specifically),
+    // which is exactly why it still reads fine in both: a strong, fixed
+    // accent blue has enough contrast against either a light or a dark
+    // page background on its own — so selection is never just a
+    // squint-at-the-bevel-direction question, an accessibility point from
+    // design review.
     private func drawSelectionBorder(hdc: HDC?, rect: RECT, isSelected: Bool) {
-        guard let borderPen = CreatePen(PS_SOLID, isSelected ? 2 : 1, GetSysColor(isSelected ? COLOR_HIGHLIGHT : COLOR_BTNSHADOW)) else { return }
-        let previousPen = SelectObject(hdc, borderPen)
+        var edgeRect = rect
+        // BF_RECT itself doesn't import (see drawPickerCard's own copy of
+        // this call for why) — spelled out by hand instead.
+        DrawEdge(hdc, &edgeRect, UINT(isSelected ? EDGE_SUNKEN : EDGE_RAISED), UINT(BF_LEFT | BF_TOP | BF_RIGHT | BF_BOTTOM))
+        guard isSelected else { return }
+        let inset: Int32 = 2
+        let accentRect = RECT(left: rect.left + inset, top: rect.top + inset, right: rect.right - inset, bottom: rect.bottom - inset)
+        guard let accentPen = CreatePen(PS_SOLID, 2, GetSysColor(COLOR_HIGHLIGHT)) else { return }
+        let previousPen = SelectObject(hdc, accentPen)
         let previousBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH))
-        Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom)
+        Rectangle(hdc, accentRect.left, accentRect.top, accentRect.right, accentRect.bottom)
         SelectObject(hdc, previousPen)
         SelectObject(hdc, previousBrush)
-        DeleteObject(borderPen)
+        DeleteObject(accentPen)
     }
 
     // hex "#RRGGBB" -> (r,g,b) — a local copy of PixelCanvas's own private
@@ -1213,7 +1279,14 @@ final class SettingsWindow {
         let isSelected = settingsStore.get().scale == option.value
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
-        let backgroundColor = isSelected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE)
+        // Selected already uses COLOR_HIGHLIGHT/COLOR_HIGHLIGHTTEXT, which
+        // (like drawPickerCard's own accent ring) read fine unmodified in
+        // both themes on their own — confirmed live, a fixed accent color
+        // with enough contrast either way, not something that actually
+        // changes value under dark mode (see drawSelectionBorder's own
+        // comment) — only the unselected fill/text below need an explicit
+        // override.
+        let backgroundColor = isSelected ? GetSysColor(COLOR_HIGHLIGHT) : (isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE))
         if let backgroundBrush = CreateSolidBrush(backgroundColor) {
             FillRect(hdc, &rect, backgroundBrush)
             DeleteObject(backgroundBrush)
@@ -1221,7 +1294,7 @@ final class SettingsWindow {
 
         let text = Array("\(option.value)×".utf16) + [0]
         SetBkMode(hdc, Int32(TRANSPARENT))
-        SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_BTNTEXT))
+        SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : (isDarkMode ? Self.colorref(hex: Self.darkTextHex) : GetSysColor(COLOR_BTNTEXT)))
         var textRect = rect
         _ = text.withUnsafeBufferPointer { ptr in
             DrawTextW(hdc, ptr.baseAddress, -1, &textRect, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE))
@@ -1519,12 +1592,15 @@ final class SettingsWindow {
     private func drawScrollRail(drawItem: DRAWITEMSTRUCT) {
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
-        if let trackBrush = CreateSolidBrush(GetSysColor(COLOR_BTNFACE)) {
+        if let trackBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE)) {
             FillRect(hdc, &rect, trackBrush)
             DeleteObject(trackBrush)
         }
         var thumbRect = railThumbRect(visibleHeight: rect.bottom - rect.top)
-        if let thumbBrush = CreateSolidBrush(GetSysColor(COLOR_BTNHIGHLIGHT)) {
+        // darkElevatedHex rather than darkBackgroundHex for the thumb —
+        // the plain background color would make it blend straight into
+        // the track it's meant to stand out against.
+        if let thumbBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkElevatedHex) : GetSysColor(COLOR_BTNHIGHLIGHT)) {
             FillRect(hdc, &thumbRect, thumbBrush)
             DeleteObject(thumbBrush)
         }
@@ -2261,6 +2337,200 @@ final class SettingsWindow {
         }
     }
 
+    // -- dark mode --------------------------------------------------------
+
+    // Two colors cover everything below. COLOR_HIGHLIGHT (used throughout
+    // this tab's selection accents) is left alone everywhere it's already
+    // in use — confirmed live (pixel-identical screenshot comparison) that
+    // it does NOT itself change value between the OS's light/dark setting,
+    // but it's the user's own accent color, a fixed, strongly saturated
+    // blue with enough contrast to read fine as a selection cue against
+    // either a light or a dark page background regardless. Every other
+    // classic 3D system color this file draws with (COLOR_BTNFACE,
+    // COLOR_BTNSHADOW, COLOR_BTNHIGHLIGHT, COLOR_BTNTEXT, ...) is the same
+    // story — does NOT shift with the OS setting for a plain,
+    // non-manifested Win32 window — confirmed live, same finding design
+    // review already
+    // had for COLOR_BTNFACE specifically — so this pair of hardcoded
+    // overrides is the one thing every dark-aware owner-drawn surface
+    // below actually needs.
+    private static let darkBackgroundHex = "#202020"
+    private static let darkTextHex = "#F0F0F0"
+    // A little lighter than darkBackgroundHex — only used for the scroll
+    // rail's thumb, which needs to read as "sitting above" its own track
+    // rather than blending into it the way the flat background color would.
+    private static let darkElevatedHex = "#5A5A5A"
+
+    // Reused for both WM_ERASEBKGND's page fill and WM_CTLCOLORSTATIC/
+    // WM_CTLCOLORBTN's returned brush (same color either way) — created
+    // once and kept for the process's lifetime rather than this file's
+    // usual create-then-delete-immediately pattern for a paint-local GDI
+    // object, since a brush handed back from a CTLCOLOR handler has to
+    // stay valid for Windows to actually paint with it after this call
+    // returns.
+    private static let darkBackgroundBrush: HBRUSH? = CreateSolidBrush(colorref(hex: darkBackgroundHex))
+
+    // Same registry key TrayController.systemPrefersLightTaskbar() reads,
+    // but a different value in it: AppsUseLightTheme governs app chrome
+    // (this window), SystemUsesLightTheme governs the taskbar/tray —
+    // TrayController already owns that one for its own tray-icon tinting.
+    // Defaults to light (not dark) if the key/value is missing, the same
+    // "clamp rather than fail" stance that one takes on a missing value.
+    private static func systemPrefersDarkTheme() -> Bool {
+        var value: DWORD = 0
+        var size = DWORD(MemoryLayout<DWORD>.size)
+        let status = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize".withCString(encodedAs: UTF16.self) { subKey in
+            "AppsUseLightTheme".withCString(encodedAs: UTF16.self) { valueName in
+                RegGetValueW(HKEY_CURRENT_USER, subKey, valueName, DWORD(RRF_RT_REG_DWORD), nil, &value, &size)
+            }
+        }
+        guard status == ERROR_SUCCESS else { return false }
+        return value == 0
+    }
+
+    // SetWindowTheme (uxtheme.dll) isn't one of the dozen libraries a plain
+    // MSVC-linked exe gets by default (kernel32/user32/gdi32/comdlg32/
+    // shell32/... — confirmed live, that default set is exactly what
+    // already lets this file's ChooseColorW/GetSaveFileNameW/
+    // SHBrowseForFolderW calls link with no linked-library setup of their
+    // own). Calling SetWindowTheme directly compiles fine (WinSDK declares
+    // it) but fails at link time with an unresolved external, confirmed
+    // live — DwmSetWindowAttribute below doesn't have that problem (it
+    // resolves through the WinSDK Swift module's own bundled forwarding,
+    // confirmed live too), so only this one function needs the manual
+    // LoadLibraryW/GetProcAddress workaround, self-contained here since
+    // this task can't add a linked library of its own.
+    private typealias SetWindowThemeProc = @convention(c) (HWND?, LPCWSTR?, LPCWSTR?) -> HRESULT
+    private static let setWindowThemeProc: SetWindowThemeProc? = {
+        let moduleName: [UInt16] = Array("uxtheme.dll".utf16) + [0]
+        guard let module = (moduleName.withUnsafeBufferPointer { LoadLibraryW($0.baseAddress) }) else { return nil }
+        guard let proc = GetProcAddress(module, "SetWindowTheme") else { return nil }
+        return unsafeBitCast(proc, to: SetWindowThemeProc.self)
+    }()
+
+    // The documented, widely-cited "DarkMode_Explorer" trick for tab
+    // strips/edits/trackbars specifically (see applyTheme's callers
+    // below). Reverting to light passes a nil sub-app name, the
+    // documented revert. NOTE — a real, confirmed-live
+    // undocumented-behavior trap: this call succeeds (verified via a
+    // temporary diagnostic build that logged its HRESULT — S_OK, every
+    // time, for the tab control and every stepper's edit/up-down and the
+    // opacity trackbar alike) but doesn't visibly restyle any of them on
+    // this Windows build — the tab strip, edit boxes, and trackbar all
+    // stayed in their light/default appearance in a live screenshot, dark
+    // mode active. Left in (a successful, harmless no-op call rather than
+    // dead code) since it's still the right, documented thing to call and
+    // may do more on a different Windows version — see this task's report
+    // for the full finding; a real fix would need each control's own
+    // custom-draw path (NM_CUSTOMDRAW for the tab strip, WM_CTLCOLOREDIT
+    // for the edits), well beyond this task's agreed scope.
+    private static func setControlDarkTheme(_ hwnd: HWND, dark: Bool) {
+        guard let setWindowThemeProc else { return }
+        guard dark else {
+            _ = setWindowThemeProc(hwnd, nil, nil)
+            return
+        }
+        let subAppName: [UInt16] = Array("DarkMode_Explorer".utf16) + [0]
+        _ = subAppName.withUnsafeBufferPointer { setWindowThemeProc(hwnd, $0.baseAddress, nil) }
+    }
+
+    // The one recolor path both dark-mode entry points below funnel
+    // through: init calls this once, right after setUpTabsAndPages so
+    // every control it touches already exists; handleSettingChange calls
+    // it again, live, after re-detecting isDarkMode — neither site repeats
+    // any of this logic on its own.
+    private func applyTheme() {
+        var useDarkMode: Int32 = isDarkMode ? 1 : 0
+        _ = DwmSetWindowAttribute(hwnd, DWORD(DWMWA_USE_IMMERSIVE_DARK_MODE.rawValue), &useDarkMode, DWORD(MemoryLayout<Int32>.size))
+        // DWMWA_USE_IMMERSIVE_DARK_MODE alone doesn't repaint the
+        // already-drawn titlebar on its own — SWP_FRAMECHANGED forces
+        // Windows to recompute and redraw the non-client area right away
+        // rather than waiting for some other trigger (a resize/focus
+        // change) to do it incidentally later. The titlebar does visibly
+        // flip dark with this in place, confirmed live in both directions
+        // (apply and the live WM_SETTINGCHANGE revert) — not separately
+        // tested with this call removed.
+        SetWindowPos(hwnd, nil, 0, 0, 0, 0, UINT(SWP_NOMOVE) | UINT(SWP_NOSIZE) | UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_FRAMECHANGED))
+
+        if let tabControl { Self.setControlDarkTheme(tabControl, dark: isDarkMode) }
+        for stepper in steppers {
+            Self.setControlDarkTheme(stepper.editHwnd, dark: isDarkMode)
+            Self.setControlDarkTheme(stepper.upDownHwnd, dark: isDarkMode)
+        }
+        if let opacityTrackbar { Self.setControlDarkTheme(opacityTrackbar, dark: isDarkMode) }
+
+        // Same RDW_ALLCHILDREN technique scrollAppearance already relies
+        // on, and for the same underlying reason (see its own comment): a
+        // plain InvalidateRect on a page doesn't cascade to its own
+        // children, so every STATIC/BUTTON/owner-drawn control on it would
+        // otherwise keep showing its old-theme paint until something else
+        // happened to touch it individually.
+        for page in pages {
+            RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN) | UINT(RDW_UPDATENOW))
+        }
+    }
+
+    // WM_SETTINGCHANGE is broadcast to every top-level window for any of a
+    // long list of system setting changes sharing this one message; lParam
+    // names which one as a plain string, "ImmersiveColorSet" specifically
+    // for a light/dark or accent-color change. Decoded into a real Swift
+    // String for the comparison rather than lstrcmpW's raw pointer
+    // compare, matching this file's own String(decodingCString:) idiom
+    // elsewhere (see promptDiaryExportPath/promptDiaryFolder).
+    private func handleSettingChange(lParam: LPARAM) {
+        guard let stringPointer = UnsafePointer<UInt16>(bitPattern: UInt(bitPattern: Int(lParam))) else { return }
+        guard String(decodingCString: stringPointer, as: UTF16.self) == "ImmersiveColorSet" else { return }
+        isDarkMode = Self.systemPrefersDarkTheme()
+        applyTheme()
+    }
+
+    // hbrBackground (registerClassesIfNeeded) is fixed at class-
+    // registration time and can't be swapped live for a dark/light flip —
+    // this is what actually paints the page (and, in principle, this
+    // window's own client area, though the tab control always covers all
+    // of it in practice) dark instead, forwarded here from every page via
+    // pomoppiSettingsPageWndProc. WindowFromDC recovers whichever window
+    // actually owns the HDC wParam carries, since the forwarded message
+    // loses that identity along the way. Light mode falls through to
+    // DefWindowProcW unchanged — the class's own COLOR_BTNFACE brush,
+    // exactly what painted this before dark mode existed.
+    private func handleEraseBackground(wParam: WPARAM) -> LRESULT {
+        // Int(wParam) traps live — confirmed via a real crash dump ("Not
+        // enough bits to represent the passed value"): this HDC's raw
+        // WPARAM value doesn't fit a range-checked Int(_:) conversion.
+        // Int(bitPattern:) is the non-trapping reinterpretation this file
+        // already uses elsewhere for pointer reconstruction (see WM_NOTIFY's
+        // own NMHDR pointer above) — used here instead.
+        guard isDarkMode, let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))) else {
+            return DefWindowProcW(hwnd, UINT(WM_ERASEBKGND), wParam, 0)
+        }
+        let target = WindowFromDC(hdc) ?? hwnd
+        var rect = RECT()
+        GetClientRect(target, &rect)
+        if let brush = Self.darkBackgroundBrush {
+            FillRect(hdc, &rect, brush)
+        }
+        return 1
+    }
+
+    // SetWindowTheme (setControlDarkTheme above) doesn't restyle plain
+    // STATIC labels or BS_AUTOCHECKBOX buttons — this is what does,
+    // forwarded here from every page's own children the same way as
+    // handleEraseBackground above. Light mode falls through to
+    // DefWindowProcW unchanged, the same stock COLOR_BTNFACE-ish brush and
+    // default text color these controls always painted with.
+    private func handleCtlColor(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        // Int(bitPattern:) rather than a bare Int(wParam) — see
+        // handleEraseBackground's own comment for why the range-checked
+        // conversion traps live for a real HDC value here.
+        guard isDarkMode, let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))), let brush = Self.darkBackgroundBrush else {
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+        }
+        SetTextColor(hdc, Self.colorref(hex: Self.darkTextHex))
+        SetBkColor(hdc, Self.colorref(hex: Self.darkBackgroundHex))
+        return LRESULT(Int(bitPattern: brush))
+    }
+
     // -- WndProc dispatch -----------------------------------------------------
 
     func handleMessage(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
@@ -2285,6 +2555,17 @@ final class SettingsWindow {
         case WM_HSCROLL:
             handleOpacityScroll(lParam: lParam)
             return 0
+        case WM_ERASEBKGND:
+            return handleEraseBackground(wParam: wParam)
+        case WM_CTLCOLORSTATIC, WM_CTLCOLORBTN:
+            return handleCtlColor(message: message, wParam: wParam, lParam: lParam)
+        case WM_SETTINGCHANGE:
+            handleSettingChange(lParam: lParam)
+            // Passed through rather than swallowed — WM_SETTINGCHANGE is a
+            // broadcast other parts of the system may also care about, not
+            // something only this window owns the way e.g. WM_HSCROLL's
+            // trackbar is.
+            return DefWindowProcW(hwnd, message, wParam, lParam)
         case WM_MOUSEWHEEL:
             return handleMouseWheel(wParam: wParam, lParam: lParam)
         case WM_GETMINMAXINFO:
