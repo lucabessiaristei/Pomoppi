@@ -54,7 +54,7 @@ both platforms, what's macOS-only, and what's Windows-only.
 | File | What |
 |---|---|
 | `Package.swift` | SPM manifest. Tools-version 6.0 only for `.macOS(.v15)`; every target still opts back into Swift 5 language mode (this app's mutable caches/singletons are single-threaded, main-thread-only state). On a Windows host the manifest evaluates to a different, smaller target set — `PomoppiCore`/`PomoppiSprites`/`PomoppiRender`/`PomoppiWindows` (executable) + `PomoppiCoreTests`/`PomoppiSpritesTests` (no `PomoppiRenderTests`: one test still reads `CGImage` directly, unguarded, and no `PomoppiApp`) — see the `#if os(Windows)` in the file itself |
-| `Sources/PomoppiCore/` | Platform-agnostic core: `Timer.swift` (wall-clock pomodoro state machine), `Settings.swift` (load/validate/persist, no AppKit import), `Shortcuts.swift`, `SessionLogger.swift` (session history as a single local JSON file — replaced `ObsidianLogger.swift` in the 2026-09-19 redesign; see `SPEC.md` §8), `DiaryExporter.swift` (the Diary tab's export-to-`.md`/sync-to-folder logic, reading `SessionLogger`'s log; `SPEC.md` §8b) |
+| `Sources/PomoppiCore/` | Platform-agnostic core: `Timer.swift` (wall-clock pomodoro state machine), `Settings.swift` (load/validate/persist, no AppKit import), `Shortcuts.swift`, `SessionLogger.swift` (session history as a single local JSON file — replaced `ObsidianLogger.swift` in the 2026-09-19 redesign; see `SPEC.md` §8), `DiaryExporter.swift` (the Diary tab's export-to-`.zip`/sync-to-folder logic, one shared per-day-file code path for both, reading `SessionLogger`'s log; `SPEC.md` §8b), `ZipWriter.swift` (the from-scratch stored-entries-only ZIP writer `DiaryExporter.exportZip` builds on) |
 | `Sources/PomoppiSprites/Sprites.generated.swift` | **Generated** by `refresh-art.js` from `Art/renderer/sprites.js` / `friends.js` / `background.js` — never hand-edit |
 | `Sources/PomoppiSprites/Digits.swift`, `WindowFrame.swift` | Hand-written glyph/frame data (not generated) |
 | `Sources/PomoppiRender/` | Drawing: `PixelCanvas.swift` (the 1px drawing kit, a plain byte buffer with no platform import), `WidgetLayout.swift`, `WidgetAnimationController.swift`, `WidgetRenderer.swift` — all Windows-buildable since Phase W3. The CoreGraphics dependency (`makeImage() -> CGImage?`) lives in `PixelCanvas+CoreGraphics.swift` (macOS); Windows gets two of its own adapters, `PixelCanvas+GDI.swift` (the layered-window/owner-draw blit path, Phase W3/W7) and `PixelCanvas+GDIIcon.swift` (`HICON` for the tray, Phase W4) |
@@ -144,7 +144,12 @@ both platforms, what's macOS-only, and what's Windows-only.
   vault/folder/heading concept — the whole point of the redesign was
   dropping that.
 - **The Diary tab (`DiaryExporter.swift`, `SPEC.md` §8b) is also built,
-  same day** — export-to-`.md` snapshot and sync-to-folder, on both
-  platforms. `diaryLastSyncedCount` is an index into the session log, not
-  a timestamp — don't add a "last synced at" field, the tab shows a count
-  ("Never"/"N sessions") on purpose.
+  same day, then merged with the old Log tab on 2026-09-20** — one tab on
+  both platforms now (Logging/Export/Sync to folder sections, 6 tabs
+  total), not two. Export and Sync write the same shape (a
+  `## Pomodoros` section of `- HH:MM–HH:MM (Nm) — task` lines, one
+  `<dateKey>.md` per day) through the same `DiaryExporter` code path —
+  Export just zips the result (`ZipWriter.swift`) instead of writing it
+  to a folder. Sync is idempotent and takes the whole session log on
+  every call — no cursor, no `diaryLastSyncedCount` field anymore. Don't
+  reintroduce either one.

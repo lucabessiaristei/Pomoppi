@@ -26,9 +26,6 @@ struct SettingsView: View {
             Tab("Sound", systemImage: "speaker.wave.2", value: "sound") {
                 SoundTab(viewModel: viewModel)
             }
-            Tab("Log", systemImage: "clock.arrow.circlepath", value: "log") {
-                LogTab(viewModel: viewModel)
-            }
             Tab("Diary", systemImage: "book.closed", value: "diary") {
                 DiaryTab(viewModel: viewModel)
             }
@@ -400,31 +397,57 @@ private struct SoundTab: View {
     }
 }
 
-// MARK: - Log
+// MARK: - Diary
 
-// Replaces the old ObsidianTab (2026-09-19 session-log redesign, SPEC.md
-// §8): no vault/folder/filename/heading to configure anymore, no "Test
-// Connection" — SessionLogger always writes to sessions.json next to
-// settings.json, so there's nothing to point it at first.
-private struct LogTab: View {
+// Merged Log into Diary (2026-09-20 redesign, SPEC.md §8/§8b): one tab,
+// three sections top to bottom — Logging (moved verbatim from the old Log
+// tab), Export (now a `.zip` of per-day files, the same shape Sync
+// writes), Sync to folder (idempotent, no cursor — Erase below no longer
+// touches one either).
+private struct DiaryTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var cacheSizeBytes: Int64 = 0
     @State private var showingEraseConfirmation = false
+    @State private var sessionCount = 0
+    @State private var exportStatus: String?
+    @State private var syncStatus: String?
 
     var body: some View {
         Form {
             Section("Logging") {
                 Toggle("Log sessions", isOn: viewModel.binding(\.loggingEnabled))
-            }
-            Section {
                 LabeledContent("Cache size", value: Self.formattedSize(cacheSizeBytes))
                 Button("Erase Cached Sessions…", role: .destructive) {
                     showingEraseConfirmation = true
                 }
             }
+            Section("Export") {
+                LabeledContent("Sessions logged", value: "\(sessionCount)")
+                Button("Export Diary…") { exportDiary() }
+                if let exportStatus {
+                    Text(exportStatus).foregroundStyle(.secondary)
+                }
+            }
+            Section("Sync to folder") {
+                LabeledContent("Diary folder") {
+                    Text(folderDisplayPath)
+                        .foregroundStyle(viewModel.settings.diaryFolderPath.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                Button("Choose…") { chooseFolder() }
+                Button("Sync Now") { syncNow() }
+                    .disabled(viewModel.settings.diaryFolderPath.isEmpty)
+                if let syncStatus {
+                    Text(syncStatus).foregroundStyle(.secondary)
+                }
+            }
         }
         .settingsForm()
-        .task { await refreshCacheSize() }
+        .task {
+            await refreshCacheSize()
+            refreshCount()
+        }
         .confirmationDialog(
             "Erase all cached session history?",
             isPresented: $showingEraseConfirmation,
@@ -433,12 +456,8 @@ private struct LogTab: View {
             Button("Erase Cached Sessions", role: .destructive) {
                 Task {
                     await viewModel.sessionLogger.eraseAll()
-                    // The Diary tab's sync cursor is an index into the log
-                    // array this just wiped — it's meaningless now, and
-                    // left non-zero would skip every session logged after
-                    // the erase (dropFirst(stale-count) on a shorter array).
-                    viewModel.update { $0.diaryLastSyncedCount = 0 }
                     await refreshCacheSize()
+                    refreshCount()
                 }
             }
         } message: {
@@ -453,57 +472,9 @@ private struct LogTab: View {
     private static func formattedSize(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
-}
-
-// MARK: - Diary
-
-// The Diary tab (SPEC.md §8b): Export is a stateless one-shot snapshot,
-// Sync is incremental into a user-chosen folder (e.g. an Obsidian vault —
-// Pomoppi doesn't need to know that's what it is). `diaryLastSyncedCount`
-// is an index into the session log, not a timestamp, so "Last synced"
-// reports how many sessions have been synced rather than a relative time.
-private struct DiaryTab: View {
-    @ObservedObject var viewModel: SettingsViewModel
-    @State private var sessionCount = 0
-    @State private var exportStatus: String?
-    @State private var syncStatus: String?
-
-    var body: some View {
-        Form {
-            Section("Export") {
-                LabeledContent("Sessions logged", value: "\(sessionCount)")
-                Button("Export Diary…") { exportDiary() }
-                if let exportStatus {
-                    Text(exportStatus).foregroundStyle(.secondary)
-                }
-            }
-            Section("Obsidian") {
-                LabeledContent("Diary folder") {
-                    Text(folderDisplayPath)
-                        .foregroundStyle(viewModel.settings.diaryFolderPath.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                Button("Choose…") { chooseFolder() }
-                Button("Sync Now") { syncNow() }
-                    .disabled(viewModel.settings.diaryFolderPath.isEmpty)
-                LabeledContent("Last synced", value: lastSyncedLabel)
-                if let syncStatus {
-                    Text(syncStatus).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .settingsForm()
-        .task { refreshCount() }
-    }
 
     private var folderDisplayPath: String {
         viewModel.settings.diaryFolderPath.isEmpty ? "Not set" : viewModel.settings.diaryFolderPath
-    }
-
-    private var lastSyncedLabel: String {
-        let count = viewModel.settings.diaryLastSyncedCount
-        return count == 0 ? "Never" : "\(count) session\(count == 1 ? "" : "s")"
     }
 
     private func refreshCount() {
@@ -512,12 +483,12 @@ private struct DiaryTab: View {
 
     private func exportDiary() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "Pomoppi Diary.md"
-        panel.allowedContentTypes = [.text]
+        panel.nameFieldStringValue = "Pomoppi Diary.zip"
+        panel.allowedContentTypes = [.zip]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let markdown = DiaryExporter.exportMarkdown(sessions: viewModel.sessionLogger.allSessionsSync())
+        let zipData = DiaryExporter.exportZip(sessions: viewModel.sessionLogger.allSessionsSync())
         do {
-            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            try zipData.write(to: url, options: .atomic)
             exportStatus = "Exported to \(url.lastPathComponent)."
         } catch {
             exportStatus = "Export failed."
@@ -536,13 +507,10 @@ private struct DiaryTab: View {
 
     private func syncNow() {
         let allSessions = viewModel.sessionLogger.allSessionsSync()
-        let alreadySynced = min(viewModel.settings.diaryLastSyncedCount, allSessions.count)
-        let newEntries = Array(allSessions.dropFirst(alreadySynced))
         let folderURL = URL(fileURLWithPath: viewModel.settings.diaryFolderPath)
         do {
-            let written = try DiaryExporter.syncToFolder(folderURL, newEntries: newEntries)
-            viewModel.update { $0.diaryLastSyncedCount = allSessions.count }
-            syncStatus = written == 0 ? "Nothing new to sync." : "Synced \(written) session\(written == 1 ? "" : "s")."
+            let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions)
+            syncStatus = written == 0 ? "Up to date." : "Added \(written) session\(written == 1 ? "" : "s")."
         } catch {
             syncStatus = "Sync failed."
         }

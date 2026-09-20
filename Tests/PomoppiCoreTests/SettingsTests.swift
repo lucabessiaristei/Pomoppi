@@ -115,6 +115,21 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(store.get().colorScheme, PomoppiSettings.defaults.colorScheme)
     }
 
+    // diaryLastSyncedCount was dropped from the schema in the 2026-09-20
+    // Diary redesign (sync no longer uses a cursor) — an old settings.json
+    // still carrying that key must decode fine, JSONDecoder ignoring an
+    // unknown key for free.
+    func testOldDiaryLastSyncedCountKeyIsIgnoredOnDecode() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let filePath = dir.appendingPathComponent("settings.json")
+        try #"{"diaryLastSyncedCount": 12, "diaryFolderPath": "/tmp/diary"}"#.write(to: filePath, atomically: true, encoding: .utf8)
+
+        let store = SettingsStore(storageDir: dir)
+        XCTAssertEqual(store.get().diaryFolderPath, "/tmp/diary")
+    }
+
     func testCorruptFileFallsBackToDefaultsAndBacksUpOriginal() throws {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
