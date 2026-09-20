@@ -876,21 +876,53 @@ final class SettingsWindow {
     ) -> Int32 {
         let gap: Int32 = 10
         let labelHeight: Int32 = 16
-        let cellWidth = cardWidth + gap
+        // A label can be wider than the card it sits under — friend cards
+        // shrank to an exact 1x of their 32x32 sprite (38px) and names like
+        // "Namidappi" don't fit that at the default GUI font, clipping
+        // instead of wrapping. Measure this grid's own longest label
+        // rather than special-casing the friend grid: any future card/
+        // label-width combination gets the same safety net for free.
+        // Frame-style/background names are already short enough that this
+        // collapses to cardWidth, a no-op.
+        let maxLabelWidth = items.map { measureTextWidth(displayName($0)) }.max() ?? 0
+        let cellContentWidth = max(cardWidth, maxLabelWidth)
+        let cellWidth = cellContentWidth + gap
         let columns = max(1, (availableWidth + gap) / cellWidth)
         let rowHeight = cardHeight + labelHeight + gap
 
         for (index, item) in items.enumerated() {
             let col = Int32(index) % columns
             let row = Int32(index) / columns
+            // The card itself keeps its own position/size exactly as
+            // before — only the label below it grows, centered on the
+            // card's horizontal center, to absorb the extra width.
             let cardX = x + col * cellWidth
             let cardY = y + row * rowHeight
             addPickerCard(kind: kind, itemID: item, in: page, x: cardX, y: cardY, width: cardWidth, height: cardHeight, onSelect: onSelect)
-            addLabel(displayName(item), in: page, x: cardX, y: cardY + cardHeight + 2, width: cardWidth, height: labelHeight, trackForScroll: true)
+            let labelX = cardX - (cellContentWidth - cardWidth) / 2
+            addLabel(displayName(item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: true, trackForScroll: true)
         }
 
         let rowCount = (Int32(items.count) + columns - 1) / columns
         return rowCount * rowHeight
+    }
+
+    // Measure-without-painting: grab a throwaway screen DC, swap in the
+    // same DEFAULT_GUI_FONT applyDefaultFont puts on every label, ask
+    // GetTextExtentPoint32W how wide the text renders, then put the DC's
+    // own font back before releasing it. Used by addPickerGrid to size a
+    // grid's label column to its actual longest name rather than guessing.
+    private func measureTextWidth(_ text: String) -> Int32 {
+        guard let hdc = GetDC(nil), let font = GetStockObject(DEFAULT_GUI_FONT) else { return 0 }
+        defer { ReleaseDC(nil, hdc) }
+        let previousFont = SelectObject(hdc, font)
+        var size = SIZE()
+        let wide = Array(text.utf16)
+        wide.withUnsafeBufferPointer { ptr in
+            _ = GetTextExtentPoint32W(hdc, ptr.baseAddress, Int32(ptr.count), &size)
+        }
+        SelectObject(hdc, previousFont)
+        return size.cx
     }
 
     // A BS_OWNERDRAW push button: still fires the ordinary BN_CLICKED ->
@@ -1586,13 +1618,17 @@ final class SettingsWindow {
     // Painted through the exact same WM_DRAWITEM/handleDrawItem path as
     // every other owner-drawn control on this tab, reusing
     // drawSelectionBorder's "1px shadow / 2px highlight" grammar for the
-    // thumb rather than inventing new chrome — a thin BTNFACE track (the
-    // same fill drawPickerCard etc. already use for their own background)
-    // with a BTNHIGHLIGHT thumb on top of it.
+    // thumb rather than inventing new chrome.
     private func drawScrollRail(drawItem: DRAWITEMSTRUCT) {
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
-        if let trackBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE)) {
+        // COLOR_SCROLLBAR — the actual system scrollbar-track color,
+        // distinct from COLOR_BTNFACE/button-face gray — rather than the
+        // page's own background fill, which made the rail barely read as
+        // a scrollbar element at all. Flat fill only, no DrawEdge: the
+        // user's explicit ask was a plain gray track with no 3D bevel,
+        // leaving the raised-bevel treatment to the thumb alone below.
+        if let trackBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkScrollTrackHex) : GetSysColor(COLOR_SCROLLBAR)) {
             FillRect(hdc, &rect, trackBrush)
             DeleteObject(trackBrush)
         }
@@ -1605,6 +1641,34 @@ final class SettingsWindow {
             DeleteObject(thumbBrush)
         }
         drawSelectionBorder(hdc: hdc, rect: thumbRect, isSelected: false)
+        drawScrollRailGrip(hdc: hdc, thumbRect: thumbRect)
+    }
+
+    // The classic Win32-era "something to grab here" decoration — three
+    // short horizontal bars centered in the thumb, the same drag-handle
+    // texture old toolbar handles/splitter bars used. Drawn in a shade
+    // darker than the thumb fill for contrast (COLOR_BTNSHADOW in light
+    // mode; darkBackgroundHex reused in dark mode since it's darker than
+    // the thumb's own darkElevatedHex fill). Skipped on a thumb too short
+    // to have room for it — in practice railThumbRect's own minThumbHeight
+    // (24px) never shrinks below this guard, so the grip is effectively
+    // unconditional today, but the guard stays in case that constant ever
+    // changes.
+    private func drawScrollRailGrip(hdc: HDC?, thumbRect: RECT) {
+        let thumbHeight = thumbRect.bottom - thumbRect.top
+        guard thumbHeight >= 20 else { return }
+        let thumbWidth = thumbRect.right - thumbRect.left
+        let lineWidth = max(4, thumbWidth / 2)
+        let lineLeft = thumbRect.left + (thumbWidth - lineWidth) / 2
+        let lineRight = lineLeft + lineWidth
+        let centerY = (thumbRect.top + thumbRect.bottom) / 2
+        let spacing: Int32 = 3
+        guard let gripBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNSHADOW)) else { return }
+        for offset: Int32 in [-spacing, 0, spacing] {
+            var lineRect = RECT(left: lineLeft, top: centerY + offset, right: lineRight, bottom: centerY + offset + 1)
+            FillRect(hdc, &lineRect, gripBrush)
+        }
+        DeleteObject(gripBrush)
     }
 
     // Mirrors macOS's WindowTab: widget behavior, the reverseTrayClick
@@ -2360,6 +2424,12 @@ final class SettingsWindow {
     // rail's thumb, which needs to read as "sitting above" its own track
     // rather than blending into it the way the flat background color would.
     private static let darkElevatedHex = "#5A5A5A"
+    // The scroll rail's own track needs to read as distinct from the page
+    // body behind it (see drawScrollRail) the same way COLOR_SCROLLBAR
+    // reads as distinct from COLOR_BTNFACE in light mode — this sits
+    // between darkBackgroundHex and darkElevatedHex so the thumb still
+    // stands out on top of it.
+    private static let darkScrollTrackHex = "#3A3A3A"
 
     // Reused for both WM_ERASEBKGND's page fill and WM_CTLCOLORSTATIC/
     // WM_CTLCOLORBTN's returned brush (same color either way) — created
