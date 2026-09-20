@@ -178,6 +178,32 @@ final class SettingsWindow {
     }
     private var pickerCards: [PickerCardControl] = []
 
+    // Rendered picker-card previews, keyed by everything their pixels
+    // depend on. Building one (AppearancePreviews.friendIcon/
+    // frameEdgeCard/backgroundPatternCard) walks the whole 110x124 frame
+    // grid pixel by pixel through String/hex parsing — fine once, but
+    // drawPickerCard used to rebuild every card from scratch on every
+    // WM_DRAWITEM, and a scroll step repaints all of them at once: with a
+    // dozen-plus cards per page that alone pushed each step well past a
+    // display frame, the other half of the drag flicker fixed alongside
+    // WS_CLIPCHILDREN (see createPage). Keyed rather than explicitly
+    // invalidated so a color/theme/frame-style change simply misses and
+    // re-renders — no call site has to remember to clear it. Cleared
+    // outright once it grows past a sanity bound (every entry is one
+    // small PixelCanvas, so it'd take hundreds of distinct color picks to
+    // ever get there).
+    private struct PickerCardCacheKey: Hashable {
+        let kind: PickerKind
+        let itemID: String
+        let inkColor: String
+        let paperColor: String
+        // Only background cards actually depend on this; the other two
+        // kinds pass "" so a frame-style change doesn't evict them.
+        let frameStyle: String
+    }
+    private var pickerCardCache: [PickerCardCacheKey: AppearancePreviews.Card] = [:]
+    private static let pickerCardCacheLimit = 256
+
     // The Appearance tab's theme-preset swatches: a plain two-color card
     // (paper fill + ink dot, no PixelCanvas involved — these aren't art
     // previews) that sets ink AND paper together on click. Mirrors macOS's
@@ -281,14 +307,17 @@ final class SettingsWindow {
     // free function in this file.
     var appearanceScrollRail: HWND?
     // Set only while the thumb itself (not the track) is being dragged —
-    // see handleScrollRailMouseDown/handleScrollRailMouseMove.
+    // see handleScrollRailMouseDown/handleScrollRailMouseMove. The grab
+    // offset is where inside the thumb (from its top edge) the drag
+    // started, so the thumb stays put under the cursor instead of
+    // jumping to center on it.
     private var railDragging = false
-    private var railLastY: Int32 = 0
+    private var railGrabOffset: Int32 = 0
 
     // Every one of the Appearance page's own children (labels included),
     // recorded at its un-scrolled ("base") position the moment it's
-    // created. scrollAppearance repositions each one directly via
-    // SetWindowPos rather than ScrollWindowEx — see scrollAppearance's own
+    // created. scrollAppearance repositions each one explicitly (one
+    // DeferWindowPos batch) rather than ScrollWindowEx — see scrollAppearance's own
     // comment for why: ScrollWindowEx's SW_SCROLLCHILDREN blit-and-shift
     // approach turned out to visibly corrupt this page live in the VM
     // (confirmed by screenshot — stale fragments of labels/cards left
@@ -662,7 +691,21 @@ final class SettingsWindow {
                 // region and never reaches the screen. WS_CLIPSIBLINGS only
                 // matters when overlapping siblings can be visible at the
                 // same time, which never happens here.
-                DWORD(WS_CHILD),
+                //
+                // WS_CLIPCHILDREN is the opposite story and only the
+                // Appearance page needs it: without it, every page-level
+                // erase (WM_ERASEBKGND's COLOR_BTNFACE/dark fill) paints
+                // straight over every child too, and each child then
+                // repaints itself on top — a visible blank-then-refill
+                // flash on every repaint. Harmless on a static page that
+                // only ever repaints once, but Appearance repaints on
+                // every scroll step, and during a thumb drag that's many
+                // times a second — confirmed live as flicker. With the
+                // flag set, the page's own erase is clipped to the gaps
+                // between children (the only place its background is
+                // actually visible), and children are never painted over
+                // by their parent at all.
+                DWORD(title == "Appearance" ? WS_CHILD | WS_CLIPCHILDREN : WS_CHILD),
                 rect.left, rect.top, width, height,
                 hwnd, nil, Self.hInstance, nil)
         }) else {
@@ -1003,22 +1046,38 @@ final class SettingsWindow {
         return 0
     }
 
-    private func drawPickerCard(_ control: PickerCardControl, drawItem: DRAWITEMSTRUCT) {
-        let settings = settingsStore.get()
-        let card: AppearancePreviews.Card
-        let isSelected: Bool
+    // Returns the cached preview for this card's current inputs, rendering
+    // and caching it first on a miss — see pickerCardCache.
+    private func pickerCardPreview(_ control: PickerCardControl, settings: PomoppiSettings) -> AppearancePreviews.Card? {
+        let key = PickerCardCacheKey(
+            kind: control.kind, itemID: control.itemID,
+            inkColor: settings.inkColor, paperColor: settings.paperColor,
+            frameStyle: control.kind == .background ? settings.frameStyle : "")
+        if let cached = pickerCardCache[key] { return cached }
+        let built: AppearancePreviews.Card?
         switch control.kind {
         case .friend:
-            guard let built = AppearancePreviews.friendIcon(friendID: control.itemID, inkColor: settings.inkColor, paperColor: settings.paperColor) else { return }
-            card = built
-            isSelected = settings.friend == control.itemID
+            built = AppearancePreviews.friendIcon(friendID: control.itemID, inkColor: settings.inkColor, paperColor: settings.paperColor)
         case .frameStyle:
-            card = AppearancePreviews.frameEdgeCard(frameStyle: control.itemID, inkColor: settings.inkColor, paperColor: settings.paperColor)
-            isSelected = settings.frameStyle == control.itemID
+            built = AppearancePreviews.frameEdgeCard(frameStyle: control.itemID, inkColor: settings.inkColor, paperColor: settings.paperColor)
         case .background:
-            card = AppearancePreviews.backgroundPatternCard(
+            built = AppearancePreviews.backgroundPatternCard(
                 backgroundID: control.itemID, frameStyle: settings.frameStyle, inkColor: settings.inkColor, paperColor: settings.paperColor)
-            isSelected = settings.background == control.itemID
+        }
+        guard let built else { return nil }
+        if pickerCardCache.count >= Self.pickerCardCacheLimit { pickerCardCache.removeAll() }
+        pickerCardCache[key] = built
+        return built
+    }
+
+    private func drawPickerCard(_ control: PickerCardControl, drawItem: DRAWITEMSTRUCT) {
+        let settings = settingsStore.get()
+        guard let card = pickerCardPreview(control, settings: settings) else { return }
+        let isSelected: Bool
+        switch control.kind {
+        case .friend: isSelected = settings.friend == control.itemID
+        case .frameStyle: isSelected = settings.frameStyle == control.itemID
+        case .background: isSelected = settings.background == control.itemID
         }
 
         let hdc = drawItem.hDC
@@ -1385,20 +1444,35 @@ final class SettingsWindow {
 
     // -- Appearance tab: scrolling ---------------------------------------------
 
-    // Repositions every tracked child directly via SetWindowPos rather than
-    // ScrollWindowEx's SW_SCROLLCHILDREN (tried first — see
-    // AppearanceControlPosition's own comment for why that broke live:
-    // MSDN documents that SW_SCROLLCHILDREN "does not properly update the
-    // screen" for children straddling the scroll boundary, and this page's
-    // owner-drawn buttons hit exactly that case, confirmed by a real
-    // screenshot showing stale ghosted fragments after scrolling). This
-    // approach can't have that failure mode: every control gets an
-    // explicit absolute position computed from its own recorded base
-    // position minus the new scroll offset, then the whole page is
-    // invalidated for a single clean repaint — no partial/stale bitmap
-    // blit involved anywhere. Owner-drawn buttons still need no changes of
-    // their own: DRAWITEMSTRUCT.rcItem is always in the control's own
-    // client-rect terms, independent of where it currently sits.
+    // Repositions every tracked child to its recorded base position minus
+    // the new scroll offset, rather than ScrollWindowEx's SW_SCROLLCHILDREN
+    // (tried first — see AppearanceControlPosition's own comment for why
+    // that broke live: MSDN documents that SW_SCROLLCHILDREN "does not
+    // properly update the screen" for children straddling the scroll
+    // boundary, and this page's owner-drawn buttons hit exactly that
+    // case, confirmed by a real screenshot showing stale ghosted fragments
+    // after scrolling). Owner-drawn buttons need no changes of their own:
+    // DRAWITEMSTRUCT.rcItem is always in the control's own client-rect
+    // terms, independent of where it currently sits.
+    //
+    // The moves go through one BeginDeferWindowPos/EndDeferWindowPos batch
+    // so Windows repositions all of them in a single pass (every child
+    // shifts by the same delta, so the batch is effectively one region
+    // move): each child's already-painted pixels are copied to its new
+    // spot, only the strips that actually changed get invalidated (the
+    // page background a child vacated, the part of a child that just
+    // scrolled in from outside the page's client area), and the trailing
+    // RDW_UPDATENOW flushes exactly those pending paints synchronously —
+    // so a drag's rapid-fire WM_MOUSEMOVE deltas never queue up behind
+    // posted WM_PAINTs. This used to force a full RDW_INVALIDATE|RDW_ERASE
+    // repaint of the page and every child on every step instead; with the
+    // page erasing straight over its children (no WS_CLIPCHILDREN then)
+    // and every picker card re-rendering its preview from scratch, one
+    // step took several display frames and the erase-then-refill was
+    // visible as flicker throughout a thumb drag. The page's own erase is
+    // now clipped to the gaps between children (WS_CLIPCHILDREN, see
+    // createPage) and card previews are cached (pickerCardCache), so even
+    // the full-repaint paths that remain (applyTheme, a resize) are cheap.
     private func scrollAppearance(by delta: Int32) {
         guard let page = appearancePage else { return }
         var clientRect = RECT()
@@ -1409,20 +1483,21 @@ final class SettingsWindow {
         guard newScrollY != appearanceScrollY else { return }
         appearanceScrollY = newScrollY
 
+        var batch = BeginDeferWindowPos(Int32(appearanceControlPositions.count))
         for control in appearanceControlPositions {
-            SetWindowPos(
-                control.hwnd, nil, control.baseX, control.baseY - newScrollY, 0, 0,
+            batch = DeferWindowPos(
+                batch, control.hwnd, nil, control.baseX, control.baseY - newScrollY, 0, 0,
                 UINT(SWP_NOZORDER) | UINT(SWP_NOSIZE) | UINT(SWP_NOACTIVATE))
         }
-        // RDW_ERASE + RDW_UPDATENOW force one clean, synchronous, full
-        // repaint right here rather than however many separate posted
-        // WM_PAINTs the SetWindowPos calls above individually queued —
-        // also what keeps a drag's rapid-fire WM_MOUSEMOVE deltas
-        // (confirmed live, no delay between them) from ever seeing a
-        // half-updated page. RDW_ALLCHILDREN also covers the scroll rail
-        // itself, repainting its thumb at the new position in the same
-        // pass rather than needing a separate InvalidateRect call here.
-        RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
+        EndDeferWindowPos(batch)
+        // The rail doesn't move, so nothing above invalidated it — its
+        // thumb still has to be repainted at the new offset. No erase:
+        // drawScrollRail repaints the full track itself, and an erase
+        // first would just be one more blank-then-refill flash per step.
+        if let rail = appearanceScrollRail {
+            InvalidateRect(rail, nil, false)
+        }
+        RedrawWindow(page, nil, nil, UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
     }
 
     // WM_MOUSEWHEEL isn't a scrollbar notification at all — it's delivered
@@ -1499,19 +1574,29 @@ final class SettingsWindow {
     // where the thumb actually is.
     private func railThumbRect(visibleHeight: Int32) -> RECT {
         let railWidth = GetSystemMetrics(SM_CXVSCROLL)
-        let contentHeight = max(appearanceContentHeight, visibleHeight)
-        let maxScroll = contentHeight - visibleHeight
-        guard maxScroll > 0 else {
+        let metrics = railMetrics(visibleHeight: visibleHeight)
+        guard metrics.maxScroll > 0 else {
             // Nothing to scroll: a full-height thumb reads as "everything
             // is already visible" rather than an oddly-floating short one
             // sitting at the top of an otherwise-empty rail.
             return RECT(left: 0, top: 0, right: railWidth, bottom: visibleHeight)
         }
+        let thumbY = (metrics.travel * appearanceScrollY) / metrics.maxScroll
+        return RECT(left: 0, top: thumbY, right: railWidth, bottom: thumbY + metrics.thumbHeight)
+    }
+
+    // The thumb-to-content ratio railThumbRect maps the scroll offset
+    // through (offset -> thumb top) and handleScrollRailMouseMove maps
+    // back through (thumb top -> offset) — one place for the math so the
+    // two directions can't drift apart. `travel` is how far the thumb's
+    // top edge can move (rail height minus thumb height); it covers
+    // `maxScroll` pixels of content.
+    private func railMetrics(visibleHeight: Int32) -> (maxScroll: Int32, thumbHeight: Int32, travel: Int32) {
+        let contentHeight = max(appearanceContentHeight, visibleHeight)
+        let maxScroll = contentHeight - visibleHeight
         let minThumbHeight: Int32 = 24
         let thumbHeight = min(visibleHeight, max(minThumbHeight, visibleHeight * visibleHeight / contentHeight))
-        let travel = visibleHeight - thumbHeight
-        let thumbY = (travel * appearanceScrollY) / maxScroll
-        return RECT(left: 0, top: thumbY, right: railWidth, bottom: thumbY + thumbHeight)
+        return (maxScroll, thumbHeight, visibleHeight - thumbHeight)
     }
 
     // hwnd here is always appearanceScrollRail itself (pomoppiScrollRailWndProc
@@ -1527,7 +1612,7 @@ final class SettingsWindow {
             handleScrollRailMouseDown(hwnd: hwnd, lParam: lParam)
             return 0
         case WM_MOUSEMOVE:
-            handleScrollRailMouseMove(lParam: lParam)
+            handleScrollRailMouseMove(hwnd: hwnd, lParam: lParam)
             return 0
         case WM_LBUTTONUP:
             handleScrollRailMouseUp()
@@ -1581,7 +1666,7 @@ final class SettingsWindow {
         let thumb = railThumbRect(visibleHeight: visibleHeight)
         if y >= thumb.top && y < thumb.bottom {
             railDragging = true
-            railLastY = y
+            railGrabOffset = y - thumb.top
             SetCapture(hwnd)
         } else if y < thumb.top {
             scrollAppearance(by: -visibleHeight)
@@ -1590,23 +1675,27 @@ final class SettingsWindow {
         }
     }
 
-    // Straight pixel-delta pass-through into the same scrollAppearance
-    // every other input source already calls (WM_MOUSEWHEEL above,
-    // formerly WM_VSCROLL) — no separate thumb-to-content ratio to
-    // compute. One consequence of that simplicity: since the thumb is
-    // usually shorter than its own travel range (it shrinks with the
-    // content/visible ratio, see railThumbRect), a full top-to-bottom drag
-    // needs the cursor to travel further than the thumb's own rendered
-    // height — same tradeoff a plain "drag distance = scroll distance"
-    // model always has, and still reaches the full range since scrolling
-    // continues to accumulate for as long as the button stays down,
-    // clamped by scrollAppearance itself rather than by how far the thumb
-    // visually travels.
-    private func handleScrollRailMouseMove(lParam: LPARAM) {
+    // The thumb follows the cursor, the way a native scrollbar's does:
+    // the point grabbed on mouse-down (railGrabOffset, measured from the
+    // thumb's top edge) stays under the cursor, and the thumb's new top
+    // edge maps back to a content offset through railMetrics' ratio. This
+    // used to pass the raw cursor delta straight into scrollAppearance as
+    // a content delta instead — which made the thumb fall behind the
+    // cursor by exactly the content/rail ratio on every drag, so a full
+    // top-to-bottom drag needed the cursor to travel the whole content
+    // height. Absolute rather than incremental so a cursor that wandered
+    // past the rail's ends (SetCapture keeps the moves coming) snaps
+    // straight back into sync once it returns, no accumulated drift;
+    // scrollAppearance's own clamp handles the out-of-range part.
+    private func handleScrollRailMouseMove(hwnd: HWND, lParam: LPARAM) {
         guard railDragging else { return }
-        let y = railMouseY(fromLParam: lParam)
-        scrollAppearance(by: y - railLastY)
-        railLastY = y
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        let metrics = railMetrics(visibleHeight: clientRect.bottom - clientRect.top)
+        guard metrics.travel > 0 else { return }
+        let thumbTop = railMouseY(fromLParam: lParam) - railGrabOffset
+        let target = (thumbTop * metrics.maxScroll) / metrics.travel
+        scrollAppearance(by: target - appearanceScrollY)
     }
 
     private func handleScrollRailMouseUp() {
@@ -2529,8 +2618,7 @@ final class SettingsWindow {
         }
         if let opacityTrackbar { Self.setControlDarkTheme(opacityTrackbar, dark: isDarkMode) }
 
-        // Same RDW_ALLCHILDREN technique scrollAppearance already relies
-        // on, and for the same underlying reason (see its own comment): a
+        // RDW_ALLCHILDREN because a
         // plain InvalidateRect on a page doesn't cascade to its own
         // children, so every STATIC/BUTTON/owner-drawn control on it would
         // otherwise keep showing its old-theme paint until something else
