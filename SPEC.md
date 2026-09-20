@@ -55,7 +55,7 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 7 tabs: Rhythm/Appearance/Window/Keys/Sound/Log/Diary | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 7 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Diary | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
@@ -613,10 +613,11 @@ visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. **This
 table is stale, though: both native apps actually ship 6 tabs, not 5** —
 a **Keys** tab (shortcut recorder, Phase W7) was added after this table
-was written and belongs between Window and Sound; the last tab itself
-was renamed from **Obsidian** to **Log** in the 2026-09-19 session-log
-redesign (§8). Order, left to right, as both platforms actually build it:
-Rhythm, Appearance, Window, Keys, Sound, Log.
+was written and belongs between Window and Sound; the last tab was
+renamed **Obsidian → Log** in the 2026-09-19 session-log redesign (§8),
+then **Log folded into Diary** in the 2026-09-20 redesign (§8b), landing
+back at 6 tabs. Order, left to right, as both platforms actually build
+it: Rhythm, Appearance, Window, Keys, Sound, Diary.
 
 | Tab | Holds |
 |---|---|
@@ -625,7 +626,7 @@ Rhythm, Appearance, Window, Keys, Sound, Log.
 | Window | always-on-top, pop-to-front-on-end, launch at login, start hidden |
 | Keys *(not in this table — added later)* | one click-to-record row per global shortcut, Reset to Defaults, a static list of the fixed in-app keys |
 | Sound | chime on/off, ring duration |
-| Log *(renamed from Obsidian, and its contents replaced along with it)* | logging on/off, cache-size readout, Erase Cached Sessions |
+| Diary *(absorbed the old Log tab in the 2026-09-20 redesign, §8b)* | Logging (logging on/off, cache-size readout, Erase Cached Sessions), Export (sessions-logged count, Export Diary… to a `.zip`), Sync to folder (folder picker, Sync Now, last-run status) |
 
 Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
 a pixel match for SwiftUI's `Form`/`Section` — see
@@ -717,69 +718,102 @@ and go through an actor on both platforms, so two phases completing close
 together can never interleave a read-modify-write of the same file — see
 `SessionLogger`'s own comments for the one deliberate exception (a
 synchronous, non-actor-isolated `eraseAllSync()`, used only by the
-Log tab's "Erase Cached Sessions" button after its own confirmation
+Diary tab's "Erase Cached Sessions" button after its own confirmation
 dialog, an accepted simplification for a rare, user-initiated action, not
 a hot path).
 
-The Log tab (renamed from "Obsidian," §7's settings-window-layout
-subsection) holds: the `loggingEnabled` toggle, a live cache-size readout,
-and that Erase button.
+The Diary tab's Logging section (§7's settings-window-layout subsection;
+this used to be its own "Log" tab — renamed from "Obsidian," then folded
+into Diary entirely in the 2026-09-20 redesign, §8b) holds: the
+`loggingEnabled` toggle, a live cache-size readout, and that Erase button.
+
+**Reinstall/upgrade semantics.** `sessions.json` and `settings.json` both
+live in the per-user storage dir (`AppDelegate.storageDir()` /
+Windows' `storageDir()`), not inside the app bundle — an upgrade that just
+replaces the app leaves both untouched. A reinstall that wipes that
+directory, or the Diary tab's own "Erase Cached Sessions," starts the log
+empty; the diary folder (§8b) keeps whatever `.md` files it already has,
+and the next sync simply continues from there — there's nothing to
+double-append (sync diffs each day's file by content, not a cursor) and
+nothing to skip (there's no cursor left to point at the wrong place).
+Restoring `sessions.json` from an older backup, or moving to a new
+machine and pointing at the same diary folder, works the same way: the
+next sync fills in whatever that folder is missing and leaves everything
+it already has alone. See §8b for why this is safe.
 
 **What this replaced**: Electron/the original Swift rewrite wrote directly
 to an Obsidian daily note (`<vaultPath>/<dailyNoteFolder>/<date>.md`,
 inserting `- ` lines under a configurable heading and recomputing a
 running `**Total focus:** ` line on every write) — Obsidian-markdown-
-specific, and only ever wired up on macOS. The intent going forward (not
-built yet — see `project-obsidian-logging-redesign`) is a "Diary" tab that
-reads *this* JSON file and either syncs it to Obsidian/Apple Notes/OneNote/
-etc., or exports it as nicely-formatted text (`.md`/`.odt`) — an export
-built on top of the internal record, rather than writing a specific
-editor's format directly the way the old design did.
+specific, and only ever wired up on macOS. §8b describes what replaced
+it: a Diary tab that reads *this* JSON file and either syncs it to a
+user-chosen folder or exports it, built on top of the internal record
+rather than writing a specific editor's format directly the way the old
+design did.
 
 ## 8b. Diary `[both]`
 
 **Added 2026-09-19**, on top of §8's JSON session log — the "read *this*
-JSON file and either sync it to Obsidian/etc., or export it as nicely
-formatted text" intent §8's closing note described, now built. Reads
-`SessionLogger.allSessionsSync()`; never writes to `sessions.json` itself.
+JSON file and either sync it to a folder or export it" intent §8's
+closing note described. **Redesigned 2026-09-20**: one diary shape
+instead of two, and sync is now idempotent (no cursor) — both changes
+described below. Reads `SessionLogger.allSessionsSync()`; never writes to
+`sessions.json` itself.
 
-Two independent actions, both living in a "Diary" settings tab (right
-after Log):
+**One shape.** Every focus session (breaks are never part of a diary)
+becomes a `- HH:MM–HH:MM (Nm) — task` line — `stopped early` instead of
+just the duration for an aborted session — grouped into one
+`<dateKey>.md` file per day, each holding a `## Pomodoros` section.
+Export and Sync are just two different destinations for that same
+per-day content, both built from the same `DiaryExporter` code path so
+the two shapes can't drift apart: Export bundles every day's file into a
+single `.zip` (root of the archive, no wrapper folder); Sync writes those
+files straight into a user-chosen folder.
 
-**Export** — a one-shot, complete snapshot to a user-chosen `.md` file
-(save dialog: `NSSavePanel` on macOS, `GetSaveFileNameW` on Windows).
-`DiaryExporter.exportMarkdown(sessions:)` (`PomoppiCore`) formats every
-**focus** session only (breaks are never part of a diary), grouped by day
-oldest-first, each day closing with a `**Total focus: Xh Ym**` line
-counting only *completed* sessions — an aborted focus session still gets
-its own line (marked "stopped early"), just isn't summed into the total.
-Stateless: safe to run repeatedly, always overwrites the chosen file
-fresh, no cursor to track.
+Three sections in the merged Diary settings tab, top to bottom: Logging
+(moved from the old Log tab, §8), Export, Sync to folder.
 
-**Sync** — incremental append into a user-chosen folder (a plain folder;
-Pomoppi never assumes it's specifically an Obsidian vault, an
-`SHBrowseForFolderW`/`NSOpenPanel` directory picker either way). Writes
-one `<dateKey>.md` per day touched, each holding a `## Pomodoros` section;
-`DiaryExporter.syncToFolder(_:newEntries:)` inserts new `- ` lines at the
-end of that section without disturbing any other content in the file
-(hand-written notes before/after, or a later unrelated `## ` heading) —
-deliberately never recomputes a running total on an existing file, unlike
-Export, since that would mean re-parsing a file the user may have
-hand-edited between syncs. Throws on write failure (folder unmounted,
-permission lost, etc.) rather than swallowing it, so the tab can show
-"Sync failed."
+**Export** — "Sessions logged: N" plus an "Export Diary…" button (save
+dialog filtered to `.zip`: `NSSavePanel` on macOS, `GetSaveFileNameW` on
+Windows; default name `Pomoppi Diary.zip`). `DiaryExporter.exportZip(sessions:)`
+(`PomoppiCore`) builds the zip via `ZipWriter` (stored/uncompressed
+entries — see below). Stateless: safe to run repeatedly, always produces
+a fresh archive, no cursor to track.
 
-Two new settings fields back this (`Settings.swift`, `SettingsStore.swift`
-on Windows): `diaryFolderPath: String` (empty = not set yet, disables the
-Sync button) and `diaryLastSyncedCount: Int` — **an index into the
-session-log array, not a timestamp.** Sync computes `newEntries` as
-everything past that index, syncs them, then advances the index to the
-log's current length. The tab's "Last synced" row shows that count
-("Never" / "N sessions"), not a relative time — there's no timestamp
-field to show one from. Erasing the cached session log (§8's "Erase Cached
-Sessions" button) resets `diaryLastSyncedCount` to 0 in the same action:
-a stale, non-zero index into an array that erase just emptied would skip
-every session logged afterward (`dropFirst` past the end).
+**Sync** — incremental, idempotent merge into a user-chosen folder (a
+plain folder; Pomoppi never assumes it's specifically an Obsidian vault,
+an `SHBrowseForFolderW`/`NSOpenPanel` directory picker either way).
+`DiaryExporter.syncToFolder(_:sessions:)` takes the **whole** session log
+on every call — there's no cursor — and, per day, diffs the log against
+whatever `<dateKey>.md` already has: each existing `- ` line is
+identified by its own `HH:MM–HH:MM` clock-range key (not its full text),
+so a task renamed by hand afterward is recognized as the same session
+rather than duplicated. A missing session is inserted at its
+chronological position among the existing lines (by start clock — not
+just appended), and a day's file is only rewritten if that actually
+changed something. Everything else in the file — hand-written notes
+before/after the section, a later unrelated `## ` heading, any line this
+pass doesn't touch — survives byte-for-byte. Returns the number of lines
+actually added; throws on write failure (folder unmounted, permission
+lost, etc.) rather than swallowing it, so the tab can show "Sync failed."
+This is what makes the reinstall/upgrade paragraph in §8 safe: run sync
+against any session log, at any time, against any state the target
+folder happens to be in, and it converges rather than duplicating or
+skipping.
+
+**`ZipWriter`** (`PomoppiCore/ZipWriter.swift`) is a minimal, from-scratch
+ZIP writer — neither platform's Foundation exposes a zip API, and
+shelling out to `zip`/`Compress-Archive` isn't acceptable here. Stored
+(uncompressed) entries only, deterministic order (sorted by name); no
+directories, no general-purpose zip features beyond what one flat folder
+of tiny `.md` files needs.
+
+One settings field backs this (`Settings.swift`, `SettingsStore.swift` on
+Windows): `diaryFolderPath: String` (empty = not set yet, disables the
+Sync button). No cursor field — the old `diaryLastSyncedCount` (an index
+into the session log) is gone along with the design it supported; an old
+`settings.json` still carrying that key decodes fine, `JSONDecoder`
+ignoring unknown keys for free.
 
 ## 9. Tray `[divergent]`
 

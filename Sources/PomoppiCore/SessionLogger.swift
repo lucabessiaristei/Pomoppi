@@ -98,8 +98,9 @@ public actor SessionLogger {
     }
 
     // A plain, synchronous, non-actor-isolated erase for the same reason
-    // fileSizeBytes() above is nonisolated — Windows' Log tab button needs
-    // a same-thread answer with no async hop (see that method's comment).
+    // fileSizeBytes() above is nonisolated — Windows' Diary tab Erase
+    // button needs a same-thread answer with no async hop (see that
+    // method's comment).
     // Bypasses the actor's own write-serialization guarantee, an accepted
     // simplification: this is a rare, user-initiated action a MessageBoxW
     // confirmation already precedes (blocking the message loop for as

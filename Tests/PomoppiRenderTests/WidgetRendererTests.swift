@@ -40,10 +40,19 @@ final class WidgetRendererTests: XCTestCase {
         let ringingState = timer.tick()
         XCTAssertTrue(ringingState.ringing)
 
+        // Explicit black-on-white theme rather than `.defaults` — `.defaults`
+        // is LCD Green (#276231 ink / #80B391 paper, as of commit
+        // 086b52e), and this test only cares about ink/paper swapping on
+        // ringing, not about tracking whatever the current default theme
+        // happens to be.
+        var blackOnWhite = PomoppiSettings.defaults
+        blackOnWhite.inkColor = "#000000"
+        blackOnWhite.paperColor = "#FFFFFF"
+
         // ringTime = 0 -> floor(0/300) % 2 == 0 -> not inverted.
-        let normalCanvas = WidgetRenderer.drawCanvas(state: ringingState, settings: .defaults, animation: WidgetAnimationSnapshot(ringTime: 0))
+        let normalCanvas = WidgetRenderer.drawCanvas(state: ringingState, settings: blackOnWhite, animation: WidgetAnimationSnapshot(ringTime: 0))
         // ringTime = 300 -> floor(300/300) % 2 == 1 -> inverted.
-        let invertedCanvas = WidgetRenderer.drawCanvas(state: ringingState, settings: .defaults, animation: WidgetAnimationSnapshot(ringTime: 300))
+        let invertedCanvas = WidgetRenderer.drawCanvas(state: ringingState, settings: blackOnWhite, animation: WidgetAnimationSnapshot(ringTime: 300))
 
         // (progressX, progressY) itself is the rounded rect's omitted corner
         // pixel — drawRoundRect's border mode starts the top edge at x+1, so
@@ -53,8 +62,8 @@ final class WidgetRendererTests: XCTestCase {
         let normalBorder = normalCanvas.pixel(x: WidgetLayout.progressX + 1, y: WidgetLayout.progressY)!
         let invertedBorder = invertedCanvas.pixel(x: WidgetLayout.progressX + 1, y: WidgetLayout.progressY)!
 
-        // Default theme is black ink on white paper, so the progress bar's
-        // border (always drawn in "ink") should swap accordingly.
+        // Black ink on white paper, so the progress bar's border (always
+        // drawn in "ink") should swap accordingly.
         XCTAssertEqual(normalBorder.r, 0)
         XCTAssertEqual(invertedBorder.r, 255)
     }

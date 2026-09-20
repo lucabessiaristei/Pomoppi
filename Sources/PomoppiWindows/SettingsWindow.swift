@@ -1,7 +1,8 @@
 // SettingsWindow.swift — a real titled top-level window (unlike
-// WidgetWindow's layered popup) holding a SysTabControl32 with the same 7
+// WidgetWindow's layered popup) holding a SysTabControl32 with the same 6
 // tabs/order as macOS's SettingsView.swift (Rhythm, Appearance, Window,
-// Keys, Sound, Log, Diary), bound directly to SettingsStore. One
+// Keys, Sound, Diary — Log folded into Diary in the 2026-09-20 redesign),
+// bound directly to SettingsStore. One
 // singleton instance, mirroring macOS's single reused `Settings` scene;
 // see WINDOWS_PORT_PLAN.md's W6/W7 entry for how this file grew phase by
 // phase.
@@ -155,11 +156,11 @@ final class SettingsWindow {
     let hwnd: HWND
     private let settingsStore: SettingsStore
     // Owned by main.swift (the same instance the timer's onPhaseComplete
-    // logs through) — the Log tab reads its synchronous, nonisolated
-    // fileSizeBytes()/eraseAllSync() helpers directly (see SessionLogger's
-    // own comments for why those two are safe to call off-actor from a
-    // synchronous Win32 message loop with no MainActor-integrated executor
-    // to hop back through).
+    // logs through) — the Diary tab's Logging section reads its
+    // synchronous, nonisolated fileSizeBytes()/eraseAllSync() helpers
+    // directly (see SessionLogger's own comments for why those two are
+    // safe to call off-actor from a synchronous Win32 message loop with
+    // no MainActor-integrated executor to hop back through).
     private let sessionLogger: SessionLogger
     // Owned by main.swift (WidgetWindow's own instance) — the Keys tab's
     // shortcut recorder needs to unregister every live global hotkey while
@@ -347,20 +348,20 @@ final class SettingsWindow {
     private var opacityTrackbar: HWND?
     private var opacityValueLabel: HWND?
 
-    // The Log tab's cache-size readout — refreshed after Erase Cached
-    // Sessions completes, same "cache the label, update its text in
-    // place" pattern as opacityValueLabel above.
+    // The Diary tab's Logging section's cache-size readout — refreshed
+    // after Erase Cached Sessions completes, same "cache the label,
+    // update its text in place" pattern as opacityValueLabel above. (Log
+    // was its own tab until the 2026-09-20 redesign folded it into Diary.)
     private var logCacheSizeLabel: HWND?
 
-    // The Diary tab's own live-updated labels/button, same pattern as
-    // logCacheSizeLabel above. Two status labels rather than one — Export
-    // and Sync each report their own last outcome independently, mirroring
-    // macOS DiaryTab's separate exportStatus/syncStatus @State.
+    // The Diary tab's own other live-updated labels/button, same pattern
+    // as logCacheSizeLabel above. Two status labels rather than one —
+    // Export and Sync each report their own last outcome independently,
+    // mirroring macOS DiaryTab's separate exportStatus/syncStatus @State.
     private var diarySessionCountLabel: HWND?
     private var diaryExportStatusLabel: HWND?
     private var diaryFolderLabel: HWND?
     private var diarySyncButton: HWND?
-    private var diaryLastSyncedLabel: HWND?
     private var diarySyncStatusLabel: HWND?
 
     // The Appearance page's own scroll state — it's the only page whose
@@ -445,7 +446,7 @@ final class SettingsWindow {
     }
 
     // Exact order macOS's SettingsView.swift uses.
-    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log", "Diary"]
+    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Diary"]
 
     // clientWidth/clientHeight is the *minimum* size now, not a fixed one
     // (WS_THICKFRAME below makes the window user-resizable) — in the
@@ -1067,8 +1068,6 @@ final class SettingsWindow {
             buildSoundTab(page: page, width: width)
         case "Keys":
             buildKeysTab(page: page, width: width)
-        case "Log":
-            buildLogTab(page: page, width: width)
         case "Diary":
             buildDiaryTab(page: page, width: width)
         default:
@@ -2399,20 +2398,23 @@ final class SettingsWindow {
         WidgetKeyBinding(keys: "Up / Down", action: "Adjust focus length, while idle"),
     ]
 
-    // -- Log tab (session history) ---------------------------------------------
+    // -- Diary tab (logging + export + sync) -----------------------------------
 
-    // Mirrors macOS's new LogTab: an enable toggle for the local JSON
-    // session log (SessionLogger), a live cache-size readout, and an
-    // "Erase Cached Sessions" button with a real confirmation — this tab
-    // was "Obsidian" (vault path/folder/filename/heading fields, a "Test
-    // Connection" button) until the 2026-09-19 redesign replaced direct
-    // Obsidian-markdown writing with this platform-agnostic internal
-    // record (see project-obsidian-logging-redesign). Nothing to
-    // configure anymore: no vault, no folder, just on/off.
-    private func buildLogTab(page: HWND, width: Int32) {
+    // Mirrors macOS's merged DiaryTab (SettingsView.swift, SPEC.md §8/§8b),
+    // three sections top to bottom: Logging (moved verbatim from the old
+    // Log tab — enable toggle, live cache-size readout, "Erase Cached
+    // Sessions" with a real confirmation), Export (now a `.zip` of
+    // per-day files, DiaryExporter.exportZip), Sync to folder (idempotent,
+    // no cursor, DiaryExporter.syncToFolder). All three read
+    // `sessionLogger.allSessionsSync()` directly; none of this ever
+    // writes to sessions.json itself.
+    private func buildDiaryTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
+
+        addLabel("Logging", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
 
         addCheckbox(
             "Log sessions", in: page, checked: settings.loggingEnabled,
@@ -2420,7 +2422,7 @@ final class SettingsWindow {
         ) { [settingsStore] checked in
             settingsStore.update { $0.loggingEnabled = checked }
         }
-        y += Self.rowHeight + Self.groupGap
+        y += Self.rowHeight
 
         logCacheSizeLabel = addLabel(Self.formatCacheSize(sessionLogger.fileSizeBytes()), in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += Self.rowHeight
@@ -2428,57 +2430,7 @@ final class SettingsWindow {
         addButton("Erase Cached Sessions…", in: page, x: Self.rowMargin, y: y, width: 180, height: 24) { [weak self] in
             self?.confirmEraseSessionLog()
         }
-    }
-
-    // MessageBoxW blocks the message loop until dismissed — same "modal,
-    // no async ceremony needed" shape as ChooseColorW in the Appearance
-    // tab. IDYES is the only outcome that erases anything; Cancel/No/the
-    // window's own close box are all treated as "do nothing."
-    private func confirmEraseSessionLog() {
-        let text = Array("Erase all cached session history? This can't be undone.".utf16) + [0]
-        let title = Array("Erase Cached Sessions".utf16) + [0]
-        let result = text.withUnsafeBufferPointer { textPtr in
-            title.withUnsafeBufferPointer { titlePtr in
-                MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
-            }
-        }
-        guard result == IDYES else { return }
-        sessionLogger.eraseAllSync()
-        // The Diary tab's sync cursor is an index into the log array this
-        // just wiped — left non-zero it would skip every session logged
-        // after the erase (dropFirst(stale-count) on a shorter array).
-        settingsStore.update { $0.diaryLastSyncedCount = 0 }
-        if let label = logCacheSizeLabel {
-            setWindowText(label, Self.formatCacheSize(sessionLogger.fileSizeBytes()))
-        }
-    }
-
-    private static func formatCacheSize(_ bytes: Int64) -> String {
-        // A handful of sessions is only a few hundred bytes — rounding
-        // straight to KB read as "0 KB" for anything real yet non-empty,
-        // which looks like the erase didn't work. Bytes below 1 KB, then
-        // KB, then MB.
-        if bytes < 1024 {
-            return "Cache size: \(bytes) bytes"
-        }
-        let kb = Double(bytes) / 1024
-        if kb < 1024 {
-            return "Cache size: \(Int(kb.rounded())) KB"
-        }
-        return "Cache size: \(String(format: "%.1f", kb / 1024)) MB"
-    }
-
-    // -- Diary tab (export + Obsidian-style sync) ------------------------------
-
-    // Mirrors macOS's DiaryTab (SettingsView.swift, SPEC.md §8b): Export is
-    // a stateless one-shot snapshot (DiaryExporter.exportMarkdown), Sync is
-    // incremental into a user-chosen folder (DiaryExporter.syncToFolder) —
-    // both read `sessionLogger.allSessionsSync()` directly, same as the Log
-    // tab above, never writing to sessions.json themselves.
-    private func buildDiaryTab(page: HWND, width: Int32) {
-        let settings = settingsStore.get()
-        let rowWidth = width - 2 * Self.rowMargin
-        var y = Self.rowMargin
+        y += 24 + Self.groupGap
 
         addLabel("Export", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += 20
@@ -2497,7 +2449,7 @@ final class SettingsWindow {
         diaryExportStatusLabel = addLabel("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += Self.rowHeight + Self.groupGap
 
-        addLabel("Obsidian", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        addLabel("Sync to folder", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += 20
 
         diaryFolderLabel = addLabel(
@@ -2517,13 +2469,44 @@ final class SettingsWindow {
         EnableWindow(syncButton, !settings.diaryFolderPath.isEmpty)
         y += 24 + 4
 
-        diaryLastSyncedLabel = addLabel(
-            Self.lastSyncedText(settings.diaryLastSyncedCount),
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
-        y += Self.rowHeight
-
         diarySyncStatusLabel = addLabel("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+    }
+
+    // MessageBoxW blocks the message loop until dismissed — same "modal,
+    // no async ceremony needed" shape as ChooseColorW in the Appearance
+    // tab. IDYES is the only outcome that erases anything; Cancel/No/the
+    // window's own close box are all treated as "do nothing."
+    private func confirmEraseSessionLog() {
+        let text = Array("Erase all cached session history? This can't be undone.".utf16) + [0]
+        let title = Array("Erase Cached Sessions".utf16) + [0]
+        let result = text.withUnsafeBufferPointer { textPtr in
+            title.withUnsafeBufferPointer { titlePtr in
+                MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
+            }
+        }
+        guard result == IDYES else { return }
+        sessionLogger.eraseAllSync()
+        if let label = logCacheSizeLabel {
+            setWindowText(label, Self.formatCacheSize(sessionLogger.fileSizeBytes()))
+        }
+        if let diarySessionCountLabel {
+            setWindowText(diarySessionCountLabel, Self.sessionCountText(sessionLogger.allSessionsSync().count))
+        }
+    }
+
+    private static func formatCacheSize(_ bytes: Int64) -> String {
+        // A handful of sessions is only a few hundred bytes — rounding
+        // straight to KB read as "0 KB" for anything real yet non-empty,
+        // which looks like the erase didn't work. Bytes below 1 KB, then
+        // KB, then MB.
+        if bytes < 1024 {
+            return "Cache size: \(bytes) bytes"
+        }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 {
+            return "Cache size: \(Int(kb.rounded())) KB"
+        }
+        return "Cache size: \(String(format: "%.1f", kb / 1024)) MB"
     }
 
     private static func sessionCountText(_ count: Int) -> String {
@@ -2534,20 +2517,12 @@ final class SettingsWindow {
         path.isEmpty ? "Diary folder: Not set" : "Diary folder: \(path)"
     }
 
-    // `diaryLastSyncedCount` is an index into the session log, not a
-    // timestamp — see DiaryExporter.swift's own header comment — so this
-    // reports how many sessions have been synced rather than a relative
-    // time, exactly like macOS's lastSyncedLabel.
-    private static func lastSyncedText(_ count: Int) -> String {
-        count == 0 ? "Last synced: Never" : "Last synced: \(count) session\(count == 1 ? "" : "s")"
-    }
-
     private func exportDiary() {
         guard let path = promptDiaryExportPath() else { return }
         let url = URL(fileURLWithPath: path)
-        let markdown = DiaryExporter.exportMarkdown(sessions: sessionLogger.allSessionsSync())
+        let zipData = DiaryExporter.exportZip(sessions: sessionLogger.allSessionsSync())
         do {
-            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            try zipData.write(to: url, options: .atomic)
             if let diaryExportStatusLabel {
                 setWindowText(diaryExportStatusLabel, "Exported to \(url.lastPathComponent).")
             }
@@ -2577,17 +2552,11 @@ final class SettingsWindow {
     private func syncDiaryNow() {
         let settings = settingsStore.get()
         let allSessions = sessionLogger.allSessionsSync()
-        let alreadySynced = min(settings.diaryLastSyncedCount, allSessions.count)
-        let newEntries = Array(allSessions.dropFirst(alreadySynced))
         let folderURL = URL(fileURLWithPath: settings.diaryFolderPath)
         do {
-            let written = try DiaryExporter.syncToFolder(folderURL, newEntries: newEntries)
-            settingsStore.update { $0.diaryLastSyncedCount = allSessions.count }
+            let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions)
             if let diarySyncStatusLabel {
-                setWindowText(diarySyncStatusLabel, written == 0 ? "Nothing new to sync." : "Synced \(written) session\(written == 1 ? "" : "s").")
-            }
-            if let diaryLastSyncedLabel {
-                setWindowText(diaryLastSyncedLabel, Self.lastSyncedText(allSessions.count))
+                setWindowText(diarySyncStatusLabel, written == 0 ? "Up to date." : "Added \(written) session\(written == 1 ? "" : "s").")
             }
         } catch {
             if let diarySyncStatusLabel {
@@ -2607,13 +2576,13 @@ final class SettingsWindow {
     // needs it to outlive this one call.
     private func promptDiaryExportPath() -> String? {
         var pathBuffer = [UInt16](repeating: 0, count: 260)
-        for (index, unit) in Array("Pomoppi Diary.md".utf16).enumerated() {
+        for (index, unit) in Array("Pomoppi Diary.zip".utf16).enumerated() {
             pathBuffer[index] = unit
         }
         // Double-NUL-terminated filter pairs, the OPENFILENAMEW convention:
         // display string, then pattern, repeated, ending in an extra NUL.
-        let filter = Array("Markdown (*.md)\0*.md\0\0".utf16)
-        let defExt = Array("md".utf16) + [0]
+        let filter = Array("Zip archive (*.zip)\0*.zip\0\0".utf16)
+        let defExt = Array("zip".utf16) + [0]
 
         var dialog = OPENFILENAMEW()
         dialog.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
