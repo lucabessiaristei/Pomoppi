@@ -44,6 +44,13 @@ public struct PomoppiSettings: Codable, Equatable {
     public var background: String
     public var inkColor: String
     public var paperColor: String
+
+    // The settings window's own chrome (SPEC.md §7): "auto" follows the OS
+    // light/dark setting (today's behavior, still the default), "light"/
+    // "dark" force it. Governs the settings window only — the widget's
+    // ink/paper theme is a separate, manual choice, and the tray icon tint
+    // is untouched either way.
+    public var colorScheme: String
     public var alwaysOnTop: Bool
     public var raiseOnEnd: Bool
     public var reverseTrayClick: Bool
@@ -70,6 +77,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public static let frameStyles = ["ziggy", "scallopy", "splotchy", "wavey"]
     public static let backgroundIDs = ["grid", "luna"]
     public static let chimeIDs = ["classic"]
+    public static let colorSchemeIDs = ["auto", "light", "dark"]
 
     public static let defaults = PomoppiSettings(
         focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4,
@@ -97,7 +105,8 @@ public struct PomoppiSettings: Codable, Equatable {
         launchAtLogin: Bool, startHidden: Bool,
         soundEnabled: Bool, ringSeconds: Double, askForTaskName: Bool,
         shortcuts: [String: String], reverseTrayClick: Bool = false,
-        diaryFolderPath: String = "", diaryLastSyncedCount: Int = 0
+        diaryFolderPath: String = "", diaryLastSyncedCount: Int = 0,
+        colorScheme: String = "auto"
     ) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -113,6 +122,7 @@ public struct PomoppiSettings: Codable, Equatable {
         self.background = background
         self.inkColor = inkColor
         self.paperColor = paperColor
+        self.colorScheme = colorScheme
         self.alwaysOnTop = alwaysOnTop
         self.raiseOnEnd = raiseOnEnd
         self.reverseTrayClick = reverseTrayClick
@@ -131,7 +141,7 @@ public struct PomoppiSettings: Codable, Equatable {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case autoStartBreaks, autoStartFocus
         case loggingEnabled, diaryFolderPath, diaryLastSyncedCount
-        case friend, frameStyle, background, inkColor, paperColor
+        case friend, frameStyle, background, inkColor, paperColor, colorScheme
         case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
         case soundEnabled, ringSeconds, askForTaskName, shortcuts
     }
@@ -180,6 +190,7 @@ public struct PomoppiSettings: Codable, Equatable {
         background = (try? c.decodeIfPresent(String.self, forKey: .background)) ?? d.background
         inkColor = (try? c.decodeIfPresent(String.self, forKey: .inkColor)) ?? d.inkColor
         paperColor = (try? c.decodeIfPresent(String.self, forKey: .paperColor)) ?? d.paperColor
+        colorScheme = (try? c.decodeIfPresent(String.self, forKey: .colorScheme)) ?? d.colorScheme
         alwaysOnTop = (try? c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop)) ?? d.alwaysOnTop
         raiseOnEnd = (try? c.decodeIfPresent(Bool.self, forKey: .raiseOnEnd)) ?? d.raiseOnEnd
         reverseTrayClick = (try? c.decodeIfPresent(Bool.self, forKey: .reverseTrayClick)) ?? d.reverseTrayClick
@@ -220,6 +231,7 @@ public struct PomoppiSettings: Codable, Equatable {
         friend = PomoppiSettings.friendIDs.contains(friend) ? friend : PomoppiSettings.defaults.friend
         frameStyle = PomoppiSettings.frameStyles.contains(frameStyle) ? frameStyle : PomoppiSettings.defaults.frameStyle
         background = PomoppiSettings.backgroundIDs.contains(background) ? background : PomoppiSettings.defaults.background
+        colorScheme = PomoppiSettings.colorSchemeIDs.contains(colorScheme) ? colorScheme : PomoppiSettings.defaults.colorScheme
 
         inkColor = Self.normalizeColor(inkColor) ?? PomoppiSettings.defaults.inkColor
         paperColor = Self.normalizeColor(paperColor) ?? PomoppiSettings.defaults.paperColor

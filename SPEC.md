@@ -510,6 +510,10 @@ with defaults (and the bad file renamed `settings.json.bak`).
   background: <first of BACKGROUND_IDS>, // one of renderer/background.js's BACKGROUND_IDS
   inkColor: '#000000',              // the theme pair -- see section 1
   paperColor: '#FFFFFF',
+  colorScheme: 'auto',              // 'auto' | 'light' | 'dark' -- governs the settings window's own
+                                     // chrome only (Appearance tab, top section); 'auto' follows the OS
+                                     // light/dark setting, today's behavior. Doesn't touch the widget's
+                                     // own ink/paper theme above, or the tray icon tint.
   alwaysOnTop: true,
   raiseOnEnd: true,
   scale: 2,                         // 1, 2, 3 or 4
@@ -535,6 +539,7 @@ an old file, writing it back as `friend`),
 `frameStyle` one of `SPRITES.FRAME_STYLES` (fall back to `'scallopy'`),
 `background` one of `renderer/background.js`'s `BACKGROUND_IDS` (fall back to
 the first),
+`colorScheme` one of `'auto'`/`'light'`/`'dark'` (fall back to `'auto'`),
 `opacity` 0.3..1.0, `ringSeconds` 0..60. Clamp rather than reject.
 
 `inkColor` / `paperColor` accept `#rgb` or `#rrggbb`, with or without the `#`,
@@ -616,7 +621,7 @@ Rhythm, Appearance, Window, Keys, Sound, Log.
 | Tab | Holds |
 |---|---|
 | Rhythm | session lengths, long-break interval, auto-start, ask-for-task |
-| Appearance | pet picker, pet movement toggle, theme (ink/paper + presets), window edge, background, size, transparency |
+| Appearance | color scheme (settings-window chrome only — auto/light/dark), pet picker, pet movement toggle, theme (ink/paper + presets), window edge, background, size, transparency |
 | Window | always-on-top, pop-to-front-on-end, launch at login, start hidden |
 | Keys *(not in this table — added later)* | one click-to-record row per global shortcut, Reset to Defaults, a static list of the fixed in-app keys |
 | Sound | chime on/off, ring duration |

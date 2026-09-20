@@ -326,6 +326,20 @@ final class SettingsWindow {
     }
     private var scaleOptions: [ScaleOptionControl] = []
 
+    // The color-scheme picker's 3 options (Auto/Light/Dark, top of the
+    // Appearance tab) — same owner-drawn-segmented-button shape as
+    // scaleOptions just above (see drawSegmentedOption, the shared paint
+    // both go through), kept as its own array/struct rather than folded
+    // into ScaleOptionControl since "value" here is a String
+    // (PomoppiSettings.colorSchemeIDs), not scale's Int, and each group
+    // needs its own targeted invalidate (only that group's own selection
+    // border moves on a click).
+    private struct SchemeOptionControl {
+        let hwnd: HWND
+        let value: String
+    }
+    private var schemeOptions: [SchemeOptionControl] = []
+
     // The opacity Trackbar32 and its live "NN%" readout — both cached so
     // handleOpacityScroll (WM_HSCROLL) can update the label text without
     // re-querying settingsStore for anything but the trackbar's own
@@ -645,7 +659,7 @@ final class SettingsWindow {
         // actual recolor work waits for applyTheme() just below, since
         // that needs the tab control/steppers/trackbar setUpTabsAndPages
         // is about to create.
-        isDarkMode = Self.systemPrefersDarkTheme()
+        isDarkMode = resolveDarkMode()
         setUpTabsAndPages()
         applyTheme()
     }
@@ -1153,6 +1167,11 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
+        addLabel("Color scheme", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
+        y += 20
+        y += addColorSchemePicker(in: page, x: Self.rowMargin, y: y)
+        y += Self.groupGap
+
         addLabel("Roommate", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
         y += 20
         y += addPickerGrid(
@@ -1357,6 +1376,10 @@ final class SettingsWindow {
         }
         if let option = scaleOptions.first(where: { $0.hwnd == hwndItem }) {
             drawScaleOption(option, drawItem: drawItem.pointee)
+            return 1
+        }
+        if let option = schemeOptions.first(where: { $0.hwnd == hwndItem }) {
+            drawSchemeOption(option, drawItem: drawItem.pointee)
             return 1
         }
         if let rail = appearanceScrollRail, rail == hwndItem {
@@ -1717,8 +1740,63 @@ final class SettingsWindow {
         }
     }
 
+    // The Appearance tab's own first section, ahead of Roommate — same 3
+    // owner-drawn segmented buttons as addScalePicker above, just over
+    // PomoppiSettings.colorSchemeIDs instead of the [1,2,3,4] scale values.
+    // A click here also has to re-resolve and re-apply isDarkMode itself
+    // (addScalePicker's onSelect only ever touches PomoppiSettings.scale,
+    // never this window's own dark/light paint), unlike every other
+    // Appearance control's onSelect closure.
+    private func addColorSchemePicker(in page: HWND, x: Int32, y: Int32) -> Int32 {
+        let buttonWidth: Int32 = 64
+        let height: Int32 = 24
+        let gap: Int32 = 6
+        for (index, value) in PomoppiSettings.colorSchemeIDs.enumerated() {
+            let bx = x + Int32(index) * (buttonWidth + gap)
+            guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, nil,
+                    DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
+                    bx, y, buttonWidth, height,
+                    page, nil, Self.hInstance, nil)
+            }) else {
+                fatalError("CreateWindowExW (color scheme option) failed with error \(GetLastError())")
+            }
+            schemeOptions.append(SchemeOptionControl(hwnd: button, value: value))
+            trackAppearanceControl(button, x: bx, y: y)
+            pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
+                settingsStore.update { $0.colorScheme = value }
+                guard let self else { return }
+                self.isDarkMode = self.resolveDarkMode()
+                self.applyTheme()
+                self.invalidateAllSchemeOptions()
+            }))
+        }
+        return height
+    }
+
+    private func invalidateAllSchemeOptions() {
+        for option in schemeOptions {
+            InvalidateRect(option.hwnd, nil, true)
+        }
+    }
+
     private func drawScaleOption(_ option: ScaleOptionControl, drawItem: DRAWITEMSTRUCT) {
         let isSelected = settingsStore.get().scale == option.value
+        drawSegmentedOption(text: "\(option.value)×", isSelected: isSelected, drawItem: drawItem)
+    }
+
+    private func drawSchemeOption(_ option: SchemeOptionControl, drawItem: DRAWITEMSTRUCT) {
+        let isSelected = settingsStore.get().colorScheme == option.value
+        drawSegmentedOption(text: displayName(option.value), isSelected: isSelected, drawItem: drawItem)
+    }
+
+    // The shared paint both scale (Size & transparency, "N×") and
+    // color-scheme (top of Appearance, "Auto"/"Light"/"Dark") owner-drawn
+    // segmented buttons go through — only the display text and the
+    // isSelected test differ between the two callers just above, so this
+    // is the one place their bevel/text painting logic lives.
+    private func drawSegmentedOption(text: String, isSelected: Bool, drawItem: DRAWITEMSTRUCT) {
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
         // Selected already uses COLOR_HIGHLIGHT/COLOR_HIGHLIGHTTEXT, which
@@ -1734,11 +1812,11 @@ final class SettingsWindow {
             DeleteObject(backgroundBrush)
         }
 
-        let text = Array("\(option.value)×".utf16) + [0]
+        let textUTF16 = Array(text.utf16) + [0]
         SetBkMode(hdc, Int32(TRANSPARENT))
         SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : (isDarkMode ? Self.colorref(hex: Self.darkTextHex) : GetSysColor(COLOR_BTNTEXT)))
         var textRect = rect
-        _ = text.withUnsafeBufferPointer { ptr in
+        _ = textUTF16.withUnsafeBufferPointer { ptr in
             DrawTextW(hdc, ptr.baseAddress, -1, &textRect, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE))
         }
 
@@ -2960,6 +3038,21 @@ final class SettingsWindow {
     // returns.
     private static let darkBackgroundBrush: HBRUSH? = CreateSolidBrush(colorref(hex: darkBackgroundHex))
 
+    // The one place isDarkMode gets computed — both call sites below
+    // (init and handleSettingChange) assign its result themselves rather
+    // than being handed it, matching this file's existing "detect, then
+    // applyTheme() separately" split. "auto" (the default, and the only
+    // value that existed before this setting) defers to
+    // systemPrefersDarkTheme() just below exactly as before; "light"/
+    // "dark" override it outright, regardless of what the OS is doing.
+    private func resolveDarkMode() -> Bool {
+        switch settingsStore.get().colorScheme {
+        case "light": return false
+        case "dark": return true
+        default: return Self.systemPrefersDarkTheme()
+        }
+    }
+
     // Same registry key TrayController.systemPrefersLightTaskbar() reads,
     // but a different value in it: AppsUseLightTheme governs app chrome
     // (this window), SystemUsesLightTheme governs the taskbar/tray —
@@ -3171,7 +3264,7 @@ final class SettingsWindow {
     private func handleSettingChange(lParam: LPARAM) {
         guard let stringPointer = UnsafePointer<UInt16>(bitPattern: UInt(bitPattern: Int(lParam))) else { return }
         guard String(decodingCString: stringPointer, as: UTF16.self) == "ImmersiveColorSet" else { return }
-        isDarkMode = Self.systemPrefersDarkTheme()
+        isDarkMode = resolveDarkMode()
         applyTheme()
     }
 
