@@ -94,6 +94,26 @@ private func pomoppiScrollRailWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: 
     return window.handleScrollRailMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
 }
 
+// SysTabControl32 has no dark visual style (setControlDarkTheme's own
+// comment below has the confirmed-no-op finding for it specifically) —
+// this subclasses the stock tab control via comctl32's SetWindowSubclass
+// rather than replacing it with an owned window class outright, so light
+// mode keeps the native control byte-for-byte. Only WM_PAINT/WM_ERASEBKGND
+// are intercepted, and only while isDarkModeActive is true; everything
+// else (and every message at all in light mode) falls straight through to
+// DefSubclassProc, comctl32's documented "call the original proc" for this
+// subclassing API — unlike GWLP_WNDPROC's classic dance, SetWindowSubclass
+// needs no manually-stored previous-proc pointer for that. Same "can't
+// capture, dispatch through the shared instance" shape as every other
+// WndProc free function in this file.
+private func pomoppiTabControlSubclassProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM, _ subclassID: UINT_PTR, _ refData: DWORD_PTR) -> LRESULT {
+    guard let window = SettingsWindow.shared, let hwnd, window.tabControl == hwnd, window.isDarkModeActive,
+          message == UINT(WM_PAINT) || message == UINT(WM_ERASEBKGND) else {
+        return DefSubclassProc(hwnd, message, wParam, lParam)
+    }
+    return window.handleTabControlPaintMessage(hwnd: hwnd, message: message)
+}
+
 final class SettingsWindow {
     // Only one settings window ever exists at a time — show(settingsStore:)
     // is the sole entry point, mirroring macOS's single reused `Settings`
@@ -115,7 +135,11 @@ final class SettingsWindow {
     // re-applies the table afterward via main.swift's own registration logic.
     private let globalShortcutManager: GlobalShortcutManager
     private let reregisterShortcuts: () -> Void
-    private var tabControl: HWND?
+    // Not `private` — same reason `hwnd`/`appearanceScrollRail` aren't:
+    // pomoppiTabControlSubclassProc needs it to identify which HWND it's
+    // dispatching for, same shape as every other WndProc free function in
+    // this file.
+    var tabControl: HWND?
     private var pages: [HWND] = []
 
     // WM_COMMAND's lParam is always the sending control's HWND regardless
@@ -350,6 +374,11 @@ final class SettingsWindow {
     // per-call, so a live theme flip repaints correctly with no extra
     // bookkeeping at each call site.
     private var isDarkMode = false
+    // Non-private read-only window onto isDarkMode above — same reason
+    // `hwnd`/`appearanceScrollRail`/`tabControl` aren't private themselves:
+    // pomoppiTabControlSubclassProc needs to know whether to intercept
+    // WM_PAINT/WM_ERASEBKGND at all before calling in.
+    var isDarkModeActive: Bool { isDarkMode }
 
     // Exact order macOS's SettingsView.swift uses.
     private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log", "Diary"]
@@ -587,6 +616,11 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (tab control) failed with error \(GetLastError())")
         }
         tabControl = tab
+        // pomoppiTabControlSubclassProc's own dark-mode-only gate decides
+        // when this actually intercepts anything — installed unconditionally
+        // here since there's only ever one tab control for this to matter
+        // for.
+        _ = SetWindowSubclass(tab, pomoppiTabControlSubclassProc, 1, 0)
 
         for (index, title) in Self.tabTitles.enumerated() {
             var wide = Array(title.utf16) + [0]
@@ -667,6 +701,119 @@ final class SettingsWindow {
             // offset didn't move (e.g. growing from an already-top-scrolled
             // page), so it needs its own unconditional invalidate here.
             InvalidateRect(rail, nil, true)
+        }
+    }
+
+    // pomoppiTabControlSubclassProc's own gate already confirmed
+    // isDarkModeActive before calling in — WM_ERASEBKGND just claims the
+    // erase (drawTabControlDark below fills the whole client rect itself,
+    // so there's nothing left for a real erase to do), WM_PAINT does the
+    // actual drawing.
+    func handleTabControlPaintMessage(hwnd: HWND, message: UINT) -> LRESULT {
+        if message == UINT(WM_ERASEBKGND) { return 1 }
+        drawTabControlDark(hwnd: hwnd)
+        return 0
+    }
+
+    // Hand-painted dark tab strip — comctl32 has no dark visual style for
+    // SysTabControl32 (see setControlDarkTheme's own comment), so this is
+    // the Notepad++-style workaround: subclass + own WM_PAINT. Selected
+    // tab reuses darkBackgroundHex (the page's own fill) so it reads as
+    // connected to the page below it; unselected tabs get darkScrollTrackHex
+    // instead, one shade lighter than the page so the strip still reads as
+    // its own surface. Outline in darkElevatedHex, same "1px border" grammar
+    // drawSelectionBorder uses elsewhere on this file, but built from plain
+    // FillRect edges here rather than DrawEdge/Rectangle since the selected
+    // tab needs to selectively drop just its bottom edge.
+    private func drawTabControlDark(hwnd: HWND) {
+        var paint = PAINTSTRUCT()
+        guard let hdc = BeginPaint(hwnd, &paint) else { return }
+        defer { EndPaint(hwnd, &paint) }
+        guard let backgroundBrush = Self.darkBackgroundBrush,
+              let elevatedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
+              let selectedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkBackgroundHex)),
+              let unselectedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkScrollTrackHex)) else { return }
+        defer {
+            DeleteObject(elevatedBrush)
+            DeleteObject(selectedBrush)
+            DeleteObject(unselectedBrush)
+        }
+
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        FillRect(hdc, &clientRect, backgroundBrush)
+
+        // WM_GETFONT rather than GetStockObject(DEFAULT_GUI_FONT) (unlike
+        // drawScaleOption/drawPickerCard's owner-drawn buttons elsewhere in
+        // this file) — the tab control manages its own font rather than
+        // going through applyDefaultFont like every other raw control here
+        // (see that function's own comment), so querying it back is what
+        // keeps this repaint's label metrics identical to light mode's
+        // native one.
+        var previousFont: HGDIOBJ?
+        if let font = HGDIOBJ(bitPattern: Int(SendMessageW(hwnd, UINT(WM_GETFONT), 0, 0))) {
+            previousFont = SelectObject(hdc, font)
+        }
+        SetBkMode(hdc, Int32(TRANSPARENT))
+        SetTextColor(hdc, Self.colorref(hex: Self.darkTextHex))
+
+        let count = Int(SendMessageW(hwnd, UINT(TCM_GETITEMCOUNT), 0, 0))
+        let selectedIndex = Int(SendMessageW(hwnd, UINT(TCM_GETCURSEL), 0, 0))
+        var selectedItemRect: RECT?
+        for index in 0..<count {
+            var itemRect = RECT()
+            withUnsafeMutablePointer(to: &itemRect) { rectPtr in
+                _ = SendMessageW(hwnd, UINT(TCM_GETITEMRECT), WPARAM(index), LPARAM(Int(bitPattern: rectPtr)))
+            }
+            let isSelected = index == selectedIndex
+            if isSelected { selectedItemRect = itemRect }
+
+            var fillRect = itemRect
+            FillRect(hdc, &fillRect, isSelected ? selectedBrush : unselectedBrush)
+
+            var topEdge = RECT(left: itemRect.left, top: itemRect.top, right: itemRect.right, bottom: itemRect.top + 1)
+            var leftEdge = RECT(left: itemRect.left, top: itemRect.top, right: itemRect.left + 1, bottom: itemRect.bottom)
+            var rightEdge = RECT(left: itemRect.right - 1, top: itemRect.top, right: itemRect.right, bottom: itemRect.bottom)
+            FillRect(hdc, &topEdge, elevatedBrush)
+            FillRect(hdc, &leftEdge, elevatedBrush)
+            FillRect(hdc, &rightEdge, elevatedBrush)
+            // Selected tab skips its own bottom edge so it merges straight
+            // into the page fill below (also darkBackgroundHex).
+            if !isSelected {
+                var bottomEdge = RECT(left: itemRect.left, top: itemRect.bottom - 1, right: itemRect.right, bottom: itemRect.bottom)
+                FillRect(hdc, &bottomEdge, elevatedBrush)
+            }
+
+            var textRect = itemRect
+            let wide = Array(Self.tabTitles[index].utf16) + [0]
+            _ = wide.withUnsafeBufferPointer { ptr in
+                DrawTextW(hdc, ptr.baseAddress, -1, &textRect, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE))
+            }
+        }
+        if let previousFont { SelectObject(hdc, previousFont) }
+
+        // The strip/page boundary line, at the display area's own top edge
+        // (TCM_ADJUSTRECT, the exact same technique setUpTabsAndPages/
+        // handleResize already use) — spans the full width except under
+        // the selected tab, so the strip and the page below read as one
+        // connected surface there rather than a visible seam.
+        var displayRect = clientRect
+        withUnsafeMutablePointer(to: &displayRect) { rectPtr in
+            _ = SendMessageW(hwnd, UINT(TCM_ADJUSTRECT), WPARAM(0), LPARAM(Int(bitPattern: rectPtr)))
+        }
+        let lineY = displayRect.top - 1
+        if let selectedItemRect {
+            if selectedItemRect.left > clientRect.left {
+                var leftSegment = RECT(left: clientRect.left, top: lineY, right: selectedItemRect.left, bottom: lineY + 1)
+                FillRect(hdc, &leftSegment, elevatedBrush)
+            }
+            if selectedItemRect.right < clientRect.right {
+                var rightSegment = RECT(left: selectedItemRect.right, top: lineY, right: clientRect.right, bottom: lineY + 1)
+                FillRect(hdc, &rightSegment, elevatedBrush)
+            }
+        } else {
+            var fullLine = RECT(left: clientRect.left, top: lineY, right: clientRect.right, bottom: lineY + 1)
+            FillRect(hdc, &fullLine, elevatedBrush)
         }
     }
 
@@ -2584,9 +2731,11 @@ final class SettingsWindow {
     // no-op call for the tab strip/trackbar rather than dead code) since
     // it's still the right, documented thing to call and may do more on a
     // different Windows version — see this task's report for the full
-    // finding; a real fix for the tab strip and trackbar would still need
-    // each control's own custom-draw path (NM_CUSTOMDRAW for the tab strip,
-    // an owner-drawn trackbar), well beyond this task's agreed scope.
+    // finding; a real fix for the trackbar would still need its own
+    // custom-draw path (an owner-drawn trackbar), still beyond this task's
+    // agreed scope. The tab strip got its own fix since — see
+    // pomoppiTabControlSubclassProc/drawTabControlDark, a WM_PAINT takeover
+    // rather than NM_CUSTOMDRAW.
     private static func setControlDarkTheme(_ hwnd: HWND, dark: Bool) {
         guard let setWindowThemeProc else { return }
         guard dark else {
@@ -2632,6 +2781,26 @@ final class SettingsWindow {
         // strip's own colors on this Windows build anyway (see its own
         // comment above), skipping it here costs nothing visible and
         // removes the race outright.
+        //
+        // The tab strip's own dark/light colors instead come from
+        // pomoppiTabControlSubclassProc's own WM_PAINT takeover — repainted
+        // right here, *before* the page loop below and forced fully
+        // synchronous with RDW_UPDATENOW rather than a lazy InvalidateRect.
+        // Confirmed live as the exact same race as the paragraph above, just
+        // via a different trigger: an InvalidateRect(tabControl) placed
+        // *after* the page loop (the first thing tried) reliably blanked
+        // the visible page too, even with pomoppiTabControlSubclassProc
+        // doing nothing but forwarding every message to DefSubclassProc —
+        // so it's the live *timing* of any tabControl repaint racing the
+        // page's own one that matters here, not what it actually paints.
+        // Doing tabControl's repaint first and waiting for it to fully
+        // finish means the page loop's own synchronous repaint below is
+        // always the last thing to touch the screen, so nothing can land on
+        // top of it afterward.
+        if let tabControl {
+            RedrawWindow(tabControl, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW))
+        }
+
         for stepper in steppers {
             Self.setControlDarkTheme(stepper.editHwnd, dark: isDarkMode)
             Self.setControlDarkTheme(stepper.upDownHwnd, dark: isDarkMode)
