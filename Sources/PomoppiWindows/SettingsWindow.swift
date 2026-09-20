@@ -114,6 +114,38 @@ private func pomoppiTabControlSubclassProc(_ hwnd: HWND?, _ message: UINT, _ wPa
     return window.handleTabControlPaintMessage(hwnd: hwnd, message: message)
 }
 
+// A stepper's own two children each have a dark-mode gap no visual style
+// covers, so both get the same "can't capture, dispatch through the
+// shared instance" WndProc-takeover treatment as pomoppiTabControlSubclassProc
+// just above, installed once per stepper (addStepper) rather than a
+// single shared control — one proc for both rather than two nearly-
+// identical ones, dispatching on which stepper field the hwnd actually
+// is (isStepperUpDown/isStepperEdit, non-private for exactly this
+// reason):
+//   - msctls_updown32 (the arrow buttons): no dark visual style at all —
+//     same confirmed-no-op finding setControlDarkTheme's own comment
+//     already has for it specifically (DarkMode_Explorer restyles the
+//     buddy edit's background, never the up-down itself). Takes over
+//     WM_PAINT/WM_ERASEBKGND — see handleUpDownPaintMessage.
+//   - the buddy EDIT: setControlDarkTheme does restyle its background
+//     (see that function's own comment) and handleCtlColor's
+//     WM_CTLCOLOREDIT case fixes its text, but neither touches the
+//     WS_EX_CLIENTEDGE sunken border DefWindowProc draws on WM_NCPAINT,
+//     which stayed bright system white — confirmed live via screenshot.
+//     Takes over WM_NCPAINT only — see handleStepperEditNCPaint.
+private func pomoppiStepperSubclassProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM, _ subclassID: UINT_PTR, _ refData: DWORD_PTR) -> LRESULT {
+    guard let window = SettingsWindow.shared, let hwnd, window.isDarkModeActive else {
+        return DefSubclassProc(hwnd, message, wParam, lParam)
+    }
+    if window.isStepperUpDown(hwnd), message == UINT(WM_PAINT) || message == UINT(WM_ERASEBKGND) {
+        return window.handleUpDownPaintMessage(hwnd: hwnd, message: message)
+    }
+    if window.isStepperEdit(hwnd), message == UINT(WM_NCPAINT) {
+        return window.handleStepperEditNCPaint(hwnd: hwnd)
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam)
+}
+
 final class SettingsWindow {
     // Only one settings window ever exists at a time — show(settingsStore:)
     // is the sole entry point, mirroring macOS's single reused `Settings`
@@ -176,6 +208,14 @@ final class SettingsWindow {
         let onClick: () -> Void
     }
     private var pushButtons: [PushButtonControl] = []
+
+    // The plain (non-owner-drawn) push buttons among pushButtons above —
+    // pushButtons also holds every owner-drawn card/swatch/scale option
+    // (they all fire the same BN_CLICKED), so this is tracked separately
+    // rather than filtered out of that list, purely so applyTheme has
+    // something to hand to setControlDarkTheme (see addButton, the only
+    // place this is appended to).
+    private var plainPushButtons: [HWND] = []
 
     // A shortcut row's own button, tracked separately from pushButtons so
     // refreshShortcutButtons can look one up by action id after a binding
@@ -379,6 +419,16 @@ final class SettingsWindow {
     // pomoppiTabControlSubclassProc needs to know whether to intercept
     // WM_PAINT/WM_ERASEBKGND at all before calling in.
     var isDarkModeActive: Bool { isDarkMode }
+    // Non-private for the same reason as isDarkModeActive just above —
+    // pomoppiStepperSubclassProc needs to know whether a given HWND is
+    // one of steppers' own up-downs or edits without steppers itself
+    // becoming non-private.
+    func isStepperUpDown(_ hwnd: HWND) -> Bool {
+        steppers.contains(where: { $0.upDownHwnd == hwnd })
+    }
+    func isStepperEdit(_ hwnd: HWND) -> Bool {
+        steppers.contains(where: { $0.editHwnd == hwnd })
+    }
 
     // Exact order macOS's SettingsView.swift uses.
     private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Log", "Diary"]
@@ -817,6 +867,128 @@ final class SettingsWindow {
         }
     }
 
+    // pomoppiStepperSubclassProc's own gate already confirmed dark mode
+    // and stepper-up-down membership before calling in — same shape as
+    // handleTabControlPaintMessage: WM_ERASEBKGND just claims the erase
+    // (drawUpDownDark below fills the whole client rect itself), WM_PAINT
+    // does the actual drawing.
+    func handleUpDownPaintMessage(hwnd: HWND, message: UINT) -> LRESULT {
+        if message == UINT(WM_ERASEBKGND) { return 1 }
+        drawUpDownDark(hwnd: hwnd)
+        return 0
+    }
+
+    // Hand-painted dark up-down — msctls_updown32 has no dark visual style
+    // (see pomoppiStepperSubclassProc's own comment), so this is the same
+    // WM_PAINT-takeover workaround as drawTabControlDark, just for this
+    // control: a flat darkScrollTrackHex fill (reads the same "distinct
+    // surface" role a stepper's up-down plays against the page as the
+    // scroll rail's own track does — see drawScrollRail), a 1px
+    // darkElevatedHex outline plus a 1px separator between the up/down
+    // halves, and each arrow as a few centered FillRect rows of shrinking
+    // width in darkTextHex rather than a real triangle/font glyph.
+    private func drawUpDownDark(hwnd: HWND) {
+        var paint = PAINTSTRUCT()
+        guard let hdc = BeginPaint(hwnd, &paint) else { return }
+        defer { EndPaint(hwnd, &paint) }
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        guard let trackBrush = CreateSolidBrush(Self.colorref(hex: Self.darkScrollTrackHex)),
+              let elevatedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
+              let arrowBrush = CreateSolidBrush(Self.colorref(hex: Self.darkTextHex)) else { return }
+        defer {
+            DeleteObject(trackBrush)
+            DeleteObject(elevatedBrush)
+            DeleteObject(arrowBrush)
+        }
+        FillRect(hdc, &clientRect, trackBrush)
+
+        let width = clientRect.right - clientRect.left
+        let height = clientRect.bottom - clientRect.top
+        let halfHeight = height / 2
+
+        var outlineTop = RECT(left: clientRect.left, top: clientRect.top, right: clientRect.right, bottom: clientRect.top + 1)
+        var outlineBottom = RECT(left: clientRect.left, top: clientRect.bottom - 1, right: clientRect.right, bottom: clientRect.bottom)
+        var outlineLeft = RECT(left: clientRect.left, top: clientRect.top, right: clientRect.left + 1, bottom: clientRect.bottom)
+        var outlineRight = RECT(left: clientRect.right - 1, top: clientRect.top, right: clientRect.right, bottom: clientRect.bottom)
+        var separator = RECT(left: clientRect.left, top: clientRect.top + halfHeight, right: clientRect.right, bottom: clientRect.top + halfHeight + 1)
+        FillRect(hdc, &outlineTop, elevatedBrush)
+        FillRect(hdc, &outlineBottom, elevatedBrush)
+        FillRect(hdc, &outlineLeft, elevatedBrush)
+        FillRect(hdc, &outlineRight, elevatedBrush)
+        FillRect(hdc, &separator, elevatedBrush)
+
+        drawUpDownArrow(hdc: hdc, centerX: clientRect.left + width / 2, centerY: clientRect.top + halfHeight / 2, pointingUp: true, brush: arrowBrush)
+        drawUpDownArrow(hdc: hdc, centerX: clientRect.left + width / 2, centerY: clientRect.top + halfHeight + halfHeight / 2, pointingUp: false, brush: arrowBrush)
+    }
+
+    // A tiny solid triangle built from a few centered FillRect rows of
+    // shrinking width, same "flat GDI primitives only" spirit as
+    // drawScrollRailGrip's own decoration above — no font glyph, no
+    // DrawFrameControl (both would need the classic system look this
+    // control just lost by having its own WM_PAINT taken over).
+    private func drawUpDownArrow(hdc: HDC?, centerX: Int32, centerY: Int32, pointingUp: Bool, brush: HBRUSH) {
+        let widths: [Int32] = [7, 5, 3, 1]
+        let ordered = pointingUp ? Array(widths.reversed()) : widths
+        let top = centerY - Int32(ordered.count) / 2
+        for (rowIndex, rowWidth) in ordered.enumerated() {
+            var row = RECT(left: centerX - rowWidth / 2, top: top + Int32(rowIndex), right: centerX - rowWidth / 2 + rowWidth, bottom: top + Int32(rowIndex) + 1)
+            FillRect(hdc, &row, brush)
+        }
+    }
+
+    // pomoppiStepperSubclassProc's own gate already confirmed dark mode
+    // and stepper-edit membership before calling in. WM_NCPAINT is what
+    // actually draws a WS_EX_CLIENTEDGE control's own sunken border —
+    // confirmed live as the one remaining bright-white surface in dark
+    // mode even after setControlDarkTheme/handleCtlColor already covered
+    // the edit's interior background/text (see setControlDarkTheme's own
+    // comment). GetWindowDC (not BeginPaint, which clips to the client
+    // area) is the documented way to get an HDC covering the non-client
+    // area for a manual WM_NCPAINT repaint, clipped/originated to a
+    // (0,0,w,h) rect matching the window's own full size — window
+    // coordinates, not client ones, is exactly why GetWindowRect (not
+    // GetClientRect) feeds it. The client edge is 2px (WS_EX_CLIENTEDGE
+    // is a sunken 3D border, two 1px rings) — painting only those two
+    // outermost rings (drawNCFrameRing below) and never touching
+    // anything further in leaves the actual client rect, which the
+    // control's own WM_PAINT/WM_ERASEBKGND/WM_CTLCOLOREDIT already paint
+    // correctly, untouched.
+    func handleStepperEditNCPaint(hwnd: HWND) -> LRESULT {
+        var windowRect = RECT()
+        GetWindowRect(hwnd, &windowRect)
+        let width = windowRect.right - windowRect.left
+        let height = windowRect.bottom - windowRect.top
+        guard width > 4, height > 4, let hdc = GetWindowDC(hwnd) else { return 0 }
+        defer { ReleaseDC(hwnd, hdc) }
+        guard let outerBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
+              let innerBrush = CreateSolidBrush(Self.colorref(hex: Self.darkBackgroundHex)) else { return 0 }
+        defer {
+            DeleteObject(outerBrush)
+            DeleteObject(innerBrush)
+        }
+        drawNCFrameRing(hdc: hdc, left: 0, top: 0, right: width, bottom: height, brush: outerBrush)
+        drawNCFrameRing(hdc: hdc, left: 1, top: 1, right: width - 1, bottom: height - 1, brush: innerBrush)
+        return 0
+    }
+
+    // Paints a single 1px rectangular outline (not a filled block, so
+    // whatever is already inside it — the next ring in, or the client
+    // rect itself — is left alone) — the plain-outline equivalent of
+    // drawUpDownDark's own outline block, just parameterized over an
+    // arbitrary ring rather than one fixed rect, since this needs two
+    // concentric ones.
+    private func drawNCFrameRing(hdc: HDC?, left: Int32, top: Int32, right: Int32, bottom: Int32, brush: HBRUSH) {
+        var topEdge = RECT(left: left, top: top, right: right, bottom: top + 1)
+        var bottomEdge = RECT(left: left, top: bottom - 1, right: right, bottom: bottom)
+        var leftEdge = RECT(left: left, top: top, right: left + 1, bottom: bottom)
+        var rightEdge = RECT(left: right - 1, top: top, right: right, bottom: bottom)
+        FillRect(hdc, &topEdge, brush)
+        FillRect(hdc, &bottomEdge, brush)
+        FillRect(hdc, &leftEdge, brush)
+        FillRect(hdc, &rightEdge, brush)
+    }
+
     private func createPage(title: String, rect: RECT) -> HWND {
         let width = rect.right - rect.left
         let height = rect.bottom - rect.top
@@ -1241,16 +1413,15 @@ final class SettingsWindow {
         let imageRect = RECT(left: rect.left + margin, top: rect.top + margin, right: rect.right - margin, bottom: rect.bottom - margin)
         card.canvas.draw(into: hdc, destRect: imageRect, cropX: card.cropX, cropY: card.cropY, cropWidth: card.cropWidth, cropHeight: card.cropHeight)
 
-        // A real Win32 bevel via DrawEdge rather than a flat colored
-        // stroke — see drawSelectionBorder's own comment just below for
-        // the full reasoning (raised/sunken + accent ring), duplicated
-        // here rather than called into since this card's border has
-        // always drawn its own copy of this block (it predates
-        // drawSelectionBorder's own extraction). BF_RECT itself doesn't
-        // import (ClangImporter marks it "structure not supported" since
-        // it's defined as an OR of the four edge flags rather than its
-        // own literal) — spelled out by hand instead.
-        DrawEdge(hdc, &rect, UINT(isSelected ? EDGE_SUNKEN : EDGE_RAISED), UINT(BF_LEFT | BF_TOP | BF_RIGHT | BF_BOTTOM))
+        // A real Win32 bevel via drawBevel (DrawEdge in light mode, a
+        // hand-painted dark one otherwise — see that function's own
+        // comment for why) rather than a flat colored stroke — see
+        // drawSelectionBorder's own comment just below for the full
+        // reasoning (raised/sunken + accent ring), duplicated here rather
+        // than called into since this card's border has always drawn its
+        // own copy of this block (it predates drawSelectionBorder's own
+        // extraction).
+        drawBevel(hdc: hdc, rect: rect, sunken: isSelected)
         if isSelected {
             let inset: Int32 = 2
             let accentRect = RECT(left: rect.left + inset, top: rect.top + inset, right: rect.right - inset, bottom: rect.bottom - inset)
@@ -1265,35 +1436,67 @@ final class SettingsWindow {
         }
     }
 
+    // DrawEdge's own bevel colors (COLOR_BTNSHADOW/COLOR_BTNHIGHLIGHT/
+    // COLOR_3DDKSHADOW/...) come from GetSysColor like everything else,
+    // and — confirmed live via a pixel-level screenshot comparison, same
+    // RGB values at the same physical spot in both themes — don't
+    // themselves shift under the OS dark/light setting either, same as
+    // COLOR_BTNFACE. That's exactly the complaint, not a non-issue: those
+    // colors are tuned for COLOR_BTNFACE's light gray, and against
+    // darkBackgroundHex the bright COLOR_BTNHIGHLIGHT edge reads as a
+    // glaring white line rather than a subtle highlight — confirmed live
+    // via screenshot (zoom_bottom.png). Dark mode paints the bevel by hand
+    // instead: raised = darkElevatedHex top/left, darkBevelShadowHex
+    // bottom/right; sunken is the reverse — same 1px-per-edge FillRect
+    // technique drawTabControlDark already uses for the tab strip's own
+    // outline, just picking two shades that actually sit on either side of
+    // darkBackgroundHex instead of COLOR_BTNFACE.
+    private func drawBevel(hdc: HDC?, rect: RECT, sunken: Bool) {
+        guard isDarkMode else {
+            var edgeRect = rect
+            // BF_RECT itself doesn't import (ClangImporter marks it
+            // "structure not supported" since it's defined as an OR of the
+            // four edge flags rather than its own literal) — spelled out
+            // by hand instead.
+            DrawEdge(hdc, &edgeRect, UINT(sunken ? EDGE_SUNKEN : EDGE_RAISED), UINT(BF_LEFT | BF_TOP | BF_RIGHT | BF_BOTTOM))
+            return
+        }
+        guard let lightBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
+              let shadowBrush = CreateSolidBrush(Self.colorref(hex: Self.darkBevelShadowHex)) else { return }
+        defer {
+            DeleteObject(lightBrush)
+            DeleteObject(shadowBrush)
+        }
+        let topLeftBrush = sunken ? shadowBrush : lightBrush
+        let bottomRightBrush = sunken ? lightBrush : shadowBrush
+        var top = RECT(left: rect.left, top: rect.top, right: rect.right, bottom: rect.top + 1)
+        var left = RECT(left: rect.left, top: rect.top, right: rect.left + 1, bottom: rect.bottom)
+        var bottom = RECT(left: rect.left, top: rect.bottom - 1, right: rect.right, bottom: rect.bottom)
+        var right = RECT(left: rect.right - 1, top: rect.top, right: rect.right, bottom: rect.bottom)
+        FillRect(hdc, &top, topLeftBrush)
+        FillRect(hdc, &left, topLeftBrush)
+        FillRect(hdc, &bottom, bottomRightBrush)
+        FillRect(hdc, &right, bottomRightBrush)
+    }
+
     // A generic bordered-rectangle helper every owner-drawn control below
     // ends its own painting with — pulled out once drawPickerCard's own
     // border block started repeating a third time (theme swatches, color
-    // swatches, scale options all want the same frame). A real Win32
-    // bevel via DrawEdge (EDGE_RAISED unselected, EDGE_SUNKEN selected —
-    // the user's own explicit ask, replacing a flat single-color stroke
-    // this used to draw) rather than GDI+'s RoundRect, which has no
-    // anti-aliasing and reads worse, not better, at these card sizes
-    // (rejected in design review). DrawEdge's own bevel colors
-    // (COLOR_BTNSHADOW/COLOR_BTNHIGHLIGHT/COLOR_3DDKSHADOW/...) come from
-    // GetSysColor like everything else, and — confirmed live via a pixel-
-    // level screenshot comparison, same RGB values at the same physical
-    // spot in both themes — don't themselves shift under the OS dark/light
-    // setting either, same as COLOR_BTNFACE; the bevel still reads fine
-    // against a dark background regardless, so unlike drawPickerCard's own
-    // background fill this needs no dark-mode branch of its own. Selected
-    // state keeps a thin COLOR_HIGHLIGHT ring inset inside the sunken
-    // bevel — also confirmed identical pixel-for-pixel between themes (it
-    // tracks the user's accent-color choice, not light/dark specifically),
-    // which is exactly why it still reads fine in both: a strong, fixed
-    // accent blue has enough contrast against either a light or a dark
-    // page background on its own — so selection is never just a
-    // squint-at-the-bevel-direction question, an accessibility point from
-    // design review.
+    // swatches, scale options all want the same frame). drawBevel above
+    // (EDGE_RAISED unselected, EDGE_SUNKEN selected — the user's own
+    // explicit ask, replacing a flat single-color stroke this used to
+    // draw) rather than GDI+'s RoundRect, which has no anti-aliasing and
+    // reads worse, not better, at these card sizes (rejected in design
+    // review). Selected state keeps a thin COLOR_HIGHLIGHT ring inset
+    // inside the sunken bevel — confirmed identical pixel-for-pixel
+    // between themes (it tracks the user's accent-color choice, not
+    // light/dark specifically), which is exactly why it still reads fine
+    // in both: a strong, fixed accent blue has enough contrast against
+    // either a light or a dark page background on its own — so selection
+    // is never just a squint-at-the-bevel-direction question, an
+    // accessibility point from design review.
     private func drawSelectionBorder(hdc: HDC?, rect: RECT, isSelected: Bool) {
-        var edgeRect = rect
-        // BF_RECT itself doesn't import (see drawPickerCard's own copy of
-        // this call for why) — spelled out by hand instead.
-        DrawEdge(hdc, &edgeRect, UINT(isSelected ? EDGE_SUNKEN : EDGE_RAISED), UINT(BF_LEFT | BF_TOP | BF_RIGHT | BF_BOTTOM))
+        drawBevel(hdc: hdc, rect: rect, sunken: isSelected)
         guard isSelected else { return }
         let inset: Int32 = 2
         let accentRect = RECT(left: rect.left + inset, top: rect.top + inset, right: rect.right - inset, bottom: rect.bottom - inset)
@@ -1587,6 +1790,71 @@ final class SettingsWindow {
         settingsStore.update { $0.opacity = opacity }
         if let label = opacityValueLabel {
             setWindowText(label, "\(Int((opacity * 100).rounded()))%")
+        }
+    }
+
+    // NM_CUSTOMDRAW from the opacity trackbar (forwarded here the exact
+    // same WM_NOTIFY route as TCN_SELCHANGE/UDN_DELTAPOS just above) —
+    // msctls_trackbar32 has no dark visual style either (same story as
+    // the tab strip and the up-down controls, see setControlDarkTheme's
+    // own comment), but unlike either of those this control actually
+    // documents a custom-draw notification of its own, so this takes that
+    // route instead of a second WM_PAINT subclass. Light mode returns
+    // CDRF_DODEFAULT at every stage, unconditionally — native rendering,
+    // byte-for-byte unchanged.
+    private func handleOpacityTrackbarCustomDraw(lParam: LPARAM) -> LRESULT {
+        guard let draw = UnsafeMutablePointer<NMCUSTOMDRAW>(bitPattern: UInt(bitPattern: Int(lParam))) else {
+            return LRESULT(CDRF_DODEFAULT)
+        }
+        guard isDarkMode else { return LRESULT(CDRF_DODEFAULT) }
+
+        if draw.pointee.dwDrawStage == DWORD(CDDS_PREPAINT) {
+            // The strip behind the channel/thumb/tics — confirmed live as
+            // a light halo around the channel without this, since none of
+            // the CDDS_ITEMPREPAINT fills below cover the control's own
+            // full rect.
+            var rect = draw.pointee.rc
+            if let brush = Self.darkBackgroundBrush { FillRect(draw.pointee.hdc, &rect, brush) }
+            return LRESULT(CDRF_NOTIFYITEMDRAW)
+        }
+
+        guard draw.pointee.dwDrawStage == DWORD(CDDS_ITEMPREPAINT) else { return LRESULT(CDRF_DODEFAULT) }
+        var rect = draw.pointee.rc
+        switch draw.pointee.dwItemSpec {
+        case UInt64(TBCD_CHANNEL):
+            if let fillBrush = CreateSolidBrush(Self.colorref(hex: Self.darkScrollTrackHex)) {
+                FillRect(draw.pointee.hdc, &rect, fillBrush)
+                DeleteObject(fillBrush)
+            }
+            // A plain flat outline (not drawBevel's raised/sunken pair) —
+            // the channel is a groove the thumb sits in, not a clickable
+            // card/button, so one shade is enough to set it apart from the
+            // page fill behind it.
+            if let outlineBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)) {
+                var top = RECT(left: rect.left, top: rect.top, right: rect.right, bottom: rect.top + 1)
+                var bottom = RECT(left: rect.left, top: rect.bottom - 1, right: rect.right, bottom: rect.bottom)
+                var left = RECT(left: rect.left, top: rect.top, right: rect.left + 1, bottom: rect.bottom)
+                var right = RECT(left: rect.right - 1, top: rect.top, right: rect.right, bottom: rect.bottom)
+                FillRect(draw.pointee.hdc, &top, outlineBrush)
+                FillRect(draw.pointee.hdc, &bottom, outlineBrush)
+                FillRect(draw.pointee.hdc, &left, outlineBrush)
+                FillRect(draw.pointee.hdc, &right, outlineBrush)
+                DeleteObject(outlineBrush)
+            }
+            return LRESULT(CDRF_SKIPDEFAULT)
+        case UInt64(TBCD_THUMB):
+            if let thumbBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)) {
+                FillRect(draw.pointee.hdc, &rect, thumbBrush)
+                DeleteObject(thumbBrush)
+            }
+            drawBevel(hdc: draw.pointee.hdc, rect: rect, sunken: false)
+            return LRESULT(CDRF_SKIPDEFAULT)
+        default:
+            // TBCD_TICS (TBS_AUTOTICKS' own tick marks) — hidden outright
+            // rather than hand-painted: purely decorative on this slider,
+            // and the user's own ask accepted hiding them as the simpler
+            // option.
+            return LRESULT(CDRF_SKIPDEFAULT)
         }
     }
 
@@ -2566,6 +2834,7 @@ final class SettingsWindow {
         }
         applyDefaultFont(button)
         pushButtons.append(PushButtonControl(hwnd: button, onClick: onClick))
+        plainPushButtons.append(button)
         return button
     }
 
@@ -2621,6 +2890,15 @@ final class SettingsWindow {
         SendMessageW(upDownHwnd, UINT(UDM_SETPOS32), 0, LPARAM(Int(value)))
 
         steppers.append(StepperControl(editHwnd: editHwnd, upDownHwnd: upDownHwnd, min: min, max: max, step: step, onChange: onChange))
+        // pomoppiStepperSubclassProc's own dark-mode-only gate decides
+        // when either of these actually intercepts anything — installed
+        // unconditionally here, same "every stepper gets one, light mode
+        // just never triggers it" shape as the tab control's own subclass
+        // in setUpTabsAndPages. Appended to steppers just above first,
+        // since isStepperUpDown/isStepperEdit's membership checks are
+        // what the gate reads.
+        _ = SetWindowSubclass(editHwnd, pomoppiStepperSubclassProc, 1, 0)
+        _ = SetWindowSubclass(upDownHwnd, pomoppiStepperSubclassProc, 1, 0)
         return (editHwnd, upDownHwnd)
     }
 
@@ -2667,6 +2945,11 @@ final class SettingsWindow {
     // between darkBackgroundHex and darkElevatedHex so the thumb still
     // stands out on top of it.
     private static let darkScrollTrackHex = "#3A3A3A"
+    // drawBevel's own dark-mode shadow edge — near-black rather than a
+    // mid-gray so a raised/sunken bevel still reads as a real 3D edge
+    // against darkBackgroundHex, the same contrast job COLOR_BTNSHADOW
+    // does against COLOR_BTNFACE in light mode.
+    private static let darkBevelShadowHex = "#0F0F0F"
 
     // Reused for both WM_ERASEBKGND's page fill and WM_CTLCOLORSTATIC/
     // WM_CTLCOLORBTN's returned brush (same color either way) — created
@@ -2731,11 +3014,18 @@ final class SettingsWindow {
     // no-op call for the tab strip/trackbar rather than dead code) since
     // it's still the right, documented thing to call and may do more on a
     // different Windows version — see this task's report for the full
-    // finding; a real fix for the trackbar would still need its own
-    // custom-draw path (an owner-drawn trackbar), still beyond this task's
-    // agreed scope. The tab strip got its own fix since — see
-    // pomoppiTabControlSubclassProc/drawTabControlDark, a WM_PAINT takeover
-    // rather than NM_CUSTOMDRAW.
+    // finding. The tab strip got its own fix since — see
+    // pomoppiTabControlSubclassProc/drawTabControlDark, a WM_PAINT
+    // takeover. The trackbar got its own fix too, but via NM_CUSTOMDRAW
+    // rather than a WM_PAINT takeover — see handleOpacityTrackbarCustomDraw,
+    // the notification Trackbar32 actually documents for this rather than
+    // the tab-strip workaround's WM_PAINT subclass. The up-down controls
+    // (msctls_updown32) got the tab strip's own WM_PAINT-subclass
+    // treatment instead, since they have no custom-draw notification of
+    // their own — see pomoppiStepperSubclassProc/drawUpDownDark. Their
+    // buddy edits' own WS_EX_CLIENTEDGE border got the same subclass
+    // treatment too, just over WM_NCPAINT instead — see
+    // handleStepperEditNCPaint.
     private static func setControlDarkTheme(_ hwnd: HWND, dark: Bool) {
         guard let setWindowThemeProc else { return }
         guard dark else {
@@ -2744,6 +3034,28 @@ final class SettingsWindow {
         }
         let subAppName: [UInt16] = Array("DarkMode_Explorer".utf16) + [0]
         _ = subAppName.withUnsafeBufferPointer { setWindowThemeProc(hwnd, $0.baseAddress, nil) }
+    }
+
+    // A themed BS_AUTOCHECKBOX draws its own label text via the current
+    // visual style, ignoring whatever color WM_CTLCOLORBTN's handler
+    // (handleCtlColor, already darkTextHex-aware) hands back — confirmed
+    // live: the checkbox square recolors fine under dark mode, but its
+    // label stays flat black regardless. Passing empty strings (not nil)
+    // is SetWindowTheme's documented way to turn visual styles off for
+    // one control entirely, rather than pick a different, still-themed
+    // style — with theming off, the control falls back to
+    // DrawFrameControl's classic square-box chrome and paints its label
+    // through the ordinary WM_CTLCOLORBTN path like any other unthemed
+    // control, so darkTextHex actually takes. `nil, nil` (this function's
+    // own `dark: false` branch) restores the default theme for light mode.
+    private static func setControlClassicTheme(_ hwnd: HWND, classic: Bool) {
+        guard let setWindowThemeProc else { return }
+        guard classic else {
+            _ = setWindowThemeProc(hwnd, nil, nil)
+            return
+        }
+        let empty: [UInt16] = [0]
+        _ = empty.withUnsafeBufferPointer { setWindowThemeProc(hwnd, $0.baseAddress, $0.baseAddress) }
     }
 
     // The one recolor path both dark-mode entry points below funnel
@@ -2804,8 +3116,40 @@ final class SettingsWindow {
         for stepper in steppers {
             Self.setControlDarkTheme(stepper.editHwnd, dark: isDarkMode)
             Self.setControlDarkTheme(stepper.upDownHwnd, dark: isDarkMode)
+            // setControlDarkTheme above is a confirmed no-op for the
+            // up-down itself (see pomoppiStepperSubclassProc's own
+            // comment) — its actual dark/light repaint comes from
+            // drawUpDownDark via that subclass, forced synchronous here
+            // for the exact same reason the tab control's own repaint
+            // just above is: it has to finish *before* the page loop's
+            // own RDW_UPDATENOW pass or a live theme flip blanks the
+            // page, per this function's own running finding.
+            RedrawWindow(stepper.upDownHwnd, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW))
+            // Same story for the edit's own non-client border — RDW_FRAME
+            // is what actually forces a WM_NCPAINT (RDW_INVALIDATE alone
+            // only covers the client area), which is all
+            // handleStepperEditNCPaint repaints, so RDW_ERASE isn't
+            // needed here.
+            RedrawWindow(stepper.editHwnd, nil, nil, UINT(RDW_FRAME) | UINT(RDW_INVALIDATE) | UINT(RDW_UPDATENOW))
         }
         if let opacityTrackbar { Self.setControlDarkTheme(opacityTrackbar, dark: isDarkMode) }
+
+        // Checkbox labels: see setControlClassicTheme's own comment for
+        // why turning theming off is what actually gets darkTextHex onto
+        // the label instead of the visual style's own hardcoded black.
+        for checkbox in checkboxes {
+            Self.setControlClassicTheme(checkbox.hwnd, classic: isDarkMode)
+        }
+        // Plain push buttons (Keys tab's recorder rows + Reset to
+        // Defaults, Log's Erase Cached Sessions, Diary's Export/Choose/
+        // Sync Now) — "DarkMode_Explorer" is documented to also restyle
+        // BS_PUSHBUTTON with a dark face and light text (this is what
+        // Notepad++ uses), unlike the tab strip/trackbar's own confirmed
+        // no-op with the same sub-app name (see setControlDarkTheme's own
+        // comment) — verified live by screenshot rather than assumed.
+        for button in plainPushButtons {
+            Self.setControlDarkTheme(button, dark: isDarkMode)
+        }
 
         // RDW_ALLCHILDREN because a
         // plain InvalidateRect on a page doesn't cascade to its own
@@ -2894,6 +3238,9 @@ final class SettingsWindow {
             if header.pointee.code == UDN_DELTAPOS,
                let stepper = steppers.first(where: { $0.upDownHwnd == header.pointee.hwndFrom }) {
                 return handleUpDownDeltaPos(lParam: lParam, stepper: stepper)
+            }
+            if header.pointee.code == NM_CUSTOMDRAW, let opacityTrackbar, header.pointee.hwndFrom == opacityTrackbar {
+                return handleOpacityTrackbarCustomDraw(lParam: lParam)
             }
             return 0
         case WM_COMMAND:
