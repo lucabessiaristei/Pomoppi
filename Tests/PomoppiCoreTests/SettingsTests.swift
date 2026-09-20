@@ -87,6 +87,34 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(store.get().reverseTrayClick, false)
     }
 
+    func testColorSchemeDefaultsToAutoAndFallsBackWhenMissingFromJSON() throws {
+        XCTAssertEqual(PomoppiSettings.defaults.colorScheme, "auto")
+
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let filePath = dir.appendingPathComponent("settings.json")
+        try "{}".write(to: filePath, atomically: true, encoding: .utf8)
+
+        let store = SettingsStore(storageDir: dir)
+        XCTAssertEqual(store.get().colorScheme, "auto")
+    }
+
+    func testColorSchemeRoundTripsAndRejectsUnknownValues() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SettingsStore(storageDir: dir)
+
+        store.update { $0.colorScheme = "dark" }
+        XCTAssertEqual(store.get().colorScheme, "dark")
+
+        let reloaded = SettingsStore(storageDir: dir)
+        XCTAssertEqual(reloaded.get().colorScheme, "dark")
+
+        store.update { $0.colorScheme = "not-a-real-scheme" }
+        XCTAssertEqual(store.get().colorScheme, PomoppiSettings.defaults.colorScheme)
+    }
+
     func testCorruptFileFallsBackToDefaultsAndBacksUpOriginal() throws {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -35,6 +35,7 @@ struct SettingsView: View {
         }
         .scenePadding()
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
+        .preferredColorScheme(Self.preferredColorScheme(for: viewModel.settings.colorScheme))
         .onAppear(perform: disableSettingsRestoration)
     }
 
@@ -45,6 +46,18 @@ struct SettingsView: View {
             if window.title.contains("Settings") || window.identifier?.rawValue.contains("Settings") == true {
                 window.isRestorable = false
             }
+        }
+    }
+
+    // Applied here rather than at SettingsRootView's call site (PomoppiApp.swift):
+    // this view's own `viewModel` is an @ObservedObject, so a live picker change
+    // re-renders this body and the window follows immediately. "auto" passes
+    // `nil` — same as never applying the modifier, i.e. keep following the OS.
+    private static func preferredColorScheme(for setting: String) -> ColorScheme? {
+        switch setting {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
         }
     }
 }
@@ -119,6 +132,16 @@ private struct AppearanceTab: View {
 
     var body: some View {
         Form {
+            Section("Color scheme") {
+                Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
+                    Text("Auto").tag("auto")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
             Section {
                 CardPickerGrid(
                     items: PomoppiSettings.friendIDs,
