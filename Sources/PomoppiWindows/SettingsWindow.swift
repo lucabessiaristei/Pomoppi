@@ -55,16 +55,17 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // immediate parent, never a grandparent. WM_HSCROLL forwards the same way
 // too, added for the opacity Trackbar32: a horizontal trackbar's scroll
 // notification is, like BN_CLICKED, delivered to its immediate parent.
-// WM_ERASEBKGND and WM_CTLCOLORSTATIC/WM_CTLCOLORBTN forward the same way
-// too, added for dark mode: WM_ERASEBKGND is sent to whichever window is
-// actually being erased (a page itself, not the settings window), and
-// WM_CTLCOLORSTATIC/BTN are sent to a STATIC/BUTTON's immediate parent —
-// which is always the page, same story as WM_COMMAND/WM_NOTIFY above, not
-// the settings window either way. See applyTheme/handleEraseBackground/
-// handleCtlColor for what each one actually does once it arrives there.
+// WM_ERASEBKGND and WM_CTLCOLORSTATIC/WM_CTLCOLORBTN/WM_CTLCOLOREDIT forward
+// the same way too, added for dark mode: WM_ERASEBKGND is sent to whichever
+// window is actually being erased (a page itself, not the settings window),
+// and WM_CTLCOLORSTATIC/BTN/EDIT are sent to a STATIC/BUTTON/EDIT's
+// immediate parent — which is always the page, same story as WM_COMMAND/
+// WM_NOTIFY above, not the settings window either way. See applyTheme/
+// handleEraseBackground/handleCtlColor for what each one actually does once
+// it arrives there.
 //
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL) || message == UINT(WM_ERASEBKGND) || message == UINT(WM_CTLCOLORSTATIC) || message == UINT(WM_CTLCOLORBTN),
+    if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL) || message == UINT(WM_ERASEBKGND) || message == UINT(WM_CTLCOLORSTATIC) || message == UINT(WM_CTLCOLORBTN) || message == UINT(WM_CTLCOLOREDIT),
        let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
     }
@@ -2574,15 +2575,18 @@ final class SettingsWindow {
     // undocumented-behavior trap: this call succeeds (verified via a
     // temporary diagnostic build that logged its HRESULT — S_OK, every
     // time, for the tab control and every stepper's edit/up-down and the
-    // opacity trackbar alike) but doesn't visibly restyle any of them on
-    // this Windows build — the tab strip, edit boxes, and trackbar all
+    // opacity trackbar alike) but only visibly restyles the stepper edits'
+    // own background on this Windows build — the tab strip and trackbar
     // stayed in their light/default appearance in a live screenshot, dark
-    // mode active. Left in (a successful, harmless no-op call rather than
-    // dead code) since it's still the right, documented thing to call and
-    // may do more on a different Windows version — see this task's report
-    // for the full finding; a real fix would need each control's own
-    // custom-draw path (NM_CUSTOMDRAW for the tab strip, WM_CTLCOLOREDIT
-    // for the edits), well beyond this task's agreed scope.
+    // mode active, and the edits' own digits stayed unstyled too (black on
+    // the new dark background) until handleCtlColor's WM_CTLCOLOREDIT case
+    // started fixing that up separately. Left in (a successful, harmless
+    // no-op call for the tab strip/trackbar rather than dead code) since
+    // it's still the right, documented thing to call and may do more on a
+    // different Windows version — see this task's report for the full
+    // finding; a real fix for the tab strip and trackbar would still need
+    // each control's own custom-draw path (NM_CUSTOMDRAW for the tab strip,
+    // an owner-drawn trackbar), well beyond this task's agreed scope.
     private static func setControlDarkTheme(_ hwnd: HWND, dark: Bool) {
         guard let setWindowThemeProc else { return }
         guard dark else {
@@ -2611,7 +2615,23 @@ final class SettingsWindow {
         // tested with this call removed.
         SetWindowPos(hwnd, nil, 0, 0, 0, 0, UINT(SWP_NOMOVE) | UINT(SWP_NOSIZE) | UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_FRAMECHANGED))
 
-        if let tabControl { Self.setControlDarkTheme(tabControl, dark: isDarkMode) }
+        // tabControl deliberately never goes through setControlDarkTheme,
+        // unlike every stepper/trackbar below — confirmed live as the real
+        // cause of a second bug: flipping the OS theme live while the
+        // settings window is open blanked the visible page to a flat, empty
+        // rectangle instead of repainting it. SetWindowTheme posts
+        // WM_THEMECHANGED to its target, and the tab control's own themed
+        // "body" fill (the strip under the tab labels, part of its
+        // visual-styles repaint) lands on its own schedule rather than
+        // synchronously inside this call — late enough, on this build, to
+        // land *after* this function's own explicit, synchronous page
+        // repaint below and paint straight over it (that body fill isn't
+        // clipped against the overlapping page the way ordinary client-area
+        // painting would be against a WS_CLIPSIBLINGS sibling). Since
+        // setControlDarkTheme is already a confirmed no-op for the tab
+        // strip's own colors on this Windows build anyway (see its own
+        // comment above), skipping it here costs nothing visible and
+        // removes the race outright.
         for stepper in steppers {
             Self.setControlDarkTheme(stepper.editHwnd, dark: isDarkMode)
             Self.setControlDarkTheme(stepper.upDownHwnd, dark: isDarkMode)
@@ -2672,8 +2692,10 @@ final class SettingsWindow {
     }
 
     // SetWindowTheme (setControlDarkTheme above) doesn't restyle plain
-    // STATIC labels or BS_AUTOCHECKBOX buttons — this is what does,
-    // forwarded here from every page's own children the same way as
+    // STATIC labels or BS_AUTOCHECKBOX buttons, nor a stepper edit's own
+    // text color (it does darken the edit's background — see
+    // setControlDarkTheme's own comment) — this is what does, forwarded
+    // here from every page's own children the same way as
     // handleEraseBackground above. Light mode falls through to
     // DefWindowProcW unchanged, the same stock COLOR_BTNFACE-ish brush and
     // default text color these controls always painted with.
@@ -2715,7 +2737,7 @@ final class SettingsWindow {
             return 0
         case WM_ERASEBKGND:
             return handleEraseBackground(wParam: wParam)
-        case WM_CTLCOLORSTATIC, WM_CTLCOLORBTN:
+        case WM_CTLCOLORSTATIC, WM_CTLCOLORBTN, WM_CTLCOLOREDIT:
             return handleCtlColor(message: message, wParam: wParam, lParam: lParam)
         case WM_SETTINGCHANGE:
             handleSettingChange(lParam: lParam)
