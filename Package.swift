@@ -30,7 +30,9 @@ let targets: [Target] = [
     .target(name: "PomoppiCore", swiftSettings: swiftSettings),
     .target(name: "PomoppiSprites", swiftSettings: swiftSettings),
     .target(name: "PomoppiRender", dependencies: ["PomoppiCore", "PomoppiSprites"], swiftSettings: swiftSettings),
-    .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites"], exclude: ["Pomoppi.exe.manifest", "Pomoppi.rc"], swiftSettings: swiftSettings),
+    // winmm isn't in MSVC's default link set (unlike kernel32/user32/gdi32/...)
+    // — PlaySoundW (ChimePlayer.swift) needs it linked explicitly.
+    .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites"], exclude: ["Pomoppi.exe.manifest", "Pomoppi.rc"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("winmm")]),
     .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
 ]

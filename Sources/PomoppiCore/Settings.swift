@@ -57,6 +57,11 @@ public struct PomoppiSettings: Codable, Equatable {
     public var startHidden: Bool
 
     public var soundEnabled: Bool
+    // Which pack in PomoppiSprites.GeneratedSounds.chimeIDs to play (SPEC.md
+    // §4): "classic" (square-wave blips, the Electron-era design), "soft"
+    // (sine tones), or "bell" (struck-bell tones) — see Sounds/tools/
+    // synthesize-chimes.js for how each pack is actually generated.
+    public var chime: String
     public var ringSeconds: Double
     public var askForTaskName: Bool
 
@@ -73,7 +78,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public static let friendIDs = ["namidappi", "onanippi", "gemuppin", "jankuppin", "utsupon"]
     public static let frameStyles = ["ziggy", "scallopy", "splotchy", "wavey"]
     public static let backgroundIDs = ["grid", "luna"]
-    public static let chimeIDs = ["classic"]
+    public static let chimeIDs = ["bell", "classic", "soft"]
     public static let colorSchemeIDs = ["auto", "light", "dark"]
 
     public static let defaults = PomoppiSettings(
@@ -103,7 +108,8 @@ public struct PomoppiSettings: Codable, Equatable {
         soundEnabled: Bool, ringSeconds: Double, askForTaskName: Bool,
         shortcuts: [String: String], reverseTrayClick: Bool = false,
         diaryFolderPath: String = "",
-        colorScheme: String = "auto"
+        colorScheme: String = "auto",
+        chime: String = "classic"
     ) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -127,6 +133,7 @@ public struct PomoppiSettings: Codable, Equatable {
         self.launchAtLogin = launchAtLogin
         self.startHidden = startHidden
         self.soundEnabled = soundEnabled
+        self.chime = chime
         self.ringSeconds = ringSeconds
         self.askForTaskName = askForTaskName
         self.shortcuts = shortcuts
@@ -139,7 +146,7 @@ public struct PomoppiSettings: Codable, Equatable {
         case loggingEnabled, diaryFolderPath
         case friend, frameStyle, background, inkColor, paperColor, colorScheme
         case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
-        case soundEnabled, ringSeconds, askForTaskName, shortcuts
+        case soundEnabled, chime, ringSeconds, askForTaskName, shortcuts
     }
 
     // A separate keyed container for the legacy `mascot` key (SPEC.md §7):
@@ -195,6 +202,7 @@ public struct PomoppiSettings: Codable, Equatable {
         startHidden = (try? c.decodeIfPresent(Bool.self, forKey: .startHidden)) ?? d.startHidden
 
         soundEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .soundEnabled)) ?? d.soundEnabled
+        chime = (try? c.decodeIfPresent(String.self, forKey: .chime)) ?? d.chime
         ringSeconds = (try? c.decodeIfPresent(Double.self, forKey: .ringSeconds)) ?? d.ringSeconds
         askForTaskName = (try? c.decodeIfPresent(Bool.self, forKey: .askForTaskName)) ?? d.askForTaskName
 
@@ -227,6 +235,7 @@ public struct PomoppiSettings: Codable, Equatable {
         frameStyle = PomoppiSettings.frameStyles.contains(frameStyle) ? frameStyle : PomoppiSettings.defaults.frameStyle
         background = PomoppiSettings.backgroundIDs.contains(background) ? background : PomoppiSettings.defaults.background
         colorScheme = PomoppiSettings.colorSchemeIDs.contains(colorScheme) ? colorScheme : PomoppiSettings.defaults.colorScheme
+        chime = PomoppiSettings.chimeIDs.contains(chime) ? chime : PomoppiSettings.defaults.chime
 
         inkColor = Self.normalizeColor(inkColor) ?? PomoppiSettings.defaults.inkColor
         paperColor = Self.normalizeColor(paperColor) ?? PomoppiSettings.defaults.paperColor

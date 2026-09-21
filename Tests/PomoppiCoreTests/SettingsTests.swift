@@ -115,6 +115,22 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(store.get().colorScheme, PomoppiSettings.defaults.colorScheme)
     }
 
+    func testChimeDefaultsToClassicAndFallsBackWhenMissingOrInvalid() throws {
+        XCTAssertEqual(PomoppiSettings.defaults.chime, "classic")
+
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let filePath = dir.appendingPathComponent("settings.json")
+        try "{}".write(to: filePath, atomically: true, encoding: .utf8)
+
+        let store = SettingsStore(storageDir: dir)
+        XCTAssertEqual(store.get().chime, "classic")
+
+        store.update { $0.chime = "not-a-real-chime" }
+        XCTAssertEqual(store.get().chime, PomoppiSettings.defaults.chime)
+    }
+
     // diaryLastSyncedCount was dropped from the schema in the 2026-09-20
     // Diary redesign (sync no longer uses a cursor) — an old settings.json
     // still carrying that key must decode fine, JSONDecoder ignoring an

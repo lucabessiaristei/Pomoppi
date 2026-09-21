@@ -20,6 +20,7 @@ swift run PomoppiApp      # run
 node Scripts/make-app.js  # assemble a real double-clickable Pomoppi.app (release build)
 node refresh-art          # re-import Aseprite art + rewrite Sources/PomoppiSprites/Sprites.generated.swift
 node refresh-art --friends --rebuild  # --bgs / --icon too, alone or combined; --rebuild also rebuilds + reinstalls /Applications/Pomoppi.app
+node refresh-sounds       # re-import chime WAV packs + rewrite Sources/PomoppiSprites/Sounds.generated.swift
 ```
 
 Dev-run settings live at `.dev-app-support/settings.json` (loose binary, no
@@ -54,8 +55,9 @@ both platforms, what's macOS-only, and what's Windows-only.
 | File | What |
 |---|---|
 | `Package.swift` | SPM manifest. Tools-version 6.0 only for `.macOS(.v15)`; every target still opts back into Swift 5 language mode (this app's mutable caches/singletons are single-threaded, main-thread-only state). On a Windows host the manifest evaluates to a different, smaller target set — `PomoppiCore`/`PomoppiSprites`/`PomoppiRender`/`PomoppiWindows` (executable) + `PomoppiCoreTests`/`PomoppiSpritesTests` (no `PomoppiRenderTests`: one test still reads `CGImage` directly, unguarded, and no `PomoppiApp`) — see the `#if os(Windows)` in the file itself |
-| `Sources/PomoppiCore/` | Platform-agnostic core: `Timer.swift` (wall-clock pomodoro state machine), `Settings.swift` (load/validate/persist, no AppKit import), `Shortcuts.swift`, `SessionLogger.swift` (session history as a single local JSON file — replaced `ObsidianLogger.swift` in the 2026-09-19 redesign; see `SPEC.md` §8), `DiaryExporter.swift` (the Diary tab's export-to-`.zip`/sync-to-folder logic, one shared per-day-file code path for both, reading `SessionLogger`'s log; `SPEC.md` §8b), `ZipWriter.swift` (the from-scratch stored-entries-only ZIP writer `DiaryExporter.exportZip` builds on) |
+| `Sources/PomoppiCore/` | Platform-agnostic core: `Timer.swift` (wall-clock pomodoro state machine), `Settings.swift` (load/validate/persist, no AppKit import), `Shortcuts.swift`, `SessionLogger.swift` (session history as a single local JSON file — replaced `ObsidianLogger.swift` in the 2026-09-19 redesign; see `SPEC.md` §8), `DiaryExporter.swift` (the Diary tab's export-to-`.zip`/sync-to-folder logic, one shared per-day-file code path for both, reading `SessionLogger`'s log; `SPEC.md` §8b), `ZipWriter.swift` (the from-scratch stored-entries-only ZIP writer `DiaryExporter.exportZip` builds on), `WAVFile.swift` (a minimal WAV/RIFF header writer — both platforms' `ChimePlayer.swift` build a playable WAV image from `GeneratedSounds`' raw PCM bytes through it; `SPEC.md` §4) |
 | `Sources/PomoppiSprites/Sprites.generated.swift` | **Generated** by `refresh-art.js` from `Art/renderer/sprites.js` / `friends.js` / `background.js` — never hand-edit |
+| `Sources/PomoppiSprites/Sounds.generated.swift` | **Generated** by `refresh-sounds.js` from `Sounds/import/chimes/*/focus-end.wav`/`break-end.wav` — never hand-edit |
 | `Sources/PomoppiSprites/Digits.swift`, `WindowFrame.swift` | Hand-written glyph/frame data (not generated) |
 | `Sources/PomoppiRender/` | Drawing: `PixelCanvas.swift` (the 1px drawing kit, a plain byte buffer with no platform import), `WidgetLayout.swift`, `WidgetAnimationController.swift`, `WidgetRenderer.swift` — all Windows-buildable since Phase W3. The CoreGraphics dependency (`makeImage() -> CGImage?`) lives in `PixelCanvas+CoreGraphics.swift` (macOS); Windows gets two of its own adapters, `PixelCanvas+GDI.swift` (the layered-window/owner-draw blit path, Phase W3/W7) and `PixelCanvas+GDIIcon.swift` (`HICON` for the tray, Phase W4) |
 | `Tests/` | `swift-testing`/XCTest-style suites mirroring `Sources/PomoppiCore`, `PomoppiRender`, `PomoppiSprites` |
@@ -68,6 +70,7 @@ both platforms, what's macOS-only, and what's Windows-only.
 | `Sources/PomoppiApp/PomoppiApp.swift` | SwiftUI `@main` entry — owns only the `Settings` scene; the rest of the lifecycle is AppKit via `NSApplicationDelegateAdaptor` |
 | `Sources/PomoppiApp/SettingsOpener.swift` | Bridges AppKit → the SwiftUI `Settings` scene (see invariants below) |
 | `Sources/PomoppiApp/SettingsView.swift` / `SettingsViewModel.swift` | Settings window content and its view model |
+| `Sources/PomoppiApp/ChimePlayer.swift` | Chime playback: `AVAudioPlayer(data:)` over a WAV image built from `GeneratedSounds` via `WAVFile`; owned by `AppDelegate`, reused by `SettingsViewModel` for the Sound tab's Play button (`SPEC.md` §4) |
 | `Sources/PomoppiApp/TrayController.swift` | Menu bar icon: menu, tray click behavior, live clock |
 | `Sources/PomoppiApp/WidgetWindow.swift` / `WidgetPixelView.swift` | The floating pixel widget window and its hit-testing/drawing view |
 | `Sources/PomoppiApp/GlobalShortcutManager.swift` | Registers/unregisters the OS-level hotkeys |
@@ -83,6 +86,11 @@ both platforms, what's macOS-only, and what's Windows-only.
 | `Art/tools/import-friends.js`, `import-bgs.js`, `import-tray.js` | Each exports an `import*()` function `refresh-art.js` calls, and still runs standalone (`node Art/tools/import-friends.js`, etc.) — requires Aseprite installed at `/Applications/Aseprite.app`, its CLI does the format decoding |
 | `Art/tools/read-png.js` | Pure-Node PNG decoder shared by the importers above |
 | `Art/tools/serve.js`, `editor.html` | Standalone browser pixel editor for the hand-written grids in `sprites.js` (`node Art/tools/serve.js`, then open `localhost:8173`) — not Aseprite-based, no build step |
+| `refresh-sounds.js` | The one sound command, at the repo root so it's `node refresh-sounds`: re-imports `Sounds/import/chimes/*/` WAV packs (`Sounds/tools/import-chimes.js`), syncs `PomoppiCore/Settings.swift`'s `chimeIDs` the same regex-rewrite way `refresh-art.js` syncs `friendIDs`/`backgroundIDs`, then always rewrites `Sounds.generated.swift` last |
+| `Sounds/tools/synthesize-chimes.js` | Synthesizes all three chime packs (`classic`/`soft`/`bell`) from scratch into `Sounds/import/chimes/<id>/{focus-end,break-end}.wav` — `node Sounds/tools/synthesize-chimes.js`, re-run any time, always overwrites |
+| `Sounds/tools/import-chimes.js` | Scans `Sounds/import/chimes/*/` for complete packs (both `focus-end.wav` and `break-end.wav`), validates 16-bit/mono/44100Hz, returns `{chimeIDs, chimes}` for `refresh-sounds.js` |
+| `Sounds/tools/wav.js` | Minimal dependency-free WAV (RIFF/PCM) encode/decode, shared by `synthesize-chimes.js` and `import-chimes.js` — the JS-side counterpart to `PomoppiCore/WAVFile.swift` |
+| `Sounds/import/chimes/<id>/` | The actual chime WAV pairs (`focus-end.wav`/`break-end.wav`) per pack id, written by `synthesize-chimes.js` — not hand-recorded |
 
 ### Windows
 
@@ -92,6 +100,7 @@ both platforms, what's macOS-only, and what's Windows-only.
 | `Sources/PomoppiWindows/WidgetWindow.swift` / `WidgetInput.swift` | The layered popup widget window (`WS_POPUP \| WS_EX_LAYERED \| WS_EX_TOOLWINDOW`, `UpdateLayeredWindow` at ~60fps via `PixelCanvas+GDI`) and its hit-testing/drag/keyboard input, porting `WidgetPixelView`'s logic verbatim onto Win32's `WndProc` |
 | `Sources/PomoppiWindows/TrayController.swift` | `Shell_NotifyIcon` tray icon + context menu, `reverseTrayClick`-aware clicks, light/dark taskbar-aware icon tinting (no `NSImage.isTemplate` equivalent on Win32, so this reads `SystemUsesLightTheme` from the registry itself) |
 | `Sources/PomoppiWindows/SettingsWindow.swift` | The settings window: `SysTabControl32` with the same 6 tabs as macOS, hand-laid-out raw controls per tab (steppers, checkboxes, the Keys tab's shortcut recorder, the Appearance tab's owner-drawn picker/theme/color/scale/opacity controls with its own `WS_VSCROLL` scrolling). By far the largest file in this port — see `WINDOWS_PORT_PLAN.md`'s W6/W7 entries for how it grew phase by phase |
+| `Sources/PomoppiWindows/ChimePlayer.swift` | Chime playback: `PlaySoundW(SND_MEMORY \| SND_ASYNC \| SND_NODEFAULT)` over a WAV image built from `GeneratedSounds` via `WAVFile`, held in a never-freed `UnsafeMutablePointer<UInt8>` per pack+sound for the process's life (`SND_ASYNC` returns before playback finishes); owned by `main.swift`, passed into `SettingsWindow.show(...)` for the Sound tab's Play button (`SPEC.md` §4) |
 | `Sources/PomoppiWindows/AppearancePreviews.swift` | Appearance tab's picker-card preview rendering (friend/frame-style/background cards, theme-preset swatches) — mirrors `Sources/PomoppiApp/PixelPreviews.swift`'s logic fresh rather than sharing it, since that file is off-limits for this port |
 | `Sources/PomoppiWindows/GlobalShortcutManager.swift` | `RegisterHotKey`/`WM_HOTKEY`/`MOD_NOREPEAT`, tied to the widget's own `hwnd` rather than process-wide like Carbon |
 | `Sources/PomoppiWindows/LoginItem.swift` | Launch-at-login via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (not `SMAppService` — there's no bundle identifier concept to register against on Windows) |
