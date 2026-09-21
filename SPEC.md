@@ -60,7 +60,7 @@ not a plan.
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
 | Task-name prompt | Real: `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | **None.** `startPause` starts the timer directly — a known, explicitly-flagged gap, not a silent omission (see `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) |
-| Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), a WAV image built from `GeneratedSounds` via `WAVFile` (§4) | `PlaySoundW(SND_MEMORY \| SND_ASYNC \| SND_NODEFAULT)` (`ChimePlayer.swift`), the WAV image held in a never-freed buffer for the process's life (§4) |
+| Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
 
@@ -315,8 +315,8 @@ cycle) is shared `WidgetAnimationController`/`WidgetLayout` code, ticked
 identically by both platforms' own ~60fps render loops. The "Chime"
 subsection below is `[both]` too as of the 2026-09-21 session: real chime
 playback exists on both platforms now (`ChimePlayer.swift`, one per
-platform — `AVAudioPlayer(data:)` on macOS, `PlaySoundW(SND_MEMORY)` on
-Windows), not just the `soundEnabled`/`ringSeconds` settings.
+platform — `AVAudioPlayer(data:)` on macOS, direct `waveOut` on Windows),
+not just the `soundEnabled`/`ringSeconds` settings.
 
 Single `requestAnimationFrame` loop. Redraw only when something changed
 (dirty flag) or an animation is active; when idle and paused, stop the loop.
@@ -343,7 +343,7 @@ only add jitter on top of a sprite that is already moving.
 - **shake**: sprite x offset cycles `-1,0,1,0` every 80ms.
 - **ringing** also inverts the whole canvas (ink background, paper foreground)
   every 300ms, and plays the chime. Ringing lasts `settings.ringSeconds`
-  (default 10) or until any button is pressed.
+  (default 5) or until any button is pressed.
 
 **Ringing holds the phase, not just the animation.** The state machine's own
 `phase` stays on whichever phase just finished for the whole time it's
@@ -365,25 +365,35 @@ transition); a skip/reset that cuts a phase short never rings and never
 chimes, since `PhaseCompleteEvent.completed` is only `true` on the natural
 completion path. `ringSeconds` governs the visual ring only, never audio.
 
-Three packs, selected by `settings.chime` (`PomoppiSettings.chimeIDs`:
-`"classic"`/`"soft"`/`"bell"`) — synthesized, not recorded:
+Four packs, selected by `settings.chime` (`PomoppiSettings.chimeIDs`:
+`"classic"`/`"chord"`/`"jingle"`/`"soft"`) — synthesized, not recorded:
 `Sounds/tools/synthesize-chimes.js` writes each pack's
 `focus-end.wav`/`break-end.wav` under `Sounds/import/chimes/<id>/`
 (16-bit mono 44100Hz), and `node refresh-sounds` re-imports them into
 `Sources/PomoppiSprites/Sounds.generated.swift` (raw PCM bytes,
 `GeneratedSounds.chimes[id].focusEnd`/`.breakEnd`) and syncs `chimeIDs` in
-`Sources/PomoppiCore/Settings.swift`. `classic` is three square-wave
-blips (~90ms each, 880/1174/1568 Hz ascending, gain 0.06, break-end
-descending) — the original Electron-era design, kept byte-for-byte.
-`soft` is the same three notes as gentler sine tones. `bell` is two
-struck-bell tones (a decaying fundamental plus a faster-decaying
-inharmonic partial) rather than three blips, break-end reversed.
+`Sources/PomoppiCore/Settings.swift` (`classic` first, the rest
+alphabetical). `classic` is three square-wave blips (~90ms each,
+880/1174/1568 Hz ascending, gain 0.06, break-end descending) — the
+original Electron-era design, kept byte-for-byte. `chord` is two stacked
+major-triad square-wave chords (~170ms each, C6 then G6 major, break-end
+reversed) — polyphonic in the chiptune sense, several square-wave voices
+summed and clamped rather than one voice at a time. `jingle` is a fast
+square-wave arpeggio (C5 through G6) over a sustained bass note, ending on
+a held chord, break-end the arpeggio descending with the held chord an
+octave lower. `soft` is `classic`'s same three notes as gentler sine
+tones — the one non-beeping pack, for anyone who wants something softer
+than the three chiptune packs above.
 
-Built from `GeneratedSounds` at playback time via `WAVFile.data(pcm:
-sampleRate:bitsPerSample:channels:)` (`PomoppiCore/WAVFile.swift`, a
-44-byte RIFF/WAVE header prepended to the raw PCM), then played with
-`AVAudioPlayer(data:)` on macOS and `PlaySoundW(SND_MEMORY)` on Windows —
-see `ChimePlayer.swift`, one per platform. The Sound tab's Chime picker
+On macOS, `GeneratedSounds`' raw PCM is wrapped into a WAV image at
+playback time via `WAVFile.data(pcm:sampleRate:bitsPerSample:channels:)`
+(`PomoppiCore/WAVFile.swift`, a 44-byte RIFF/WAVE header prepended to the
+raw PCM) and played with a persistent, cached `AVAudioPlayer(data:)` per
+pack+sound (`stop()`/`currentTime = 0`/`play()` on replay). On Windows,
+the same raw PCM is played directly with `waveOut` against a single
+`WAVEFORMATEX` opened once for the process's life — no WAV header
+involved, since `waveOut` already knows the format out of band. See
+`ChimePlayer.swift`, one per platform. The Sound tab's Chime picker
 (Rhythm-style segmented control, built from `chimeIDs`) has its own
 **Play** button next to it that plays the selected pack's focus-end sound
 immediately, regardless of `soundEnabled` — a test button, not gated by
@@ -548,7 +558,7 @@ with defaults (and the bad file renamed `settings.json.bak`).
 
   soundEnabled: true,
   chime: 'classic',                 // one of PomoppiSettings.chimeIDs -- see §4
-  ringSeconds: 10,
+  ringSeconds: 5,
   askForTaskName: true,             // prompt for a task when starting focus; native additionally
                                      // forces this on (regardless of the stored value) whenever
                                      // loggingEnabled is true -- see §5

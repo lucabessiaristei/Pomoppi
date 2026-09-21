@@ -1,9 +1,11 @@
 // WAVFile.swift — a minimal, dependency-free WAV (RIFF/PCM) header writer,
-// the Swift-side counterpart to Sounds/tools/wav.js's encodeWav. Chime
-// playback (ChimePlayer, both platforms) needs a real WAV image to hand to
-// AVAudioPlayer/PlaySoundW; GeneratedSounds only stores raw PCM sample
-// bytes, so this just prepends the 44-byte canonical header — no
-// compression, no extra chunks, mirroring the JS encoder byte for byte.
+// the Swift-side counterpart to Sounds/tools/wav.js's encodeWav. macOS's
+// ChimePlayer needs a real WAV image to hand to AVAudioPlayer(data:);
+// GeneratedSounds only stores raw PCM sample bytes, so this just prepends
+// the 44-byte canonical header — no compression, no extra chunks,
+// mirroring the JS encoder byte for byte. Windows' own ChimePlayer plays
+// the same raw PCM straight through waveOut instead, so it has no need
+// for this file.
 import Foundation
 
 public enum WAVFile {

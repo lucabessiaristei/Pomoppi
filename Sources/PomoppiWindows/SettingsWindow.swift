@@ -2397,7 +2397,7 @@ final class SettingsWindow {
         }
 
         let chimeLabelWidth: Int32 = 100
-        let chimePickerWidth: Int32 = 180
+        let chimePickerWidth: Int32 = 250
         let playButtonGap: Int32 = 8
         let playButtonWidth: Int32 = 70
         addLabel("Chime", in: page, x: Self.rowMargin, y: chimeY + 3, width: chimeLabelWidth)

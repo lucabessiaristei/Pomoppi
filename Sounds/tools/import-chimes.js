@@ -31,6 +31,13 @@ const { decodeWav, SAMPLE_RATE, BITS_PER_SAMPLE, CHANNELS } = require('./wav');
 const DEFAULT_DIR = path.join(__dirname, '..', 'import', 'chimes');
 const FILES = { focusEnd: 'focus-end.wav', breakEnd: 'break-end.wav' };
 
+// Plain alphabetical would put "chord" ahead of "classic" — keep classic
+// as the picker's first/default option when present, the rest alphabetical.
+function orderChimeIDs(ids) {
+  const rest = ids.filter((id) => id !== 'classic').sort();
+  return ids.includes('classic') ? ['classic', ...rest] : rest;
+}
+
 function importChimes({ dir = DEFAULT_DIR } = {}) {
   if (!fs.existsSync(dir)) {
     console.error('no chime import dir: ' + dir);
@@ -67,7 +74,7 @@ function importChimes({ dir = DEFAULT_DIR } = {}) {
     console.log(`${id.padEnd(12)} ${pack.focusEnd.length + pack.breakEnd.length} sample bytes`);
   }
 
-  const chimeIDs = Object.keys(chimes).sort();
+  const chimeIDs = orderChimeIDs(Object.keys(chimes));
   if (chimeIDs.length === 0) {
     console.error(`no complete chime pack (needs ${Object.values(FILES).join(' + ')}) in ${dir}`);
     process.exit(1);
