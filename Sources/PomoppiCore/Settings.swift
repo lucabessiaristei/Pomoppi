@@ -58,8 +58,10 @@ public struct PomoppiSettings: Codable, Equatable {
 
     public var soundEnabled: Bool
     // Which pack in PomoppiSprites.GeneratedSounds.chimeIDs to play (SPEC.md
-    // §4): "classic" (square-wave blips, the Electron-era design), "soft"
-    // (sine tones), or "bell" (struck-bell tones) — see Sounds/tools/
+    // §4): "classic" (square-wave blips, the Electron-era design), "chord"
+    // (stacked square-wave triads), "jingle" (a square-wave arpeggio over a
+    // sustained bass, ending on a held chord), or "soft" (the same notes as
+    // classic but sine tones, the one non-beeping pack) — see Sounds/tools/
     // synthesize-chimes.js for how each pack is actually generated.
     public var chime: String
     public var ringSeconds: Double
@@ -78,7 +80,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public static let friendIDs = ["namidappi", "onanippi", "gemuppin", "jankuppin", "utsupon"]
     public static let frameStyles = ["ziggy", "scallopy", "splotchy", "wavey"]
     public static let backgroundIDs = ["grid", "luna"]
-    public static let chimeIDs = ["bell", "classic", "soft"]
+    public static let chimeIDs = ["classic", "chord", "jingle", "soft"]
     public static let colorSchemeIDs = ["auto", "light", "dark"]
 
     public static let defaults = PomoppiSettings(
@@ -94,7 +96,7 @@ public struct PomoppiSettings: Codable, Equatable {
         inkColor: "#276231", paperColor: "#80B391",
         alwaysOnTop: true, raiseOnEnd: true, scale: 2, opacity: 1.0,
         launchAtLogin: false, startHidden: false,
-        soundEnabled: true, ringSeconds: 10, askForTaskName: true,
+        soundEnabled: true, ringSeconds: 5, askForTaskName: true,
         shortcuts: Shortcuts.defaults, reverseTrayClick: false)
 
     public init(

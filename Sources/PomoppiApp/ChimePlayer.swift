@@ -9,36 +9,36 @@ import PomoppiSprites
 // lifetime as SessionLogger — main-thread-only, no different from any other
 // cache/singleton in this app (see CLAUDE.md's swiftLanguageMode invariant).
 final class ChimePlayer {
-    // Keyed by pack id + which sound, so building the WAV image (a plain
-    // header prepend, cheap, but no reason to redo it on every play) only
-    // happens once per pack per process.
-    private var wavCache: [String: Data] = [:]
-    // AVAudioPlayer stops as soon as nothing retains it — this is that one
-    // strong reference, replaced (not appended to) on every call, so only
-    // the most recent chime ever plays.
-    private var currentPlayer: AVAudioPlayer?
+    // Keyed by pack id + which sound, one AVAudioPlayer built and
+    // prepareToPlay()'d once per pack per process, then reused for every
+    // later play — a fresh AVAudioPlayer(data:) per call used to work once
+    // and then silently degrade (only the first note of a multi-note chime
+    // played back on repeat plays), the same class of bug the Windows
+    // ChimePlayer's PlaySoundW(SND_MEMORY) had for a different reason; a
+    // persistent, replayable player sidesteps it on both platforms.
+    private var players: [String: AVAudioPlayer] = [:]
 
     func play(chime id: String, focusEnd: Bool) {
-        guard let player = makePlayer(chime: id, focusEnd: focusEnd) else { return }
-        currentPlayer = player
-        player.prepareToPlay()
+        guard let player = player(chime: id, focusEnd: focusEnd) else { return }
+        player.stop()
+        player.currentTime = 0
         player.play()
     }
 
-    private func makePlayer(chime id: String, focusEnd: Bool) -> AVAudioPlayer? {
-        guard let data = wavData(chime: id, focusEnd: focusEnd) else { return nil }
-        return try? AVAudioPlayer(data: data)
+    private func player(chime id: String, focusEnd: Bool) -> AVAudioPlayer? {
+        let key = "\(id)/\(focusEnd ? "focusEnd" : "breakEnd")"
+        if let cached = players[key] { return cached }
+        guard let data = wavData(chime: id, focusEnd: focusEnd), let player = try? AVAudioPlayer(data: data) else { return nil }
+        player.prepareToPlay()
+        players[key] = player
+        return player
     }
 
     private func wavData(chime id: String, focusEnd: Bool) -> Data? {
-        let key = "\(id)/\(focusEnd ? "focusEnd" : "breakEnd")"
-        if let cached = wavCache[key] { return cached }
         guard let pack = GeneratedSounds.chimes[id] else { return nil }
         let pcm = focusEnd ? pack.focusEnd : pack.breakEnd
-        let data = Data(WAVFile.data(
+        return Data(WAVFile.data(
             pcm: pcm, sampleRate: GeneratedSounds.sampleRate,
             bitsPerSample: GeneratedSounds.bitsPerSample, channels: GeneratedSounds.channels))
-        wavCache[key] = data
-        return data
     }
 }

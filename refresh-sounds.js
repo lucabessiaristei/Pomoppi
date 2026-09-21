@@ -30,8 +30,13 @@ const { chimeIDs, chimes } = importChimes();
 // run inserts it (right after backgroundIDs, the other roster arrays'
 // neighbour) instead of only being able to replace an existing match; every
 // run after that is a plain sync/replace like the original.
+//
+// Unlike friendIDs/backgroundIDs (plain alphabetical), chimeIDs' order is
+// meaningful — importChimes() already put it in picker order (classic
+// first, the rest alphabetical) — so this takes `ids` as given rather than
+// re-sorting it.
 function syncIDs(fieldName, ids) {
-  const ordered = [...ids].sort();
+  const ordered = [...ids];
   const line = (indent) => `${indent}public static let ${fieldName} = [${ordered.map((id) => JSON.stringify(id)).join(', ')}]`;
 
   const dest = path.join(__dirname, 'Sources/PomoppiCore/Settings.swift');
