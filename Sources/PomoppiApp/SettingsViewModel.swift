@@ -11,10 +11,12 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var settings: PomoppiSettings
     private let settingsStore: SettingsStore
     let sessionLogger: SessionLogger
+    let chimePlayer: ChimePlayer
 
-    init(settingsStore: SettingsStore, sessionLogger: SessionLogger) {
+    init(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer) {
         self.settingsStore = settingsStore
         self.sessionLogger = sessionLogger
+        self.chimePlayer = chimePlayer
         self.settings = settingsStore.get()
     }
 

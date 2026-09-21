@@ -162,6 +162,10 @@ final class SettingsWindow {
     // safe to call off-actor from a synchronous Win32 message loop with
     // no MainActor-integrated executor to hop back through).
     private let sessionLogger: SessionLogger
+    // Owned by main.swift (the same instance the timer's onPhaseComplete
+    // plays through) — the Sound tab's Play button plays the selected
+    // pack's focus-end sound through it directly.
+    private let chimePlayer: ChimePlayer
     // Owned by main.swift (WidgetWindow's own instance) — the Keys tab's
     // shortcut recorder needs to unregister every live global hotkey while
     // capturing a new one (see startRecording below), and reregisterShortcuts
@@ -340,6 +344,17 @@ final class SettingsWindow {
         let value: String
     }
     private var schemeOptions: [SchemeOptionControl] = []
+
+    // The Sound tab's chime picker (Classic/Soft/Bell) — same owner-drawn-
+    // segmented-button shape as scaleOptions/schemeOptions above, sharing
+    // their own drawSegmentedOption for painting rather than a third copy
+    // of it; kept as its own array/struct for the same "each group needs
+    // its own targeted invalidate" reason schemeOptions' own comment gives.
+    private struct ChimeOptionControl {
+        let hwnd: HWND
+        let value: String
+    }
+    private var chimeOptions: [ChimeOptionControl] = []
 
     // The opacity Trackbar32 and its live "NN%" readout — both cached so
     // handleOpacityScroll (WM_HSCROLL) can update the label text without
@@ -591,7 +606,7 @@ final class SettingsWindow {
     // onOpenSettingsRequested and main.swift's wiring): creates the window
     // on first call, or brings the existing one to front on every call
     // after that — never a second instance.
-    static func show(settingsStore: SettingsStore, sessionLogger: SessionLogger, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
+    static func show(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
         if let existing = shared {
             if IsIconic(existing.hwnd) {
                 ShowWindow(existing.hwnd, SW_RESTORE)
@@ -599,15 +614,16 @@ final class SettingsWindow {
             SetForegroundWindow(existing.hwnd)
             return
         }
-        let window = SettingsWindow(settingsStore: settingsStore, sessionLogger: sessionLogger, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reregisterShortcuts)
+        let window = SettingsWindow(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reregisterShortcuts)
         shared = window
         ShowWindow(window.hwnd, SW_SHOW)
         SetForegroundWindow(window.hwnd)
     }
 
-    private init(settingsStore: SettingsStore, sessionLogger: SessionLogger, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
+    private init(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
         self.settingsStore = settingsStore
         self.sessionLogger = sessionLogger
+        self.chimePlayer = chimePlayer
         self.globalShortcutManager = globalShortcutManager
         self.reregisterShortcuts = reregisterShortcuts
         Self.registerClassesIfNeeded()
@@ -1381,6 +1397,10 @@ final class SettingsWindow {
             drawSchemeOption(option, drawItem: drawItem.pointee)
             return 1
         }
+        if let option = chimeOptions.first(where: { $0.hwnd == hwndItem }) {
+            drawChimeOption(option, drawItem: drawItem.pointee)
+            return 1
+        }
         if let rail = appearanceScrollRail, rail == hwndItem {
             drawScrollRail(drawItem: drawItem.pointee)
             return 1
@@ -1780,6 +1800,43 @@ final class SettingsWindow {
         }
     }
 
+    // The Sound tab's chime picker — same owner-drawn segmented shape as
+    // addColorSchemePicker just above, over PomoppiSettings.chimeIDs
+    // instead of colorSchemeIDs. Built from the array rather than hardcoded
+    // (same rule CLAUDE.md gives for the friend/background pickers), so a
+    // fourth pack needs no changes here.
+    @discardableResult
+    private func addChimePicker(in page: HWND, x: Int32, y: Int32, width: Int32) -> Int32 {
+        let ids = PomoppiSettings.chimeIDs
+        let height: Int32 = 24
+        let gap: Int32 = 6
+        let buttonWidth = (width - gap * Int32(ids.count - 1)) / Int32(ids.count)
+        for (index, value) in ids.enumerated() {
+            let bx = x + Int32(index) * (buttonWidth + gap)
+            guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, nil,
+                    DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
+                    bx, y, buttonWidth, height,
+                    page, nil, Self.hInstance, nil)
+            }) else {
+                fatalError("CreateWindowExW (chime option) failed with error \(GetLastError())")
+            }
+            chimeOptions.append(ChimeOptionControl(hwnd: button, value: value))
+            pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
+                settingsStore.update { $0.chime = value }
+                self?.invalidateAllChimeOptions()
+            }))
+        }
+        return height
+    }
+
+    private func invalidateAllChimeOptions() {
+        for option in chimeOptions {
+            InvalidateRect(option.hwnd, nil, true)
+        }
+    }
+
     private func drawScaleOption(_ option: ScaleOptionControl, drawItem: DRAWITEMSTRUCT) {
         let isSelected = settingsStore.get().scale == option.value
         drawSegmentedOption(text: "\(option.value)×", isSelected: isSelected, drawItem: drawItem)
@@ -1787,6 +1844,11 @@ final class SettingsWindow {
 
     private func drawSchemeOption(_ option: SchemeOptionControl, drawItem: DRAWITEMSTRUCT) {
         let isSelected = settingsStore.get().colorScheme == option.value
+        drawSegmentedOption(text: displayName(option.value), isSelected: isSelected, drawItem: drawItem)
+    }
+
+    private func drawChimeOption(_ option: ChimeOptionControl, drawItem: DRAWITEMSTRUCT) {
+        let isSelected = settingsStore.get().chime == option.value
         drawSegmentedOption(text: displayName(option.value), isSelected: isSelected, drawItem: drawItem)
     }
 
@@ -2303,15 +2365,17 @@ final class SettingsWindow {
         }
     }
 
-    // Mirrors macOS's SoundTab: a chime toggle plus a ring-length stepper
-    // that's disabled whenever the chime itself is off — the stepper is
-    // built first (code order only, not visual order) so its HWNDs exist
-    // for the checkbox's onToggle closure to grey/re-enable live.
+    // Mirrors macOS's SoundTab: a chime toggle, a Chime picker + Play
+    // button, and a ring-length stepper that's disabled whenever the chime
+    // itself is off — the stepper is built first (code order only, not
+    // visual order) so its HWNDs exist for the checkbox's onToggle closure
+    // to grey/re-enable live.
     private func buildSoundTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
         let checkboxY = Self.rowMargin
-        let stepperY = checkboxY + Self.rowHeight
+        let chimeY = checkboxY + Self.rowHeight
+        let stepperY = chimeY + Self.rowHeight
 
         let (ringSecondsEdit, ringSecondsUpDown) = addStepper(
             "Keep ringing for (seconds)", in: page, value: Int32(settings.ringSeconds),
@@ -2330,6 +2394,20 @@ final class SettingsWindow {
             settingsStore.update { $0.soundEnabled = checked }
             EnableWindow(ringSecondsEdit, checked)
             EnableWindow(ringSecondsUpDown, checked)
+        }
+
+        let chimeLabelWidth: Int32 = 100
+        let chimePickerWidth: Int32 = 180
+        let playButtonGap: Int32 = 8
+        let playButtonWidth: Int32 = 70
+        addLabel("Chime", in: page, x: Self.rowMargin, y: chimeY + 3, width: chimeLabelWidth)
+        let chimePickerX = Self.rowMargin + chimeLabelWidth + 8
+        addChimePicker(in: page, x: chimePickerX, y: chimeY, width: chimePickerWidth)
+        addButton(
+            "Play", in: page, x: chimePickerX + chimePickerWidth + playButtonGap, y: chimeY,
+            width: playButtonWidth, height: 24
+        ) { [weak self, settingsStore] in
+            self?.chimePlayer.play(chime: settingsStore.get().chime, focusEnd: true)
         }
     }
 

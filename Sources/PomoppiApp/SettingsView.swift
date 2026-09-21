@@ -387,6 +387,20 @@ private struct SoundTab: View {
         Form {
             Section {
                 Toggle("Play a chime when a session ends", isOn: viewModel.binding(\.soundEnabled))
+                LabeledContent("Chime") {
+                    HStack(spacing: 8) {
+                        Picker("Chime", selection: viewModel.binding(\.chime)) {
+                            ForEach(PomoppiSettings.chimeIDs, id: \.self) { id in
+                                Text(id.capitalized).tag(id)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Button("Play") {
+                            viewModel.chimePlayer.play(chime: viewModel.settings.chime, focusEnd: true)
+                        }
+                    }
+                }
                 Stepper(
                     "Keep ringing for \(Int(viewModel.settings.ringSeconds)) seconds",
                     value: viewModel.binding(\.ringSeconds), in: 0...60, step: 5)

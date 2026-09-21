@@ -7,6 +7,7 @@ import WinSDK
 
 let settingsStore = SettingsStore(storageDir: storageDir())
 let sessionLogger = SessionLogger(getSettings: { settingsStore.get() }, storageDir: storageDir())
+let chimePlayer = ChimePlayer()
 
 let timer = PomodoroTimer(settingsGetter: {
     let s = settingsStore.get()
@@ -21,6 +22,15 @@ let timer = PomodoroTimer(settingsGetter: {
 // never had any logging wired in until this session log replaced it.
 timer.onPhaseComplete = { event in
     Task { await sessionLogger.logSession(event) }
+    // SPEC.md §4: the chime plays once, at the moment a phase completes and
+    // the ring starts — `completed` is only true on that path
+    // (PomodoroTimer.completePhase()), never on a skip/reset that cuts a
+    // phase short, so this alone is the right gate; no separate ringing
+    // check needed.
+    let settings = settingsStore.get()
+    if event.completed, settings.soundEnabled {
+        chimePlayer.play(chime: settings.chime, focusEnd: event.phase == .focus)
+    }
 }
 
 let widgetWindow = WidgetWindow(timer: timer, settingsStore: settingsStore)
@@ -82,7 +92,7 @@ func reapplyGlobalShortcuts() {
 }
 
 widgetWindow.onOpenSettingsRequested = {
-    SettingsWindow.show(settingsStore: settingsStore, sessionLogger: sessionLogger, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reapplyGlobalShortcuts)
+    SettingsWindow.show(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reapplyGlobalShortcuts)
 }
 
 // -- login item ---------------------------------------------------------
