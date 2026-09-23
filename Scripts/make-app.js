@@ -14,26 +14,17 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
+const { readVersion } = require('./version');
+
 const REPO_ROOT = path.join(__dirname, '..');
 const NATIVE_ROOT = REPO_ROOT;
 const BUNDLE_ID = 'it.lucabessiaristei.pomoppi';
 const APP_NAME = 'Pomoppi';
 
-// Read the version straight out of Sources/PomoppiCore/Version.swift — the
-// single source of truth, same read-a-generated-looking-line trick
-// refresh-art.js uses on Settings.swift's friendIDs/backgroundIDs — rather
-// than hardcoding a copy here that can drift from the real one.
-function readVersion() {
-  const versionSwift = path.join(REPO_ROOT, 'Sources/PomoppiCore/Version.swift');
-  const contents = fs.readFileSync(versionSwift, 'utf8');
-  const match = contents.match(/public let pomoppiVersion = "([^"]+)"/);
-  if (!match) {
-    console.error(`could not find "public let pomoppiVersion = ..." in ${versionSwift}`);
-    process.exit(1);
-  }
-  return match[1];
-}
-const VERSION = readVersion();
+// The version, read straight out of Sources/PomoppiCore/Version.swift — the
+// single source of truth — rather than hardcoding a copy here that can
+// drift from the real one.
+const VERSION = readVersion(REPO_ROOT);
 
 const GLASS_ICON_SOURCE = 'pomoppi-clear.icon';
 const GLASS_ICON_NAME = 'AppIcon';
