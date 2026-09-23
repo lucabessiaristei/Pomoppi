@@ -18,11 +18,19 @@ final class ChimePlayer {
     // persistent, replayable player sidesteps it on both platforms.
     private var players: [String: AVAudioPlayer] = [:]
 
+    // The one player last started by play(), so a fast switch between two
+    // different chimes (the Sound tab's picker now previews on every
+    // selection, see SPEC.md §4) stops the previous pack's sound instead of
+    // layering both — each cached AVAudioPlayer only ever stops itself.
+    private var lastStarted: AVAudioPlayer?
+
     func play(chime id: String, focusEnd: Bool) {
         guard let player = player(chime: id, focusEnd: focusEnd) else { return }
+        if lastStarted !== player { lastStarted?.stop() }
         player.stop()
         player.currentTime = 0
         player.play()
+        lastStarted = player
     }
 
     private func player(chime id: String, focusEnd: Bool) -> AVAudioPlayer? {

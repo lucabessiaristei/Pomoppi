@@ -1988,9 +1988,15 @@ final class SettingsWindow {
                 fatalError("CreateWindowExW (chime option) failed with error \(GetLastError())")
             }
             chimeOptions.append(ChimeOptionControl(hwnd: button, value: value))
+            // Each option is its own button, so unlike macOS's segmented
+            // Picker this fires BN_CLICKED on every click, including a
+            // reselect of the already-selected option — previewing the
+            // chime here on every click, no separate Play/Test button
+            // needed for a replay case that doesn't exist on this side.
             pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
                 settingsStore.update { $0.chime = value }
                 self?.invalidateAllChimeOptions()
+                self?.chimePlayer.play(chime: value, focusEnd: true)
             }))
         }
         return height
@@ -2563,11 +2569,11 @@ final class SettingsWindow {
         try? FileManager.default.removeItem(at: storageDir())
     }
 
-    // Mirrors macOS's SoundTab: a chime toggle, a Chime picker + Play
-    // button, and a ring-length stepper that's disabled whenever the chime
-    // itself is off — the stepper is built first (code order only, not
-    // visual order) so its HWNDs exist for the checkbox's onToggle closure
-    // to grey/re-enable live.
+    // Mirrors macOS's SoundTab: a chime toggle, a Chime picker (selecting
+    // an option previews it immediately, no separate Play/Test button),
+    // and a ring-length stepper — ringSeconds governs the visual ring
+    // only, never audio (SPEC.md §4), so it stays enabled regardless of
+    // the checkbox, matching macOS's own ungating.
     private func buildSoundTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
@@ -2575,38 +2581,25 @@ final class SettingsWindow {
         let chimeY = checkboxY + Self.rowHeight
         let stepperY = chimeY + Self.rowHeight
 
-        let (ringSecondsEdit, ringSecondsUpDown) = addStepper(
+        addStepper(
             "Keep ringing for (seconds)", in: page, value: Int32(settings.ringSeconds),
             min: 0, max: 60, step: 5, x: Self.rowMargin, y: stepperY, labelWidth: 220
         ) { [settingsStore] newValue in
             settingsStore.update { $0.ringSeconds = Double(newValue) }
         }
-        // Matches macOS's `.disabled(!viewModel.settings.soundEnabled)`.
-        EnableWindow(ringSecondsEdit, settings.soundEnabled)
-        EnableWindow(ringSecondsUpDown, settings.soundEnabled)
 
         addCheckbox(
             "Play a chime when a session ends", in: page, checked: settings.soundEnabled,
             x: Self.rowMargin, y: checkboxY, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.soundEnabled = checked }
-            EnableWindow(ringSecondsEdit, checked)
-            EnableWindow(ringSecondsUpDown, checked)
         }
 
         let chimeLabelWidth: Int32 = 100
         let chimePickerWidth: Int32 = 250
-        let playButtonGap: Int32 = 8
-        let playButtonWidth: Int32 = 70
         addLabel("Chime", in: page, x: Self.rowMargin, y: chimeY + 3, width: chimeLabelWidth)
         let chimePickerX = Self.rowMargin + chimeLabelWidth + 8
         addChimePicker(in: page, x: chimePickerX, y: chimeY, width: chimePickerWidth)
-        addButton(
-            "Play", in: page, x: chimePickerX + chimePickerWidth + playButtonGap, y: chimeY,
-            width: playButtonWidth, height: 24
-        ) { [weak self, settingsStore] in
-            self?.chimePlayer.play(chime: settingsStore.get().chime, focusEnd: true)
-        }
     }
 
     // Mirrors macOS's KeysTab/ShortcutRow (SettingsView.swift): one row per

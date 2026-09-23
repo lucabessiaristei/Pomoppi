@@ -522,26 +522,37 @@ private struct SoundTab: View {
             Section {
                 Toggle("Play a chime when a session ends", isOn: viewModel.binding(\.soundEnabled))
                 LabeledContent("Chime") {
-                    HStack(spacing: 8) {
-                        Picker("Chime", selection: viewModel.binding(\.chime)) {
-                            ForEach(PomoppiSettings.chimeIDs, id: \.self) { id in
-                                Text(id.capitalized).tag(id)
-                            }
+                    Picker("Chime", selection: viewModel.binding(\.chime)) {
+                        ForEach(PomoppiSettings.chimeIDs, id: \.self) { id in
+                            Text(id.capitalized).tag(id)
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        Button("Play") {
-                            viewModel.chimePlayer.play(chime: viewModel.settings.chime, focusEnd: true)
-                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    // Selecting a chime previews it immediately — "tap it,
+                    // hear it". No separate Play/replay control: a
+                    // segmented Picker's selection binding doesn't fire on
+                    // a reselect of the already-selected segment, so
+                    // re-hearing the current chime means picking another
+                    // option and back, same as any other segmented control
+                    // here.
+                    .onChange(of: viewModel.settings.chime) {
+                        viewModel.chimePlayer.play(chime: viewModel.settings.chime, focusEnd: true)
                     }
                 }
                 Stepper(
-                    "Keep ringing for \(Int(viewModel.settings.ringSeconds)) seconds",
+                    ringLabel,
                     value: viewModel.binding(\.ringSeconds), in: 0...60, step: 5)
-                    .disabled(!viewModel.settings.soundEnabled)
             }
         }
         .settingsForm()
+    }
+
+    // ringSeconds governs the visual ring only, never audio (SPEC.md §4),
+    // so this stays enabled regardless of soundEnabled.
+    private var ringLabel: String {
+        let seconds = Int(viewModel.settings.ringSeconds)
+        return seconds == 0 ? "Don't ring" : "Keep ringing for \(seconds) seconds"
     }
 }
 
