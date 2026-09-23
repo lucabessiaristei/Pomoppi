@@ -63,6 +63,7 @@ not a plan.
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
+| Update check UI | A tray item ("Update available: `<tag>`", opens the release page) shown only when one exists, plus a settings-window footer — outside the `TabView`, visible under every tab — cycling idle/checking/up-to-date/update-available/failed (§15) | Same tray item via `TrayController.swift`; the settings-window footer is a fixed button row under `SysTabControl32` (no `TabView` equivalent) with the same five states, driven by a `WM_TIMER`-based auto-revert instead of SwiftUI state. Behavior (endpoint, cadence, states, opt-out) is identical on both — only the chrome differs, native tray menu item + settings footer either way, Win32 vs AppKit/SwiftUI rendering (§15) |
 
 ## 1. Art direction (non-negotiable) `[divergent]`
 
@@ -660,7 +661,7 @@ it: Rhythm, Appearance, Window, Keys, Sound, Diary.
 |---|---|
 | Rhythm | session lengths, long-break interval, auto-start, ask-for-task |
 | Appearance | color scheme (settings-window chrome only — auto/light/dark), pet picker, pet movement toggle, theme (ink/paper + presets), window edge, background, size, transparency |
-| Window | always-on-top, pop-to-front-on-end, launch at login, start hidden |
+| Window | always-on-top, pop-to-front-on-end, launch at login, start hidden, check for updates, reset to defaults (§15) |
 | Keys *(not in this table — added later)* | one click-to-record row per global shortcut, Reset to Defaults, a static list of the fixed in-app keys |
 | Sound | chime on/off, chime pack picker + Play button, ring duration |
 | Diary *(absorbed the old Log tab in the 2026-09-20 redesign, §8b)* | Logging (logging on/off, cache-size readout, Erase Cached Sessions), Export (sessions-logged count, Export Diary… to a `.zip`), Sync to folder (folder picker, Sync Now, last-run status) |
@@ -1364,3 +1365,84 @@ supplies a path — main generates the name, resolves collisions with `-2`, `-3`
 and refuses a payload that is not a string, does not begin with `<svg`, or runs
 past 4 MB. This is the only path in the app where bytes from a renderer reach
 the user's disk, and §12's posture is why it is the narrow one.
+
+## 15. Versioning and updates `[both]`
+
+Added by the cross-platform release/update plan (**R0-R6**; see
+`RELEASE_PLAN.md` for the full phase history and `RELEASING.md` for the
+checklist that actually cuts one) — the first time either platform's app
+has shipped a version number that means anything beyond a source comment,
+or made an outbound network call at all.
+
+**Version source.** `Sources/PomoppiCore/Version.swift`'s `pomoppiVersion`
+is the single source of truth; nothing else in the tree hardcodes its own
+copy. `Scripts/version.js`'s `readVersion()` regex-reads it out for
+`Scripts/make-app.js`, `Scripts/make-windows-app.js`, `Scripts/make-pkg.js`
+and `Scripts/check-tag-version.js`, so all four always agree with whatever
+the file says. `Scripts/set-version.js` is the one supported way to change
+it (`node Scripts/set-version.js 0.3.0`) — never hand-edit the string in
+place.
+
+**Distribution.** GitHub Releases
+(`github.com/lucabessiaristei/Pomoppi/releases`) is the one channel, for
+both platforms: a macOS `.pkg` (`Scripts/make-pkg.js`, via `pkgbuild`) and
+a Windows installer plus a plain zip (`Scripts/make-windows-app.js
+--installer`, `Scripts/pomoppi.iss` via Inno Setup). Both are built and
+attached to the release by `.github/workflows/macos.yml` /
+`windows.yml` on `release: published`, each gated by
+`Scripts/check-tag-version.js` — the release tag, minus a leading `v`,
+must match `pomoppiVersion` or the build fails loudly rather than shipping
+a mismatched artifact.
+
+**Unsigned, on purpose, for now.** Both platforms ship with no code
+signing at all: no Apple Developer Program enrollment (so no notarization,
+and Gatekeeper treats the `.pkg`/`.app` as from an unidentified developer),
+no Windows code-signing certificate (so SmartScreen flags the installer).
+This is **R2, deliberately deferred** — a cost/friction tradeoff at this
+small a user count, not a technical blocker: both an Apple Developer
+Program membership and a Windows EV signing certificate are recurring
+costs that buy nothing the unsigned, hand-rolled pipeline doesn't already
+do correctly (a structurally sound, single-instance-safe install). It is
+revisitable the moment the audience or the friction below justifies it.
+See `README.md` for the exact Gatekeeper/SmartScreen steps this currently
+costs a recipient.
+
+**The update checker.** `Sources/PomoppiCore/UpdateChecker.swift`
+(shared) holds the actual "is there something newer" logic — `SemVer`
+(numeric, per-component comparison), `parseLatestRelease`,
+`isUpdateAvailable`, and the `checkForUpdate` orchestration, all
+Foundation-only and driven through an injected `Fetch` closure so none of
+it needs a real network call to exercise. Each platform's own
+`AppUpdateChecker.swift` (`Sources/PomoppiApp/` / `Sources/PomoppiWindows/`)
+owns the real transport and the scheduling on top of it.
+
+It is **passive and notify-only** — it never downloads or installs
+anything on either platform, only reports that a newer tag exists and
+links to its GitHub release page. It checks ~10 seconds after launch,
+then every 24 hours for as long as the app keeps running; **no state is
+persisted across launches** — no "last checked," no "skipped version" —
+because `/releases/latest` already excludes drafts/prereleases
+server-side, so there is nothing worth remembering between runs. Opt-out
+is `Settings.checkForUpdates` (default `true`), a toggle in the Window
+tab's "Updates" section (§7) on both platforms, alongside a "Reset to
+Defaults…" button (wipes the storage dir after confirming — the in-app
+answer to "fresh install," see §8's reinstall/upgrade semantics). A tray
+item ("Update available: `<tag>`") appears only when one exists and
+opens the release page; the settings window's footer, visible under every
+tab rather than inside any one of them, cycles through
+idle/checking/up-to-date/update-available/failed — "failed" is only
+reachable through an explicit manual check ("Check for updates" in the
+footer); a background check's own failure stays silent, folded into "no
+update" the same way a 404 ("no releases yet") already is.
+
+**Security posture.** This is the first outbound network call either
+platform's app has ever made, which is worth being explicit about: exactly
+one endpoint, `GET
+https://api.github.com/repos/lucabessiaristei/Pomoppi/releases/latest`,
+hit on the schedule above and nowhere else. No telemetry, no analytics, no
+crash reporting. Nothing is sent but a `User-Agent: Pomoppi/<version>`
+header plus the two GitHub-API-version headers `requestHeaders(appVersion:)`
+sets — no request body, no user data, no machine identifier of any kind.
+Nothing about the response is persisted to disk; the parsed result lives
+only in memory for the running session
+(`AppUpdateChecker.latestResult`) and is gone at the next launch.
