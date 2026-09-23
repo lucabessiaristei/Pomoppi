@@ -14,9 +14,13 @@ import WinSDK
 // after the call returns. Checked first, before anything else here is
 // constructed, so a second launch never gets as far as creating a
 // second widget window or a second tray icon — a real pre-existing bug
-// (launching Pomoppi twice used to give two of each). This same name is
-// also Scripts/pomoppi.iss's AppMutex, so Inno Setup's installer can
-// detect and close a running instance during an upgrade the same way.
+// (launching Pomoppi twice used to give two of each). Deliberately not
+// also wired up as Scripts/pomoppi.iss's AppMutex: verified live in the
+// VM that Inno's AppMutex check has no silent auto-close path of its own
+// (it only ever shows a blocking, manually-answered "please close it"
+// message box) — installing over a running instance is handled
+// separately, by CloseApplications' own file-lock-based detection
+// (RestartManager), which needs no cooperation from this mutex at all.
 let singleInstanceMutexName = "PomoppiSingleInstanceMutex"
 let singleInstanceMutex = singleInstanceMutexName.withCString(encodedAs: UTF16.self) { namePtr in
     CreateMutexW(nil, false, namePtr)

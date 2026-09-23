@@ -45,11 +45,24 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 #if FileExists(SourcePath + "..\assets\pomoppi.ico")
 SetupIconFile={#SourcePath}..\assets\pomoppi.ico
 #endif
-; Same name as main.swift's CreateMutexW single-instance guard — lets
-; Setup detect a running instance, and CloseApplications=yes below tells
-; it to actually close that instance automatically (rather than just
-; warning and failing the install) before overwriting its files.
-AppMutex=PomoppiSingleInstanceMutex
+; Deliberately no AppMutex directive here, even though main.swift's
+; single-instance guard is a named mutex Setup could check for — verified
+; live in the VM that AppMutex has no auto-close ability of its own: per
+; Inno's own docs it only ever shows a blocking "please close it now,
+; then click OK" message box, checked at Setup startup, before
+; CloseApplications' own [Files]-driven RestartManager scan ever runs —
+; and that message box has no silent/automatic "yes, go ahead" answer
+; (/SUPPRESSMSGBOXES defaults it to Cancel, aborting the install). Setting
+; it would only get in CloseApplications' way. CloseApplications=yes alone
+; is what actually does the job: Setup finds Pomoppi.exe holding the DLLs
+; it needs to replace via RestartManager and closes it automatically —
+; confirmed end-to-end in the VM (log line "Can use RestartManager to
+; avoid reboot? Yes", "Shutting down applications using our files.",
+; process gone from tasklist, install completes) with no AppMutex set at
+; all. RestartApplications stays no: main.swift never calls
+; RegisterApplicationRestart, so Windows couldn't restart it after anyway
+; (see RestartApplications' own doc) — the finish-page Launch checkbox
+; below is how a normal (non-upgrade) install offers to relaunch instead.
 CloseApplications=yes
 RestartApplications=no
 
