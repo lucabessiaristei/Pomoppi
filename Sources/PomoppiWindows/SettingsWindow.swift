@@ -1,9 +1,10 @@
 // SettingsWindow.swift — a real titled top-level window (unlike
 // WidgetWindow's layered popup) holding a SysTabControl32 with the same 6
-// tabs/order as macOS's SettingsView.swift (Rhythm, Appearance, Window,
-// Keys, Sound, Diary — Log folded into Diary in the 2026-09-20 redesign),
-// bound directly to SettingsStore. One
-// singleton instance, mirroring macOS's single reused `Settings` scene;
+// tabs/order as macOS's SettingsView.swift (General, Rhythm, Appearance,
+// Keys, Sound, Diary — Window renamed General and moved first, Color
+// scheme moved into it from Appearance, SETTINGS_PLAN.md S2; Log folded
+// into Diary in the 2026-09-20 redesign), bound directly to SettingsStore.
+// One singleton instance, mirroring macOS's single reused `Settings` scene;
 // see WINDOWS_PORT_PLAN.md's W6/W7 entry for how this file grew phase by
 // phase.
 import Foundation
@@ -211,8 +212,8 @@ final class SettingsWindow {
     private var steppers: [StepperControl] = []
 
     // Same HWND-keyed dispatch shape as the two above, for the Keys tab's
-    // plain push buttons (Reset to Defaults, and each row's own recorder
-    // button — its onClick just toggles recording, see buildKeysTab).
+    // plain push buttons (Restore Default Shortcuts, and each row's own
+    // recorder button — its onClick just toggles recording, see buildKeysTab).
     private struct PushButtonControl {
         let hwnd: HWND
         let onClick: () -> Void
@@ -229,7 +230,8 @@ final class SettingsWindow {
 
     // A shortcut row's own button, tracked separately from pushButtons so
     // refreshShortcutButtons can look one up by action id after a binding
-    // changes (write, cancel, or Reset to Defaults all funnel through it).
+    // changes (write, cancel, or Restore Default Shortcuts all funnel
+    // through it).
     private struct ShortcutRecorderControl {
         let buttonHwnd: HWND
         let actionID: String
@@ -337,7 +339,7 @@ final class SettingsWindow {
     private var scaleOptions: [ScaleOptionControl] = []
 
     // The color-scheme picker's 3 options (Auto/Light/Dark, top of the
-    // Appearance tab) — same owner-drawn-segmented-button shape as
+    // General tab) — same owner-drawn-segmented-button shape as
     // scaleOptions just above (see drawSegmentedOption, the shared paint
     // both go through), kept as its own array/struct rather than folded
     // into ScaleOptionControl since "value" here is a String
@@ -486,8 +488,28 @@ final class SettingsWindow {
         steppers.contains(where: { $0.editHwnd == hwnd })
     }
 
+    // Stable, index-backed identity for each tab — createPage dispatches on
+    // this rather than the tab's own *display* title (see createPage's own
+    // comment for why that string used to be the dispatch key, and the bug
+    // that came from it). `title` is still what actually populates the
+    // strip and feeds drawTabControlDark's own by-index text lookup.
+    private enum Tab: Int, CaseIterable {
+        case general, rhythm, appearance, keys, sound, diary
+
+        var title: String {
+            switch self {
+            case .general: return "General"
+            case .rhythm: return "Rhythm"
+            case .appearance: return "Appearance"
+            case .keys: return "Keys"
+            case .sound: return "Sound"
+            case .diary: return "Diary"
+            }
+        }
+    }
+
     // Exact order macOS's SettingsView.swift uses.
-    private static let tabTitles = ["Rhythm", "Appearance", "Window", "Keys", "Sound", "Diary"]
+    private static let tabTitles = Tab.allCases.map(\.title)
 
     // clientWidth/clientHeight is the *minimum* size now, not a fixed one
     // (WS_THICKFRAME below makes the window user-resizable) — in the
@@ -766,11 +788,17 @@ final class SettingsWindow {
             _ = SendMessageW(tab, UINT(TCM_ADJUSTRECT), WPARAM(0), LPARAM(Int(bitPattern: rectPtr)))
         }
 
-        for (index, title) in Self.tabTitles.enumerated() {
-            let page = createPage(title: title, rect: displayRect)
+        // Windows' counterpart to macOS's `@AppStorage`-remembered tab — the
+        // settings window is destroyed on close, so this is the only place
+        // last session's tab survives (see loadRememberedTabIndex's own
+        // comment). Read once here; selectTab persists any later change.
+        let rememberedIndex = Self.loadRememberedTabIndex()
+        for (index, tab) in Tab.allCases.enumerated() {
+            let page = createPage(tab: tab, rect: displayRect)
             pages.append(page)
-            ShowWindow(page, index == 0 ? SW_SHOW : SW_HIDE)
+            ShowWindow(page, index == rememberedIndex ? SW_SHOW : SW_HIDE)
         }
+        SendMessageW(tab, UINT(TCM_SETCURSEL), WPARAM(rememberedIndex), 0)
     }
 
     // WM_SIZE (user drag-resize, now that WS_THICKFRAME makes that
@@ -1185,7 +1213,7 @@ final class SettingsWindow {
         FillRect(hdc, &rightEdge, brush)
     }
 
-    private func createPage(title: String, rect: RECT) -> HWND {
+    private func createPage(tab: Tab, rect: RECT) -> HWND {
         let width = rect.right - rect.left
         let height = rect.bottom - rect.top
         guard let page = (Self.pageClassName.withUnsafeBufferPointer { classNamePtr in
@@ -1221,20 +1249,27 @@ final class SettingsWindow {
                 // between children (the only place its background is
                 // actually visible), and children are never painted over
                 // by their parent at all.
-                DWORD(title == "Appearance" ? WS_CHILD | WS_CLIPCHILDREN : WS_CHILD),
+                DWORD(tab == .appearance ? WS_CHILD | WS_CLIPCHILDREN : WS_CHILD),
                 rect.left, rect.top, width, height,
                 hwnd, nil, Self.hInstance, nil)
         }) else {
             fatalError("CreateWindowExW (settings page) failed with error \(GetLastError())")
         }
 
-        // Every tab gets real controls now — Log (renamed from the
-        // Obsidian placeholder, Phase W9-era session-logging redesign) was
-        // the last one still deferred.
-        switch title {
-        case "Rhythm":
+        // Dispatches on `tab` itself, not its display title — the title
+        // string used to be the switch key here, and an unmatched title
+        // (any rename that forgot to update this switch, or, in the future,
+        // a translated one — see LOCALIZATION_PLAN.md's L4) silently fell
+        // through to a "coming in a later phase" placeholder instead of
+        // failing loudly. Switching on Tab instead makes that case
+        // unrepresentable: every case is handled, and the compiler enforces
+        // it stays that way as the enum grows.
+        switch tab {
+        case .general:
+            buildGeneralTab(page: page, width: width)
+        case .rhythm:
             buildRhythmTab(page: page, width: width)
-        case "Appearance":
+        case .appearance:
             appearancePage = page
             // Layout uses a narrower width than the page's own physical
             // size so nothing sits under the scroll rail this page alone
@@ -1243,35 +1278,17 @@ final class SettingsWindow {
             // width adjustment of its own).
             buildAppearanceTab(page: page, width: width - GetSystemMetrics(SM_CXVSCROLL))
             createAppearanceScrollRail(page: page, pageWidth: width, pageHeight: height)
-        case "Window":
-            buildWindowTab(page: page, width: width)
-        case "Sound":
-            buildSoundTab(page: page, width: width)
-        case "Keys":
+        case .keys:
             buildKeysTab(page: page, width: width)
-        case "Diary":
+        case .sound:
+            buildSoundTab(page: page, width: width)
+        case .diary:
             buildDiaryTab(page: page, width: width)
-        default:
-            buildPlaceholder(page: page, title: title, width: width, height: height)
         }
         return page
     }
 
-    private func buildPlaceholder(page: HWND, title: String, width: Int32, height: Int32) {
-        let text = Array("\(title) — coming in a later phase".utf16) + [0]
-        let label = Self.staticClassName.withUnsafeBufferPointer { classNamePtr in
-            text.withUnsafeBufferPointer { textPtr in
-                CreateWindowExW(
-                    0, classNamePtr.baseAddress, textPtr.baseAddress,
-                    DWORD(WS_CHILD | WS_VISIBLE | SS_CENTER),
-                    0, height / 2 - 10, width, 20,
-                    page, nil, Self.hInstance, nil)
-            }
-        }
-        applyDefaultFont(label)
-    }
-
-    // -- Rhythm/Window/Sound tab content --------------------------------------
+    // -- General/Rhythm/Sound tab content --------------------------------------
 
     // Mirrors macOS's RhythmTab (SettingsView.swift): 3 minute steppers, a
     // sessions-per-long-break stepper, then 3 automation checkboxes.
@@ -1346,11 +1363,6 @@ final class SettingsWindow {
     private func buildAppearanceTab(page: HWND, width: Int32) {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
-
-        addLabel("Color scheme", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += 20
-        y += addColorSchemePicker(in: page, x: Self.rowMargin, y: y)
-        y += Self.groupGap
 
         addLabel("Roommate", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
         y += 20
@@ -1947,7 +1959,6 @@ final class SettingsWindow {
                 fatalError("CreateWindowExW (color scheme option) failed with error \(GetLastError())")
             }
             schemeOptions.append(SchemeOptionControl(hwnd: button, value: value))
-            trackAppearanceControl(button, x: bx, y: y)
             pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
                 settingsStore.update { $0.colorScheme = value }
                 guard let self else { return }
@@ -2486,12 +2497,19 @@ final class SettingsWindow {
         DeleteObject(gripBrush)
     }
 
-    // Mirrors macOS's WindowTab: widget behavior, the reverseTrayClick
-    // swap (added in Phase W2b), then startup checkboxes.
-    private func buildWindowTab(page: HWND, width: Int32) {
+    // Mirrors macOS's GeneralTab: Color scheme (moved in from Appearance,
+    // SETTINGS_PLAN.md S2 — it governs Pomoppi's own windows' chrome, never
+    // the widget), then widget behavior, the reverseTrayClick swap (added
+    // in Phase W2b), then startup checkboxes.
+    private func buildGeneralTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
+
+        addLabel("Color scheme", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+        y += addColorSchemePicker(in: page, x: Self.rowMargin, y: y)
+        y += Self.groupGap
 
         addCheckbox(
             "Keep the widget on top of other windows", in: page, checked: settings.alwaysOnTop,
@@ -2547,7 +2565,7 @@ final class SettingsWindow {
         }
         y += Self.rowHeight
 
-        addButton("Reset to Defaults…", in: page, x: Self.rowMargin, y: y, width: 160, height: 24) { [weak self] in
+        addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 160, height: 24) { [weak self] in
             self?.confirmResetToDefaults()
         }
     }
@@ -2604,7 +2622,7 @@ final class SettingsWindow {
 
     // Mirrors macOS's KeysTab/ShortcutRow (SettingsView.swift): one row per
     // Shortcuts.action with a button showing its current binding (click to
-    // record a new one), a Reset to Defaults button, then a static,
+    // record a new one), a Restore Default Shortcuts button, then a static,
     // read-only list of the widget's own fixed keys. A single line per
     // shortcut row (label only, no hint underneath) — not a pixel match for
     // macOS's two-line LabeledContent rows, just enough to fit comfortably
@@ -2633,7 +2651,12 @@ final class SettingsWindow {
         }
         y += Self.groupGap
 
-        addButton("Reset to Defaults", in: page, x: Self.rowMargin, y: y, width: 140, height: 24) { [weak self] in
+        // Wider than the shortcut recorder buttons above: "Restore Default
+        // Shortcuts" doesn't fit their fixed 140px, so this one sizes to
+        // its own text instead (same measureTextWidth addPickerGrid's label
+        // column already uses, not a second guessed constant).
+        let resetButtonWidth = measureTextWidth("Restore Default Shortcuts") + 24
+        addButton("Restore Default Shortcuts", in: page, x: Self.rowMargin, y: y, width: resetButtonWidth, height: 24) { [weak self] in
             self?.resetShortcutsToDefaults()
         }
         y += 24 + Self.groupGap
@@ -2946,7 +2969,8 @@ final class SettingsWindow {
     // Ends whatever row is recording (a no-op on recordingActionID itself
     // if none was) and reapplies the shortcut table to the OS
     // unconditionally, since startRecording always unregistered everything
-    // up front — reused by both an actual capture and Reset to Defaults.
+    // up front — reused by both an actual capture and Restore Default
+    // Shortcuts.
     private func stopRecording() {
         let previousActionID = recordingActionID
         recordingActionID = nil
@@ -3130,7 +3154,7 @@ final class SettingsWindow {
 
     // A plain BS_PUSHBUTTON (unlike addCheckbox's BS_AUTOCHECKBOX, no
     // persistent check state of its own) — used by the Keys tab for both
-    // each row's own recorder button and Reset to Defaults.
+    // each row's own recorder button and Restore Default Shortcuts.
     @discardableResult
     private func addButton(
         _ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 24,
@@ -3229,6 +3253,59 @@ final class SettingsWindow {
         }
         for (i, page) in pages.enumerated() {
             ShowWindow(page, i == index ? SW_SHOW : SW_HIDE)
+        }
+        Self.saveRememberedTabIndex(index)
+    }
+
+    // -- tab memory --------------------------------------------------------
+
+    // Windows' counterpart to macOS's `@AppStorage("pomoppi.settingsTab")` —
+    // the settings window here is destroyed on close (Self.shared = nil on
+    // WM_DESTROY), so unlike macOS's single reused `Settings` scene, there's
+    // no in-memory home for the selected tab to survive a reopen in. Its own
+    // subkey rather than LoginItem.swift's `...\CurrentVersion\Run`: that
+    // one's shape is fixed by what Windows itself reads to register a login
+    // item, but this value means nothing to Windows, so it gets a key of
+    // Pomoppi's own. Deliberately not a PomoppiSettings field — SPEC.md §7
+    // says the selected tab is a per-viewer convenience, never part of the
+    // schema.
+    private static let tabMemorySubKey = "Software\\Pomoppi"
+    private static let tabMemoryValueName = "SettingsTab"
+
+    // Same RegGetValueW one-shot read TrayController.systemPrefersLightTaskbar()
+    // uses for a DWORD value — falls back to General (0) if the key/value is
+    // missing (first run) or holds something outside Tab's range (an older
+    // build's tab count, or a corrupt value), same "clamp rather than fail"
+    // stance PomoppiSettings.validate uses for its own out-of-range fields.
+    private static func loadRememberedTabIndex() -> Int {
+        var value: DWORD = 0
+        var size = DWORD(MemoryLayout<DWORD>.size)
+        let status = tabMemorySubKey.withCString(encodedAs: UTF16.self) { subKeyPtr in
+            tabMemoryValueName.withCString(encodedAs: UTF16.self) { valueNamePtr in
+                RegGetValueW(HKEY_CURRENT_USER, subKeyPtr, valueNamePtr, DWORD(RRF_RT_REG_DWORD), nil, &value, &size)
+            }
+        }
+        guard status == ERROR_SUCCESS, Tab(rawValue: Int(value)) != nil else { return 0 }
+        return Int(value)
+    }
+
+    // Same "open (creating if needed), set, close" dance as
+    // LoginItem.apply(enabled:)'s RegOpenKeyExW call, but via
+    // RegCreateKeyExW: unlike the Run key, which Windows itself guarantees
+    // exists, `Software\Pomoppi` is this app's own key and may not exist yet
+    // on a fresh install.
+    private static func saveRememberedTabIndex(_ index: Int) {
+        var key: HKEY?
+        let status = tabMemorySubKey.withCString(encodedAs: UTF16.self) { subKeyPtr in
+            RegCreateKeyExW(HKEY_CURRENT_USER, subKeyPtr, 0, nil, 0, DWORD(KEY_SET_VALUE), nil, &key, nil)
+        }
+        guard status == ERROR_SUCCESS, let key else { return }
+        defer { RegCloseKey(key) }
+        var value = DWORD(index)
+        _ = tabMemoryValueName.withCString(encodedAs: UTF16.self) { valueNamePtr in
+            withUnsafeBytes(of: &value) { bytes in
+                RegSetValueExW(key, valueNamePtr, 0, DWORD(REG_DWORD), bytes.bindMemory(to: BYTE.self).baseAddress, DWORD(MemoryLayout<DWORD>.size))
+            }
         }
     }
 

@@ -8,19 +8,19 @@ import PomoppiCore
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @StateObject private var systemAppearance = SystemAppearanceObserver()
-    @AppStorage("pomoppi.settingsTab") private var selectedTab = "rhythm"
+    @AppStorage("pomoppi.settingsTab") private var selectedTab = "general"
 
     var body: some View {
         VStack(spacing: 0) {
             TabView(selection: $selectedTab) {
+                Tab("General", systemImage: "macwindow", value: "general") {
+                    GeneralTab(viewModel: viewModel)
+                }
                 Tab("Rhythm", systemImage: "timer", value: "rhythm") {
                     RhythmTab(viewModel: viewModel)
                 }
                 Tab("Appearance", systemImage: "paintpalette", value: "appearance") {
                     AppearanceTab(viewModel: viewModel)
-                }
-                Tab("Window", systemImage: "macwindow", value: "window") {
-                    WindowTab(viewModel: viewModel)
                 }
                 Tab("Keys", systemImage: "keyboard", value: "keys") {
                     KeysTab(viewModel: viewModel)
@@ -241,16 +241,6 @@ private struct AppearanceTab: View {
 
     var body: some View {
         Form {
-            Section("Color scheme") {
-                Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
-                    Text("Auto").tag("auto")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-
             Section {
                 CardPickerGrid(
                     items: PomoppiSettings.friendIDs,
@@ -459,14 +449,23 @@ private struct ThemePresetPicker: View {
     }
 }
 
-// MARK: - Window
+// MARK: - General
 
-private struct WindowTab: View {
+private struct GeneralTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var showingResetConfirmation = false
 
     var body: some View {
         Form {
+            Section("Color scheme") {
+                Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
+                    Text("Auto").tag("auto")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
             Section("Widget") {
                 Toggle("Keep the widget on top of other windows", isOn: viewModel.binding(\.alwaysOnTop))
                 Toggle("Pop to the front when a session ends", isOn: viewModel.binding(\.raiseOnEnd))
@@ -488,13 +487,15 @@ private struct WindowTab: View {
             }
             Section {
                 Toggle("Automatically check for updates", isOn: viewModel.binding(\.checkForUpdates))
-                Button("Reset to Defaults…", role: .destructive) {
-                    showingResetConfirmation = true
-                }
             } header: {
                 Text("Updates")
             } footer: {
                 Text("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.")
+            }
+            Section("Reset") {
+                Button("Reset Pomoppi…", role: .destructive) {
+                    showingResetConfirmation = true
+                }
             }
         }
         .settingsForm()
@@ -693,7 +694,7 @@ private struct KeysTab: View {
                 Text("These fire even while Pomoppi isn’t the frontmost app. A shortcut needs a modifier; two actions can’t share the same combo.")
             }
             Section {
-                Button("Reset to Defaults") {
+                Button("Restore Default Shortcuts") {
                     viewModel.update { $0.shortcuts = Shortcuts.defaults }
                 }
             }

@@ -119,8 +119,8 @@ confirmation reads as harmless while it is permanent.
   fast re-select. Only the hint copy in the map above is still
   outstanding, and it rides along with S4.
 - **S2 — Tabs: rename, reorder, regroup; move Color scheme; tab
-  memory.** The structural phase, both platforms, no behavior change
-  beyond where things live.
+  memory. ✅ DONE**, both platforms. The structural phase, no behavior
+  change beyond where things live.
   - macOS `Sources/PomoppiApp/SettingsView.swift`: reorder the six
     `Tab(...)` entries (`:16-33`), rename `WindowTab` → `GeneralTab`
     (`:464`), move the `Color scheme` section out of `AppearanceTab`
