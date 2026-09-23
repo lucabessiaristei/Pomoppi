@@ -56,6 +56,13 @@ public struct PomoppiSettings: Codable, Equatable {
     public var launchAtLogin: Bool
     public var startHidden: Bool
 
+    // Cross-platform release/update plan, phase R6: whether to poll
+    // GitHub's /releases/latest for a newer tag than Version.swift's
+    // pomoppiVersion. No "last checked"/"skipped version" bookkeeping
+    // alongside it — see UpdateChecker.swift's own header for why that's
+    // deliberate, not an oversight.
+    public var checkForUpdates: Bool
+
     public var soundEnabled: Bool
     // Which pack in PomoppiSprites.GeneratedSounds.chimeIDs to play (SPEC.md
     // §4): "classic" (square-wave blips, the Electron-era design), "chord"
@@ -111,7 +118,8 @@ public struct PomoppiSettings: Codable, Equatable {
         shortcuts: [String: String], reverseTrayClick: Bool = false,
         diaryFolderPath: String = "",
         colorScheme: String = "auto",
-        chime: String = "classic"
+        chime: String = "classic",
+        checkForUpdates: Bool = true
     ) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -134,6 +142,7 @@ public struct PomoppiSettings: Codable, Equatable {
         self.opacity = opacity
         self.launchAtLogin = launchAtLogin
         self.startHidden = startHidden
+        self.checkForUpdates = checkForUpdates
         self.soundEnabled = soundEnabled
         self.chime = chime
         self.ringSeconds = ringSeconds
@@ -148,6 +157,7 @@ public struct PomoppiSettings: Codable, Equatable {
         case loggingEnabled, diaryFolderPath
         case friend, frameStyle, background, inkColor, paperColor, colorScheme
         case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
+        case checkForUpdates
         case soundEnabled, chime, ringSeconds, askForTaskName, shortcuts
     }
 
@@ -202,6 +212,7 @@ public struct PomoppiSettings: Codable, Equatable {
         opacity = (try? c.decodeIfPresent(Double.self, forKey: .opacity)) ?? d.opacity
         launchAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? d.launchAtLogin
         startHidden = (try? c.decodeIfPresent(Bool.self, forKey: .startHidden)) ?? d.startHidden
+        checkForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? d.checkForUpdates
 
         soundEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .soundEnabled)) ?? d.soundEnabled
         chime = (try? c.decodeIfPresent(String.self, forKey: .chime)) ?? d.chime
