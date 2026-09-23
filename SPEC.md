@@ -390,15 +390,23 @@ On macOS, `GeneratedSounds`' raw PCM is wrapped into a WAV image at
 playback time via `WAVFile.data(pcm:sampleRate:bitsPerSample:channels:)`
 (`PomoppiCore/WAVFile.swift`, a 44-byte RIFF/WAVE header prepended to the
 raw PCM) and played with a persistent, cached `AVAudioPlayer(data:)` per
-pack+sound (`stop()`/`currentTime = 0`/`play()` on replay). On Windows,
-the same raw PCM is played directly with `waveOut` against a single
-`WAVEFORMATEX` opened once for the process's life — no WAV header
-involved, since `waveOut` already knows the format out of band. See
+pack+sound (`stop()`/`currentTime = 0`/`play()` on replay; the player last
+started is tracked and stopped before a new one plays, so switching packs
+quickly can't layer two chimes on top of each other). On Windows, the same
+raw PCM is played directly with `waveOut` against a single `WAVEFORMATEX`
+opened once for the process's life — no WAV header involved, since
+`waveOut` already knows the format out of band, and only one `WAVEHDR` is
+ever outstanding so a new play always cuts the previous one off. See
 `ChimePlayer.swift`, one per platform. The Sound tab's Chime picker
-(Rhythm-style segmented control, built from `chimeIDs`) has its own
-**Play** button next to it that plays the selected pack's focus-end sound
-immediately, regardless of `soundEnabled` — a test button, not gated by
-the setting.
+(Rhythm-style segmented control on macOS, individually-clickable
+segmented buttons on Windows, both built from `chimeIDs`) plays the
+selected pack's focus-end sound immediately on selection — "tap it, hear
+it" — regardless of `soundEnabled`, since this is a preview, not the real
+end-of-phase chime. No separate Play/replay button on either platform:
+Windows' picker is individual buttons that fire on every click, including
+a reselect of the already-selected option, so it always replays; macOS's
+segmented `Picker` doesn't fire its selection binding on a reselect, so
+re-hearing the current chime there means picking another option and back.
 
 ## 5. Timer model `[divergent]`
 
