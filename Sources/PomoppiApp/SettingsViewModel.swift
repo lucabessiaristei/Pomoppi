@@ -14,17 +14,15 @@ final class SettingsViewModel: ObservableObject {
     let sessionLogger: SessionLogger
     let chimePlayer: ChimePlayer
     let updateChecker: AppUpdateChecker
-    private let storageDir: URL
 
     init(
         settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer,
-        updateChecker: AppUpdateChecker, storageDir: URL
+        updateChecker: AppUpdateChecker
     ) {
         self.settingsStore = settingsStore
         self.sessionLogger = sessionLogger
         self.chimePlayer = chimePlayer
         self.updateChecker = updateChecker
-        self.storageDir = storageDir
         self.settings = settingsStore.get()
     }
 
@@ -32,13 +30,13 @@ final class SettingsViewModel: ObservableObject {
         settings = settingsStore.update(mutate)
     }
 
-    // The Window tab's "Reset to Defaults…": wipes settings.json/
-    // sessions.json/everything else under storageDir so the app comes back
-    // up at defaults next launch — this session keeps running on whatever's
-    // already in memory rather than resetting live, same "no state to
-    // reconcile mid-run" approach as everything else here. Replaces the
-    // installer-side fresh/update toggle by design.
+    // The General tab's "Reset Pomoppi…": erases session history, then
+    // resets the settings store to defaults. reset() persists and fires
+    // onChange, which AppDelegate already wires to re-apply the widget,
+    // shortcuts, login item and update checking live — so this resets the
+    // running app, not just what's on disk, with no restart needed.
     func resetToDefaults() {
-        try? FileManager.default.removeItem(at: storageDir)
+        sessionLogger.eraseAllSync()
+        settings = settingsStore.reset()
     }
 }

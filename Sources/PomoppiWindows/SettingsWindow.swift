@@ -2571,12 +2571,12 @@ final class SettingsWindow {
     }
 
     // MessageBoxW-based confirmation, same shape as confirmEraseSessionLog
-    // below — wiping storageDir is user-visible and irreversible (every
-    // setting AND the whole session log), so this needs its own explicit
-    // "are you sure," not just a plain click. Replaces the old installer-
-    // side fresh/update toggle by design (release/update plan, phase R6).
+    // below — resetting is user-visible and irreversible (every setting AND
+    // the whole session log), so this needs its own explicit "are you sure,"
+    // not just a plain click. Replaces the old installer-side fresh/update
+    // toggle by design (release/update plan, phase R6).
     private func confirmResetToDefaults() {
-        let text = Array("Reset Pomoppi to defaults? This erases all settings and session history. Restart Pomoppi to start fresh.".utf16) + [0]
+        let text = Array("Reset Pomoppi to defaults? This erases all settings and session history.".utf16) + [0]
         let title = Array("Reset to Defaults".utf16) + [0]
         let result = text.withUnsafeBufferPointer { textPtr in
             title.withUnsafeBufferPointer { titlePtr in
@@ -2584,7 +2584,71 @@ final class SettingsWindow {
             }
         }
         guard result == IDYES else { return }
-        try? FileManager.default.removeItem(at: storageDir())
+        // sessionLogger.eraseAllSync() then settingsStore.reset() — reset()
+        // persists defaults and fires onChange, which main.swift already
+        // wires to re-apply the widget, global shortcuts, login item and
+        // update checking live (no restart). Every control on this window
+        // bakes its value in at creation though, so rebuild() tears the
+        // whole tab control/pages/footer down and puts them back at the
+        // fresh defaults.
+        sessionLogger.eraseAllSync()
+        settingsStore.reset()
+        rebuild()
+    }
+
+    // Reused verbatim by LOCALIZATION_PLAN.md's L4 (a language switch has
+    // the same "strings are baked in" problem) — a general rebuild, not a
+    // reset-specific patch. Destroying the tab control and every page also
+    // destroys their children (every checkbox/stepper/button/card on them),
+    // so only the top-level HWNDs need an explicit DestroyWindow; the
+    // per-control dispatch arrays just need clearing so applyTheme/handlers
+    // don't keep iterating stale, now-invalid handles.
+    func rebuild() {
+        if recordingActionID != nil {
+            stopRecording()
+        }
+        if let tabControl { DestroyWindow(tabControl) }
+        for page in pages { DestroyWindow(page) }
+        if let footerVersionLabel { DestroyWindow(footerVersionLabel) }
+        if let footerActionButton { DestroyWindow(footerActionButton) }
+
+        tabControl = nil
+        pages = []
+        checkboxes = []
+        steppers = []
+        pushButtons = []
+        plainPushButtons = []
+        shortcutRecorders = []
+        pickerCards = []
+        themeSwatches = []
+        colorPickers = []
+        scaleOptions = []
+        schemeOptions = []
+        chimeOptions = []
+        opacityTrackbar = nil
+        opacityValueLabel = nil
+        logCacheSizeLabel = nil
+        diarySessionCountLabel = nil
+        diaryExportStatusLabel = nil
+        diaryFolderLabel = nil
+        diarySyncButton = nil
+        diarySyncStatusLabel = nil
+        footerVersionLabel = nil
+        footerActionButton = nil
+        appearancePage = nil
+        appearanceContentHeight = 0
+        appearanceScrollY = 0
+        appearanceControlPositions = []
+        appearanceScrollRail = nil
+        keysPage = nil
+
+        // colorScheme may itself have just reset to "auto" — re-derive
+        // before rebuilding rather than reusing whatever isDarkMode already
+        // held, same order the constructor uses.
+        isDarkMode = resolveDarkMode()
+        setUpTabsAndPages()
+        createFooter()
+        applyTheme()
     }
 
     // Mirrors macOS's SoundTab: a chime toggle, a Chime picker (selecting

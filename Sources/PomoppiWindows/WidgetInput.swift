@@ -224,10 +224,7 @@ extension WidgetWindow {
             if state.running {
                 state = timer.pause()
             } else {
-                // No task-name prompting on Windows yet (out of scope for
-                // this phase; StartCoordinator's NSAlert-based prompt is
-                // AppKit-only) — starts directly.
-                state = timer.start()
+                state = StartCoordinator.requestStart(timer: timer, settingsStore: settingsStore, owner: hwnd)
             }
         case "reset":
             state = timer.reset()

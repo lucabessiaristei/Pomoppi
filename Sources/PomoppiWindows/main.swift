@@ -73,10 +73,10 @@ widgetWindow.updateChecker = updateChecker
 // One handler per Shortcuts action id, mirroring the tray item or in-app key
 // each shortcut stands in for — same 6 ids as AppDelegate.shortcutHandlers
 // (macOS), "snapshot" excluded (no snapshot feature yet, so its binding is
-// simply never registered with the OS). startPause starts directly with no
-// task-name prompt, same as the existing play button/tray menu item on
-// Windows (StartCoordinator's NSAlert-based prompt is AppKit-only, out of
-// scope for this phase).
+// simply never registered with the OS). startPause goes through the same
+// task-name prompt as the widget's own play button and the tray menu's
+// Start item — all three funnel through activateButton("play"), which now
+// calls StartCoordinator.requestStart (SETTINGS_PLAN.md's T1).
 let shortcutHandlers: [String: () -> Void] = [
     "toggleWidget": {
         let visible: Bool = IsWindowVisible(widgetWindow.hwnd)

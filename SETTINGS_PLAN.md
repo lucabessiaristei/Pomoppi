@@ -6,7 +6,7 @@ first for *why* things are the shape they are; `SPEC.md` §7 is the behavior
 contract for the settings schema and window layout, §5 for the task-name
 prompt.
 
-It has two parts:
+It has three parts:
 
 - **Part A (S0-S5)** — the settings window itself: tab map, copy, the
   regrouped General tab, the reset that doesn't actually reset, hint
@@ -15,12 +15,20 @@ It has two parts:
   `askForTaskName` visible and honest on Windows; Part B builds the thing
   it actually toggles, which has never existed there (`SPEC.md` §0b's
   parity ledger: "**None.** `startPause` starts the timer directly").
+- **Part C (S6a-S6f)** — the in-app **Update** button: download, verify,
+  install, relaunch, replacing today's passive "here's a link" notifier.
+  It is really a follow-on to `RELEASE_PLAN.md`'s R5/R6 rather than to
+  the settings overhaul, and lives here because the one surface it
+  rewrites is the settings window's update footer, which Part A is
+  already reshaping around it. Read `RELEASE_PLAN.md` first for why the
+  checker exists at all and why it is hand-rolled.
 
-**Status as of 2026-09-23: S0 and S1 are done (S1 in commit `b092865`,
-shipped in the `1dcf97e` 0.3.0 bump); S2-S5 and T1-T3 are not started.**
-`LOCALIZATION_PLAN.md` depends on this file: S0 locks the copy, and
-nothing in L0's string-extraction sweep should run against labels this
-plan is still about to rename.
+**Status as of 2026-09-23: S0-S3 and T1 are done (S1 in commit `b092865`,
+shipped in the `1dcf97e` 0.3.0 bump; S2 in commit `1ec7af2`); S4-S5,
+T2-T3 and S6a-S6f are not started.** `LOCALIZATION_PLAN.md` depends on
+this file: S0 locks the copy, and nothing in L0's string-extraction
+sweep should run against labels this plan is still about to rename —
+or against the pile of new strings Part C adds.
 
 ## Locked decisions — do not re-derive or re-litigate these
 
@@ -158,13 +166,14 @@ confirmation reads as harmless while it is permanent.
     and still drives the settings window's chrome live; Windows reopens
     on the tab it was left on, across a full app restart; `swift test`
     green; VM screenshot of the new General tab.
-- **S3 — Make "Reset Pomoppi…" actually reset.** Today both platforms
-  delete the storage directory and tell the user to restart
-  (`SettingsViewModel.swift:41`, `SettingsWindow.swift:2560`). The
-  running app keeps its in-memory `PomoppiSettings`, so the next write of
-  *any* setting re-persists the old values over the fresh directory, and
-  the next completed phase recreates `sessions.json` — a reset that
-  silently un-resets itself if the user touches one more control.
+- **S3 — Make "Reset Pomoppi…" actually reset. ✅ DONE**, both
+  platforms. Previously both platforms deleted the storage directory and
+  told the user to restart (`SettingsViewModel.swift:41`,
+  `SettingsWindow.swift:2560`). The running app kept its in-memory
+  `PomoppiSettings`, so the next write of *any* setting re-persisted the
+  old values over the fresh directory, and the next completed phase
+  recreated `sessions.json` — a reset that silently un-reset itself if
+  the user touched one more control.
   - Replace both with the two APIs that already exist and already
     propagate: `sessionLogger.eraseAllSync()` then
     `settingsStore.reset()`. `reset()` persists defaults and fires
@@ -344,22 +353,45 @@ not a side effect; S4's hint is what explains it.
 
 ### Phases
 
-- **T1 — The dialog and the gate.** Both new files, the one-line call-site
-  change in `WidgetInput.swift`, light mode only, centred on the owner.
-  **Exit**, all five checked in the VM's interactive session (Task
-  Scheduler `/it` — a plain SSH session can't foreground a window, same
-  Session 0 rule as the tray and hotkeys):
+- **T1 — The dialog and the gate. ✅ DONE.** Both new files
+  (`Sources/PomoppiWindows/StartCoordinator.swift`,
+  `Sources/PomoppiWindows/TaskPromptDialog.swift`), the one-line call-site
+  change in `WidgetInput.swift`'s `activateButton`'s `"play"` case, light
+  mode only, centred on the owner. **Exit**, all five checked in the VM's
+  interactive session (Task Scheduler `/it`):
   1. logging off + ask off → no prompt, timer starts (today's behavior,
-     unregressed);
+     unregressed) — verified;
   2. logging off + ask on → prompt; Start with "writing docs" → timer
      runs, and `%APPDATA%\Pomoppi\sessions.json` carries
-     `"task": "writing docs"` after skipping the phase (the widget never
-     draws the task, so the log is the only readback);
-  3. logging off + ask on + Cancel → timer starts, `task` empty;
+     `"task": "writing docs"` (verified via a same-shape logging-on run —
+     see note below);
+  3. logging off + ask on + Cancel → timer starts, `task` empty —
+     verified;
   4. logging **on** + ask **off** → prompt appears anyway; Cancel → timer
-     stays idle, nothing logged;
+     stays idle, nothing logged — verified;
   5. starting a break, and resuming a paused focus → no prompt either
-     time.
+     time — verified (a 1-minute focus — `focusMinutes` floors at 1 via
+     `PomoppiSettings.clamp` — completed naturally, then pressing play
+     dismissed the ring and started the break directly with no prompt;
+     `sessions.json` recorded `"task": "resume test"`).
+
+  Case 2 as literally written can't be verified standalone:
+  `SessionLogger.logSession` bails out (`guard getSettings().loggingEnabled`)
+  whenever logging is off, so nothing ever reaches `sessions.json` in that
+  exact combination — confirmed dialog + Start-with-text behavior visually
+  (screenshot) instead, and verified the typed-text → `sessions.json`
+  path for real under case 5's logging-on run.
+
+  One real automation-harness gotcha worth recording: cross-process
+  `SetWindowText`/`WM_SETTEXT` sent from an external PowerShell verification
+  script to the dialog's `EDIT` control reported success and even read
+  back correctly via a cross-process `GetWindowText`, but never actually
+  reached the control — confirmed by polling `GetWindowTextLengthW` from
+  *inside* the dialog's own process, which saw it as empty the whole time.
+  Real keystrokes (`SendKeys`) work correctly and are what a user's input
+  actually looks like anyway; the dialog/gate code itself was never the
+  bug. Not a T1 code change — a note for whoever automates this dialog
+  next.
 - **T2 — Chrome and edge cases.** Dark mode via the extracted
   `WindowsTheme.swift`; cue banner; Return/Escape; Tab order; focus
   landing in the edit field; work-area clamping; the hidden-widget path;
@@ -379,6 +411,408 @@ not a side effect; S4's hint is what explains it.
   part 2) is marked closed with a pointer here. **Exit:** no document
   still describes Windows as prompt-less.
 
+## Part C — the in-app Update button (S6a-S6f)
+
+Today's update checker is notify-only: it finds a newer tag and opens the
+GitHub release page in a browser (`SPEC.md` §15, "**passive and
+notify-only** — it never downloads or installs anything"). Part C replaces
+that with a button that downloads the right asset, checks it, installs it
+and brings the app back.
+
+`RELEASE_PLAN.md`'s rejection of Sparkle/WinSparkle **still stands and is
+not reopened here**: no framework, no update server, no appcast, no silent
+background auto-update, no separate helper binary to build and sign. What
+this adds is a user-initiated download-and-run of an artifact the release
+pipeline already produces — a different and much smaller thing.
+
+### What the unsigned posture actually costs (read this before approving)
+
+R2 (code signing) is deferred on both platforms, and that is not cosmetic
+here. Four consequences, none of which this design papers over:
+
+1. **The first self-update on macOS from any build shipped before S6b
+   cannot be seamless.** `pkgbuild` lays the payload down as `root:wheel`
+   — verified on this machine: `/Applications/Pomoppi.app` is
+   `drwxr-xr-x root wheel`, inside a `/Applications` that is
+   `drwxrwxr-x root admin`. An admin user can *rename* entries in
+   `/Applications`, so the swap itself works, but cannot recursively
+   delete a root-owned bundle afterwards. S6b fixes that going forward
+   (a `chown` in the pkg's postinstall), which means: install 0.3.0 →
+   the update to 0.4.0 goes through Installer.app with a password prompt
+   → every update after that is seamless. That one-time step is real and
+   worth telling the user about rather than discovering.
+2. **The integrity check proves the bytes, not the author.** GitHub's
+   releases API does expose a per-asset `digest` (verified live against
+   the real API today — see S6a), so a truncated or corrupted download is
+   catchable. But that digest arrives in the *same* HTTPS response as the
+   download URL: it defends against a bad transfer, not against a
+   compromised repo or account. Until R2, the trust root is exactly
+   "TLS to api.github.com, plus that GitHub account's own security" — the
+   same trust root the current notifier already has, except that the app
+   now *runs* what comes back instead of handing it to a browser for the
+   user to run. That escalation is small but real, and it is the
+   strongest argument yet for un-deferring R2. Flagged, not hidden.
+3. **macOS can never fully silently install a `.pkg`.** `installer -pkg`
+   needs root; a background app cannot elevate without
+   `AuthorizationExecuteWithPrivileges` (deprecated, and discouraged by
+   Apple). The
+   honest options are "replace the app bundle in place, which needs no
+   elevation at all" or "hand the `.pkg` to Installer.app and let the OS
+   ask for the password". This design does the first and falls back to
+   the second — it never tries to fake the third.
+4. **SmartScreen still flags the downloaded installer on Windows**, the
+   same as a manual download. It does not block a `/VERYSILENT` run
+   launched by an already-running local process, but this is unverified
+   until S6d's VM run says so.
+
+### Locked decisions (S6) — do not re-derive
+
+- **Always user-initiated. No auto-download, no auto-install, no new
+  settings field.** `checkForUpdates` stays the only knob in this area.
+  The moment there is an "install updates automatically" toggle this is
+  Sparkle with extra steps, and the whole reason R5/R6 were hand-rolled
+  goes away. Checking stays background; downloading and installing never
+  start without a click.
+- **macOS installs by replacing the app bundle, not by running the
+  `.pkg`.** The `.pkg` stays the first-install artifact and the fallback;
+  a new `Pomoppi-<version>-mac.zip` asset is what the in-app path uses.
+  This is the only path that delivers what was actually asked for (no
+  password, automatic relaunch) — trade-off accepted: two install
+  mechanisms now exist, so macOS's receipt database (`pkgutil
+  --pkg-info`) reports a stale version after a self-update. Nothing reads
+  it, and a later `.pkg` install still overwrites correctly.
+- **Windows installs by running the existing Inno installer silently.**
+  `Scripts/pomoppi.iss` already does per-user, no-UAC, auto-close-a-
+  running-instance (`CloseApplications=yes`, R4-verified). Nothing about
+  the installer's job changes; it gains exactly one `[Run]` line so a
+  silent install relaunches the app.
+- **The installer, not the app, owns the Windows relaunch.** The app is
+  killed by RestartManager at a moment it does not control, so any
+  "spawn a waiter that restarts me" scheme is a race by construction.
+  Inno is already running, already knows when it finished, and already
+  has a `[Run]` section.
+- **`PomoppiCore` stays network-free.** It holds the pure parts — asset
+  parsing/matching, SHA-256, the state enum — and nothing that opens a
+  socket, exactly as `UpdateChecker.swift` was deliberately built with an
+  injected `Fetch`. Each platform's own `UpdateInstaller.swift` owns its
+  `URLSession` download. That duplicates ~40 lines of download plumbing
+  and is the same call this port already made for tray clicks, picker
+  previews and login items (CLAUDE.md's Windows invariant).
+- **SHA-256 is hand-rolled into `PomoppiCore`, not CryptoKit + BCrypt.**
+  One pure implementation both platforms share beats two platform crypto
+  APIs, it matches `ZipWriter.swift`/`WAVFile.swift`'s from-scratch
+  precedent, and it is a deterministic function with published NIST test
+  vectors, so "is it correct" is answerable by a test rather than by
+  trust. It is a hash, not a cipher — a bug fails an update, it does not
+  open a hole.
+- **Install state lives on `AppUpdateChecker`, never on the settings
+  window.** Windows destroys the settings window on close; a download
+  must survive closing and reopening it. The existing
+  `@Published`/`onUpdate` plumbing already reaches both consumers (tray
+  and footer) on both platforms, so the state rides along for free.
+- **The footer is where updating happens.** Not a modal, not a new tab,
+  not a separate window. It is already visible under every tab on both
+  platforms and already owns every other update state. The tray item
+  stops opening a browser and opens the settings window instead — one
+  place owns the flow.
+
+### Asset discovery (S6a)
+
+`UpdateChecker.parseLatestRelease` (`Sources/PomoppiCore/UpdateChecker.swift:96-100`)
+currently keeps only `tag_name`/`html_url`. It grows an `assets` array:
+
+```swift
+public struct ReleaseAsset: Equatable {
+    public let name: String
+    public let downloadURL: URL   // browser_download_url
+    public let size: Int          // bytes — drives a determinate progress bar
+    public let sha256: String?    // from `digest`: "sha256:<hex>", nil when absent
+}
+```
+
+Verified live against the real API today (`GET /repos/cli/cli/releases/latest`):
+each asset carries `name`, `browser_download_url`, `size`, `state` and
+**`digest`** (`sha256:f8bbc37f…`). `digest` is not documented as
+guaranteed and is absent on assets uploaded before GitHub added it, so it
+is optional here and the size check below is the floor.
+
+Matching is prefix + suffix, case-insensitive, no version substring:
+
+| Kind | Prefix | Suffix | Produced by |
+|---|---|---|---|
+| `.macAppZip` | `Pomoppi-` | `-mac.zip` | `Scripts/make-pkg.js` (new, S6b) |
+| `.macPkg` | `Pomoppi-` | `.pkg` | `Scripts/make-pkg.js` |
+| `.windowsSetup` | `Pomoppi-Setup-` | `.exe` | `Scripts/make-windows-app.js --installer` |
+
+Deliberately **not** matched on the version inside the filename: the tag
+already told us the version, and requiring the filename to agree would
+break the first time a `v` prefix or a rename disagrees. Assets whose
+`state` is not `"uploaded"` are skipped. CI uploads exactly one of each,
+so a second match takes the first in API order.
+
+`CheckResult` gains the asset:
+
+```swift
+case updateAvailable(tag: String, pageURL: URL, asset: ReleaseAsset?)
+```
+
+**`asset` being nil is normal, not an error.** `RELEASING.md` publishes
+the release *first* and both workflows upload minutes later, so for that
+window `/releases/latest` legitimately reports a newer tag with no assets
+attached. The UI in that state is exactly today's behavior — "Update
+available: `<tag>`" linking to the page — with no error and no broken
+button. Every call site pattern-matching `.updateAvailable(let tag, _)`
+(macOS `TrayController.swift:119`, `SettingsView.swift:134`; Windows
+`TrayController.swift:322`, `SettingsWindow.swift:879`, `:903`) needs the
+extra binding; that is the whole blast radius of the enum change.
+
+### The state machine (shared vocabulary, `PomoppiCore`)
+
+```
+idle ─ check ─▶ checking ─▶ upToDate | checkFailed | updateAvailable
+updateAvailable ─ [Update] ─▶ downloading(received, total)
+                              ─▶ verifying ─▶ installing ─▶ relaunching ─▶ (process exits)
+any step ─ failure ─▶ installFailed(reason) ─▶ [Try again] [Open release page]
+```
+
+Per-state UI, both platforms, in the footer:
+
+| State | Footer reads | Controls |
+|---|---|---|
+| `updateAvailable` + asset | `Pomoppi 0.3.0 · Update available: v0.4.0` | **Update**, Release notes |
+| `updateAvailable`, no asset | `Pomoppi 0.3.0 · Update available: v0.4.0` | Release notes *(today's behavior)* |
+| `downloading` | `Downloading… 3.2 MB of 8.1 MB` | progress bar, Cancel |
+| `verifying` | `Verifying…` | — |
+| `installing` | `Installing…` | — |
+| `relaunching` | `Restarting Pomoppi…` | — |
+| `installFailed` | `Update failed — <one clause>` | Try again, Open release page |
+
+Progress is determinate off the API's `size` field rather than
+`Content-Length` (which GitHub's asset redirect may not carry);
+`Content-Length`, when present, is only cross-checked. **If Windows'
+`URLSessionDownloadDelegate` progress callbacks turn out not to fire
+under `FoundationNetworking` (S6e spikes this), the Windows bar becomes
+`PBS_MARQUEE` and the label drops the byte counts** — the design degrades
+to indeterminate rather than losing the state.
+
+Failure copy is one clause, never an error code: "couldn't download",
+"the download didn't match its checksum", "couldn't install". Both
+failure paths always offer **Open release page**, so the user is never
+stuck with a dead button — that is the fallback requirement, satisfied
+structurally rather than by a special case.
+
+**One guard before installing:** if a session is running or paused
+(`timer.getState().phase != .idle`), confirm first — "A focus session is
+in progress. Pomoppi will close to finish updating." / Update now /
+Cancel. An in-progress session is never logged (`SessionLogger` only
+writes on phase completion), so quitting mid-focus silently loses it.
+`NSAlert` on macOS, `MessageBoxW` on Windows — both are already the
+idiom (`confirmEraseSessionLog`).
+
+### macOS install path
+
+1. Download `Pomoppi-<version>-mac.zip` into a same-volume scratch
+   directory obtained from
+   `FileManager.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: Bundle.main.bundleURL, create: true)`
+   — Foundation's own API for exactly this, which removes any
+   cross-device-rename guesswork.
+2. Verify: byte count equals the API's `size` exactly, and SHA-256
+   matches `digest` when present.
+3. Extract with `ditto -x -k`, **not** `unzip` — the bundle is ad-hoc
+   codesigned (confirmed: `Signature=adhoc`, `flags=0x2(adhoc)`) and
+   `ditto` is what preserves the sealed resources and xattrs. Sanity-check
+   the result with `codesign --verify` before going near the live bundle.
+4. Swap: rename the existing bundle aside within its own parent
+   directory, move the new one into place, then delete the old one. Try
+   `FileManager.removeItem` first; on failure (the root-owned case above)
+   `FileManager.trashItem`; if that fails too, leave it and say nothing —
+   a stale bundle in the Trash is not worth an error dialog.
+5. Relaunch: spawn `/bin/sh -c 'while kill -0 <pid> 2>/dev/null; do sleep 0.2; done; sleep 0.5; open -a "<path>"'`
+   detached, then `NSApp.terminate(nil)`. `/bin/sh` is Apple-signed and
+   always present, so this needs no helper binary of our own — the only
+   reason to build one would be signing it, which R2 defers anyway.
+
+**Why swapping a running app's bundle is safe here specifically:** every
+sprite and sound is compiled into the binary
+(`Sprites.generated.swift`, `Sounds.generated.swift`), and the only
+bundle resources are the icon and `Info.plist`, both already loaded by
+the time the window exists. The running process keeps its mapped
+executable. **This is an invariant not to break** — the day someone adds
+a lazily-loaded bundle resource, this assumption goes with it.
+
+**Quarantine — spiked, not assumed.** A file downloaded with `URLSession`
+from a loose binary on this machine gets **no `com.apple.quarantine`**,
+only `com.apple.provenance` (which is not what Gatekeeper's
+unidentified-developer block keys off). `Scripts/make-app.js`'s
+`Info.plist` sets no `LSFileQuarantineEnabled`, so the app bundle should
+behave the same. The remaining unknown is *inheritance*: a Pomoppi.app
+that is itself quarantined may propagate it to what it writes. S6b
+re-runs the spike from inside a real installed bundle and, if quarantine
+does appear, the fix is one `xattr -d -r com.apple.quarantine` on our own
+freshly-extracted copy before the swap.
+
+**Fallback ladder, in order:** in-place swap → download the `.pkg` and
+`NSWorkspace.shared.open` it (Installer.app's own GUI and password
+prompt; the existing `postinstall` `pkill -x Pomoppi` still handles the
+running instance) → open the release page.
+
+### Windows install path
+
+1. Download `Pomoppi-Setup-<version>.exe` to `%TEMP%` — never the install
+   directory, which is about to be overwritten. Verify size + digest the
+   same way.
+2. `ShellExecuteW(nil, "open", path, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=\"%TEMP%\\Pomoppi-update.log\"", nil, SW_SHOWNORMAL)`.
+   The log is not optional: a silent install has no UI, so it is the only
+   way a failure is ever diagnosable. A return value ≤ 32 is a launch
+   failure → fall back to the release page.
+3. Hand off and do nothing else. RestartManager closes the app
+   (`CloseApplications=yes`); the app's only job between step 2 and being
+   killed is showing "Installing…".
+4. Relaunch via one new line in `Scripts/pomoppi.iss`, leaving the
+   existing interactive entry untouched:
+
+   ```
+   [Run]
+   Filename: "{app}\{#MyAppExeName}"; Description: "Launch Pomoppi now"; Flags: nowait postinstall skipifsilent
+   Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent
+   ```
+
+   Today's entry is `skipifsilent`, so a silent install deliberately
+   launches nothing — which is correct for an admin deploying it and
+   wrong for a self-update. Gating the second entry on `WizardSilent`
+   keeps both behaviors without a custom command-line flag.
+
+**Not every Windows install can self-update.** `Pomoppi-win.zip` is also
+a shipped asset, and a copy running from an unzipped folder was never
+installed by Inno — running the setup would install a *second* copy into
+`%LOCALAPPDATA%\Programs\Pomoppi` and leave the original stale. Detect it
+by comparing the running executable's directory against Inno's own
+`InstallLocation` under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{EC3E39B4-1C22-4A15-A54C-769ACA07A1C8}_is1`;
+on a mismatch, skip the in-app path and open the release page.
+
+### Phases
+
+- **S6a — Core: assets, matching, SHA-256, state enum. Shared, pure, no
+  UI, no networking.** `Sources/PomoppiCore/UpdateChecker.swift` gains
+  `ReleaseAsset`, assets decoding, `matchAsset(_:kind:)` and the third
+  `CheckResult.updateAvailable` associated value; new
+  `Sources/PomoppiCore/SHA256.swift`; new `UpdateInstallState` enum. Both
+  platforms' pattern matches updated mechanically (5 sites, listed
+  above). **Capture a real trimmed `/releases/latest` response with
+  assets as a test fixture** rather than hand-writing the JSON — the
+  field set is real data, not something to guess at. **Exit:** `swift
+  test` green with new cases for an asset present / absent / wrong
+  platform / `state != "uploaded"` / `digest` missing, plus SHA-256
+  against the NIST vectors for `""` and `"abc"` **and** against
+  `shasum -a 256` of a real file; `swift build` green on the Mac and in
+  the VM (this is shared-target code, so a Windows compile error here is
+  invisible on the host — CLAUDE.md's standing invariant). Nothing
+  user-visible changes.
+- **S6b — macOS packaging + the quarantine spike. No app code.**
+  `Scripts/make-pkg.js` also emits `dist/Pomoppi-<version>-mac.zip` via
+  `ditto -c -k --keepParent` from the same staged bundle it already
+  builds (~6 lines); `.github/workflows/macos.yml` uploads it alongside
+  the `.pkg`. `Scripts/pkg-scripts/postinstall` gains two things: a
+  `chown -R <console uid>:staff` of the installed bundle so every future
+  install is user-owned and swappable without elevation, and the
+  `launchctl asuser <console uid> open -a /Applications/Pomoppi.app`
+  auto-relaunch that R1 considered and dropped as unverified — **verify
+  it now**, since it is what makes the `.pkg` fallback path relaunch too.
+  **Exit:** a local `node Scripts/make-pkg.js` produces both artifacts;
+  installing the `.pkg` over a running instance leaves
+  `/Applications/Pomoppi.app` owned by the logged-in user (not
+  `root:wheel`) and relaunches the app by itself; `ditto -x -k` of the
+  zip yields a bundle that passes `codesign --verify`; and the
+  quarantine spike re-run **from inside that installed bundle** reports
+  whether `com.apple.quarantine` appears on a `URLSession` download
+  (recorded in this file either way, since S6c's design depends on the
+  answer).
+- **S6c — macOS in-app update.** New
+  `Sources/PomoppiApp/UpdateInstaller.swift` (download with progress,
+  verify, extract, swap, relaunch), owned by `AppUpdateChecker` so the
+  tray and footer both see its state through the plumbing that already
+  exists. `SettingsView.swift`'s `UpdateFooter` (`:110-172`) grows the
+  state table above; `TrayController.handleOpenUpdatePage` (`:246-249`)
+  becomes "open the settings window" and must go through
+  `AppDelegate.showSettingsWindow()` — **not** `sendAction`, CLAUDE.md's
+  first invariant, and this is exactly the "third way to open Settings"
+  it warns about. **Exit:** against a real pre-release cut for the
+  purpose, clicking Update downloads with a moving determinate bar,
+  verifies, swaps and relaunches into the new version with **no password
+  prompt and no Installer.app**; `About`/footer shows the new version
+  after relaunch; settings and `sessions.json` survive byte-identical;
+  Cancel mid-download leaves the installed app untouched; a deliberately
+  corrupted digest produces "the download didn't match its checksum"
+  plus a working Open release page; a release with no `-mac.zip` asset
+  falls back to the `.pkg` path and, failing that, the page; starting an
+  update mid-focus-session shows the confirmation first.
+- **S6d — Windows installer side. VM only, no app code.** The second
+  `[Run]` line in `Scripts/pomoppi.iss`. **Exit**, all in the VM's
+  interactive session (a plain SSH session cannot host the tray or
+  foreground a window — `WINDOWS_PORT_PLAN.md`'s Phase W0 Task Scheduler
+  `/it` workaround): with Pomoppi running, `Pomoppi-Setup-<new>.exe
+  /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=...` **completes with no
+  visible UI and no prompt of any kind**, the log shows RestartManager
+  closing the running instance, and Pomoppi comes back by itself on the
+  new version; the same installer run interactively still shows the
+  finish page with its "Launch Pomoppi now" checkbox exactly as before;
+  settings under `%APPDATA%\Pomoppi` and the login-item registration both
+  survive. **If `CloseApplications` turns out to prompt in silent mode,
+  or `Check: WizardSilent` does not fire, stop and report** — both are
+  assumptions this phase exists to test, and S6e is built on them.
+- **S6e — Windows in-app update.** New
+  `Sources/PomoppiWindows/UpdateInstaller.swift`; the footer
+  (`SettingsWindow.swift:839-937`, `createFooter`/`repositionFooter`/
+  `refreshUpdateFooter`) gains a hidden-by-default `msctls_progress32`
+  child and a second contextual button, with `refreshUpdateFooter`
+  staying the single show/hide/relayout point it already is — grow
+  `footerHeight` (`:504`) from 28 to 34 only if one row genuinely cannot
+  hold it. `TrayController.swift`'s `.openUpdatePage` (`:44`, `:155-157`,
+  `:322-323`) opens the settings window via
+  `window.onOpenSettingsRequested?()` instead of a browser. **Throttle
+  progress notifications to ~10/second**: `AppUpdateChecker.onUpdate` is
+  a single closure driving real `InvalidateRect` work on the message
+  loop, and a per-chunk callback would hammer it. **Spike first, in the
+  VM:** whether `URLSessionDownloadDelegate`'s `didWriteData` fires at
+  all under `FoundationNetworking` — same shape of unknown R6b's
+  transport spike already had, and the marquee fallback above depends on
+  the answer. **Exit:** same list as S6c, in the VM's interactive
+  session, plus: the download survives closing and reopening the settings
+  window mid-flight (the reopened footer shows live progress, proving the
+  state lives on `AppUpdateChecker` and not the window); a copy running
+  from an unzipped `Pomoppi-win.zip` offers the release page instead of
+  an in-app install; VM screenshots of the downloading and failed states.
+- **S6f — Docs.** `SPEC.md` §15's "**passive and notify-only**"
+  paragraph is now false and is rewritten in full — what gets downloaded,
+  what is verified and what that verification does and does not prove
+  (the point 2 above, in the spec's own words), the per-platform install
+  and relaunch mechanics, and the explicit "no auto-install, ever, and no
+  setting for it" contract. §0b's update-check parity row follows.
+  `RELEASE_PLAN.md` gets a pointer here (it currently closes with "the
+  update checker is passive"), and its R2 entry gains a line noting that
+  in-app installation strengthens the case for signing.
+  `RELEASING.md` gains the asset-upload race: an update-checking client
+  can see a published release before its assets finish uploading, which
+  is one more reason to cut a pre-release first. `CLAUDE.md`'s file map
+  gains `SHA256.swift` and both `UpdateInstaller.swift`s. `README.md`'s
+  install section notes that updating is in-app from here on. **Exit:**
+  no document still describes the update checker as notify-only.
+
+### Not in scope, deliberately
+
+- **Delta/patch updates.** The downloads are ~2 MB on macOS and ~17 MB on
+  Windows (measured against the 0.2.0 artifacts currently in `dist/`); a
+  binary-diff format would be more machinery than the thing it saves.
+- **A "skip this version" setting.** `RELEASE_PLAN.md` already locked "no
+  persisted update state across launches," and nothing here needs it.
+- **Rollback.** If a new version is bad, the release page has the old
+  one. A rollback UI implies keeping the previous bundle around, which
+  implies managing it.
+- **Signing (R2).** Still deferred, still revisitable — see the four
+  consequences above, which are the honest cost of that deferral and the
+  one thing the user should weigh before approving Part C.
+
 ## What to do next
 
 Build order across all three plans, with the dependencies that force it:
@@ -393,8 +827,22 @@ Build order across all three plans, with the dependencies that force it:
    and new files; S4/S5 touch `SettingsWindow.swift`/`SettingsView.swift`),
    but must finish before `LOCALIZATION_PLAN.md`'s L0 — the prompt adds
    user-facing strings that the extraction sweep has to see.
-4. **L0 → L5** — see `LOCALIZATION_PLAN.md`.
+4. **S6a → (S6b → S6c) ‖ (S6d → S6e) → S6f** — after S5, because S3
+   builds the Windows `SettingsWindow.rebuild()` that has to know about
+   the footer's new children, and S4 is the last phase to churn that
+   file. S6a is shared-core and gates everything else in Part C; the two
+   platform legs are independent of each other after it and can run in
+   parallel (disjoint files, one agent each), but **each platform's
+   packaging phase must land before its app phase** — S6c cannot be
+   verified without S6b's zip asset existing, and S6e is built on
+   assumptions only S6d's VM run can confirm. Like Part B, all of it must
+   finish before `LOCALIZATION_PLAN.md`'s L0: Part C adds a whole state
+   machine's worth of user-facing strings.
+5. **L0 → L5** — see `LOCALIZATION_PLAN.md`.
 
-Part A plus Part B is a coherent release on its own; localization is
-purely additive on top and can slip to the release after without leaving
-anything half-built.
+Part A plus Part B is a coherent release on its own, and Part C wants a
+real release to exist before it can be verified end to end (S6c/S6e both
+test against an actual published pre-release) — so **cut the first
+release after Part B**, per `RELEASING.md`, and build Part C against it.
+Localization is purely additive on top of all three and can slip to the
+release after without leaving anything half-built.

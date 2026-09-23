@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         updateChecker = AppUpdateChecker()
         settingsViewModel = SettingsViewModel(
             settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer,
-            updateChecker: updateChecker, storageDir: Self.storageDir())
+            updateChecker: updateChecker)
         timer.onPhaseComplete = { [unowned self] event in
             Task { await self.sessionLogger.logSession(event) }
             // SPEC.md §4: the chime plays once, at the moment a phase
