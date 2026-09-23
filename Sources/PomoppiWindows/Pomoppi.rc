@@ -1,8 +1,65 @@
 // Pomoppi.rc — embeds pomoppi.ico as the exe's own icon resource (ID 1,
 // the conventional "default app icon" slot Explorer/Alt-Tab/the taskbar
 // fall back to for any top-level window that never calls WM_SETICON
-// itself). Compiled to a .res and linked in by Scripts/make-windows-app.js
-// — not part of the ordinary `swift build` dev loop, only the release
-// packaging step, so a missing assets/pomoppi.ico never breaks a plain
-// debug build.
+// itself) and a VERSIONINFO resource (the File Properties dialog's
+// Details tab reads this) sourced from Sources/PomoppiCore/Version.swift.
+// Compiled to a .res and linked in by Scripts/make-windows-app.js — not
+// part of the ordinary `swift build` dev loop, only the release packaging
+// step, so a missing assets/pomoppi.ico never breaks a plain debug build.
+// POMOPPI_HAS_ICON/POMOPPI_VERSION_MAJOR/MINOR/PATCH are passed in as
+// plain numeric rc.exe /D defines at packaging time (see
+// compileResourceCmd in make-windows-app.js) — the #ifndef fallbacks
+// below only matter for a bare manual `rc.exe` run. Deliberately no
+// string macro for the dotted "x.y.z" form: threading a pre-quoted string
+// through /D would mean balancing escaped quotes across three shell
+// layers (Node -> cmd.exe -> rc.exe's own argv parsing); STRINGIZE below
+// builds the same string from the numeric defines inside the
+// preprocessor instead, so /D only ever carries plain numbers.
+#ifndef POMOPPI_VERSION_MAJOR
+#define POMOPPI_VERSION_MAJOR 0
+#endif
+#ifndef POMOPPI_VERSION_MINOR
+#define POMOPPI_VERSION_MINOR 0
+#endif
+#ifndef POMOPPI_VERSION_PATCH
+#define POMOPPI_VERSION_PATCH 0
+#endif
+
+#define POMOPPI_STRINGIZE2(s) #s
+#define POMOPPI_STRINGIZE(s) POMOPPI_STRINGIZE2(s)
+#define POMOPPI_VERSION_STRING \
+    POMOPPI_STRINGIZE(POMOPPI_VERSION_MAJOR) "." \
+    POMOPPI_STRINGIZE(POMOPPI_VERSION_MINOR) "." \
+    POMOPPI_STRINGIZE(POMOPPI_VERSION_PATCH)
+
+#ifdef POMOPPI_HAS_ICON
 1 ICON "pomoppi.ico"
+#endif
+
+1 VERSIONINFO
+FILEVERSION POMOPPI_VERSION_MAJOR,POMOPPI_VERSION_MINOR,POMOPPI_VERSION_PATCH,0
+PRODUCTVERSION POMOPPI_VERSION_MAJOR,POMOPPI_VERSION_MINOR,POMOPPI_VERSION_PATCH,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "Luca Bessi Aristei"
+            VALUE "FileDescription", "Pomoppi"
+            VALUE "FileVersion", POMOPPI_VERSION_STRING
+            VALUE "InternalName", "Pomoppi"
+            VALUE "OriginalFilename", "Pomoppi.exe"
+            VALUE "ProductName", "Pomoppi"
+            VALUE "ProductVersion", POMOPPI_VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
