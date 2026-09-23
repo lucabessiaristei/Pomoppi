@@ -33,6 +33,54 @@ invariants) and `SPEC.md` for the behavior spec.
      └────────────────┘
 ```
 
+## Installing
+
+Pomoppi ships as an unsigned app on both macOS and Windows via
+[GitHub Releases](https://github.com/lucabessiaristei/Pomoppi/releases) —
+see `SPEC.md` §15 for why it's unsigned (a deliberate, revisitable
+cost/friction tradeoff, not an oversight) and `RELEASING.md`/
+`RELEASE_PLAN.md` for how a release actually gets cut.
+
+**As of this writing there is no release yet** — this hasn't shipped its
+first one. Once it has, grab the right file from the latest release page
+and follow the steps below; being unsigned means both platforms throw up
+a warning the first time you run it.
+
+### macOS
+
+Download `Pomoppi-<version>.pkg` and run it.
+
+1. Double-click the `.pkg`. macOS refuses it: "*Pomoppi.pkg* can't be
+   opened because it is from an unidentified developer," with no way to
+   proceed from that dialog alone.
+2. Open **System Settings → Privacy & Security**, scroll down to the
+   security section, and click **Open Anyway** next to the mention of
+   the blocked file.
+3. Confirm **Open** in the dialog that follows. The installer runs
+   normally from here.
+
+(Faster alternative: right-click the `.pkg` in Finder → **Open** →
+**Open** in the confirmation dialog. This works on the very first try,
+no trip through System Settings needed.)
+
+The installer places `Pomoppi.app` in `/Applications`. Launch it from
+there or Spotlight.
+
+### Windows
+
+Download `Pomoppi-Setup-<version>.exe` and run it.
+
+1. Run the `.exe`. Windows shows a blue **"Windows protected your PC"**
+   screen with only a **Don't run** button visible.
+2. Click **More info** — this reveals a **Run anyway** button.
+3. Click **Run anyway**. The installer runs normally from here (a
+   per-user install under your user profile, no admin prompt needed).
+
+Alternatively, download `Pomoppi-win.zip` from the same release and run
+`Pomoppi.exe` directly with no install step — SmartScreen shows the same
+warning either way, since it's the executable itself that's unsigned,
+not the installer.
+
 ## The pets
 
 Four virtual pets, drawn in Aseprite by hand. Pick one in **Settings →
