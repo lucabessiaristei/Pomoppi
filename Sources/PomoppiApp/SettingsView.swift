@@ -508,7 +508,7 @@ private struct GeneralTab: View {
                 viewModel.resetToDefaults()
             }
         } message: {
-            Text("This erases all settings and session history. Restart Pomoppi to start fresh.")
+            Text("This erases all settings and session history.")
         }
     }
 }
