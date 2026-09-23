@@ -11,25 +11,31 @@ struct SettingsView: View {
     @AppStorage("pomoppi.settingsTab") private var selectedTab = "rhythm"
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            Tab("Rhythm", systemImage: "timer", value: "rhythm") {
-                RhythmTab(viewModel: viewModel)
+        VStack(spacing: 0) {
+            TabView(selection: $selectedTab) {
+                Tab("Rhythm", systemImage: "timer", value: "rhythm") {
+                    RhythmTab(viewModel: viewModel)
+                }
+                Tab("Appearance", systemImage: "paintpalette", value: "appearance") {
+                    AppearanceTab(viewModel: viewModel)
+                }
+                Tab("Window", systemImage: "macwindow", value: "window") {
+                    WindowTab(viewModel: viewModel)
+                }
+                Tab("Keys", systemImage: "keyboard", value: "keys") {
+                    KeysTab(viewModel: viewModel)
+                }
+                Tab("Sound", systemImage: "speaker.wave.2", value: "sound") {
+                    SoundTab(viewModel: viewModel)
+                }
+                Tab("Diary", systemImage: "book.closed", value: "diary") {
+                    DiaryTab(viewModel: viewModel)
+                }
             }
-            Tab("Appearance", systemImage: "paintpalette", value: "appearance") {
-                AppearanceTab(viewModel: viewModel)
-            }
-            Tab("Window", systemImage: "macwindow", value: "window") {
-                WindowTab(viewModel: viewModel)
-            }
-            Tab("Keys", systemImage: "keyboard", value: "keys") {
-                KeysTab(viewModel: viewModel)
-            }
-            Tab("Sound", systemImage: "speaker.wave.2", value: "sound") {
-                SoundTab(viewModel: viewModel)
-            }
-            Tab("Diary", systemImage: "book.closed", value: "diary") {
-                DiaryTab(viewModel: viewModel)
-            }
+            // Outside the TabView, not inside any one tab, so it's visible
+            // no matter which tab is selected.
+            UpdateFooter(updateChecker: viewModel.updateChecker)
+                .padding(.top, 6)
         }
         .scenePadding()
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
@@ -90,6 +96,78 @@ private final class SystemAppearanceObserver: ObservableObject {
 
     private static func currentIsDark() -> Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+}
+
+// MARK: - Update footer
+
+// The settings window's version/update line, under the TabView on every
+// tab (release/update plan, phase R6a). `@ObservedObject` on updateChecker
+// itself, not just viewModel: a background check that resolves while the
+// window is already open (or a manual check firing while this tab isn't
+// the visible one) both need to redraw this without the user touching
+// anything.
+private struct UpdateFooter: View {
+    @ObservedObject var updateChecker: AppUpdateChecker
+    @State private var manualState: ManualCheckState = .idle
+    @State private var resetToIdleTask: DispatchWorkItem?
+
+    private enum ManualCheckState {
+        case idle, checking, upToDate, failed
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("Pomoppi \(pomoppiVersion)")
+            Text("·")
+            actionView
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var actionView: some View {
+        // An update found in the background takes priority over whatever
+        // the manual-check state machine below is doing, except mid-check
+        // (so a click doesn't flash straight past "Checking…").
+        if case .updateAvailable(let tag, let pageURL) = updateChecker.latestResult, manualState != .checking {
+            Button("Update available: \(tag) — Download") {
+                NSWorkspace.shared.open(pageURL)
+            }
+            .buttonStyle(.link)
+        } else {
+            switch manualState {
+            case .checking:
+                Text("Checking…")
+            case .upToDate:
+                Text("Up to date")
+            case .failed:
+                Button("Couldn't check — try again", action: checkNow)
+                    .buttonStyle(.link)
+            case .idle:
+                Button("Check for updates", action: checkNow)
+                    .buttonStyle(.link)
+            }
+        }
+    }
+
+    private func checkNow() {
+        resetToIdleTask?.cancel()
+        manualState = .checking
+        updateChecker.checkExplicitly { result in
+            switch result {
+            case .success(.updateAvailable):
+                manualState = .idle
+            case .success(.noUpdate):
+                manualState = .upToDate
+                let task = DispatchWorkItem { manualState = .idle }
+                resetToIdleTask = task
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: task)
+            case .failure:
+                manualState = .failed
+            }
+        }
     }
 }
 
@@ -385,6 +463,7 @@ private struct ThemePresetPicker: View {
 
 private struct WindowTab: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @State private var showingResetConfirmation = false
 
     var body: some View {
         Form {
@@ -407,8 +486,29 @@ private struct WindowTab: View {
             } footer: {
                 Text("Launch at login only registers when Pomoppi is running as an installed app. “Start hidden” applies the next time Pomoppi launches.")
             }
+            Section {
+                Toggle("Automatically check for updates", isOn: viewModel.binding(\.checkForUpdates))
+                Button("Reset to Defaults…", role: .destructive) {
+                    showingResetConfirmation = true
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.")
+            }
         }
         .settingsForm()
+        .confirmationDialog(
+            "Reset Pomoppi to defaults?",
+            isPresented: $showingResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset to Defaults", role: .destructive) {
+                viewModel.resetToDefaults()
+            }
+        } message: {
+            Text("This erases all settings and session history. Restart Pomoppi to start fresh.")
+        }
     }
 }
 

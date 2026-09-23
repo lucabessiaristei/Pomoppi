@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var chimePlayer: ChimePlayer!
     private var widgetWindow: WidgetWindow!
     private var trayController: TrayController!
+    private var updateChecker: AppUpdateChecker!
 
     // Owned here so the SwiftUI Settings scene can reuse one view model
     // instead of constructing a new one every time the scene body runs.
@@ -24,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private var appliedShortcutsKey: String?
     private var appliedLaunchAtLogin: Bool?
+    private var appliedCheckForUpdates: Bool?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Accessory, before any window exists: no Dock icon, and the app
@@ -39,7 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         timer = PomodoroTimer(settingsGetter: { [unowned self] in self.timerSettingsSnapshot() })
         sessionLogger = SessionLogger(getSettings: { [unowned self] in self.settingsStore.get() }, storageDir: Self.storageDir())
         chimePlayer = ChimePlayer()
-        settingsViewModel = SettingsViewModel(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer)
+        updateChecker = AppUpdateChecker()
+        settingsViewModel = SettingsViewModel(
+            settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer,
+            updateChecker: updateChecker, storageDir: Self.storageDir())
         timer.onPhaseComplete = { [unowned self] event in
             Task { await self.sessionLogger.logSession(event) }
             // SPEC.md §4: the chime plays once, at the moment a phase
@@ -60,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         settingsOpenerWindow = Self.makeSettingsOpenerWindow(model: settingsOpenerModel)
 
         trayController = TrayController(
-            timer: timer, settingsStore: settingsStore, widgetWindow: widgetWindow,
+            timer: timer, settingsStore: settingsStore, widgetWindow: widgetWindow, updateChecker: updateChecker,
             focusedOwnWindow: { [unowned self] in self.focusedOwnWindow() },
             onOpenSettingsRequested: { [unowned self] in self.showSettingsWindow() },
             onQuitRequested: { NSApp.terminate(nil) })
@@ -74,10 +79,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             self.widgetWindow.applyExternalSettingsChange(settings)
             self.registerGlobalShortcuts()
             self.applyLoginItemIfNeeded(settings)
+            self.applyUpdateCheckingIfNeeded(settings)
         }
 
         registerGlobalShortcuts()
         applyLoginItemIfNeeded(settingsStore.get())
+        applyUpdateCheckingIfNeeded(settingsStore.get())
 
         if !settingsStore.get().startHidden {
             widgetWindow.raise()
@@ -168,6 +175,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         guard appliedLaunchAtLogin != settings.launchAtLogin else { return }
         appliedLaunchAtLogin = settings.launchAtLogin
         _ = LoginItem.apply(enabled: settings.launchAtLogin)
+    }
+
+    // -- update checking --------------------------------------------------
+
+    private func applyUpdateCheckingIfNeeded(_ settings: PomoppiSettings) {
+        guard appliedCheckForUpdates != settings.checkForUpdates else { return }
+        appliedCheckForUpdates = settings.checkForUpdates
+        if settings.checkForUpdates {
+            updateChecker.start()
+        } else {
+            updateChecker.stop()
+        }
     }
 
     // -- settings storage location -------------------------------------------

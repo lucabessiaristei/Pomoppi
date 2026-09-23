@@ -16,6 +16,7 @@ final class TrayController: NSObject, NSMenuDelegate {
     private let timer: PomodoroTimer
     private let settingsStore: SettingsStore
     private let widgetWindow: WidgetWindow
+    private let updateChecker: AppUpdateChecker
     private let focusedOwnWindow: () -> NSWindow?
     private let onOpenSettingsRequested: () -> Void
     private let onQuitRequested: () -> Void
@@ -28,13 +29,14 @@ final class TrayController: NSObject, NSMenuDelegate {
     private var lastTooltip: String?
 
     init(
-        timer: PomodoroTimer, settingsStore: SettingsStore, widgetWindow: WidgetWindow,
+        timer: PomodoroTimer, settingsStore: SettingsStore, widgetWindow: WidgetWindow, updateChecker: AppUpdateChecker,
         focusedOwnWindow: @escaping () -> NSWindow?,
         onOpenSettingsRequested: @escaping () -> Void, onQuitRequested: @escaping () -> Void
     ) {
         self.timer = timer
         self.settingsStore = settingsStore
         self.widgetWindow = widgetWindow
+        self.updateChecker = updateChecker
         self.focusedOwnWindow = focusedOwnWindow
         self.onOpenSettingsRequested = onOpenSettingsRequested
         self.onQuitRequested = onQuitRequested
@@ -110,6 +112,14 @@ final class TrayController: NSObject, NSMenuDelegate {
         let widgetVisible = widgetWindow.isVisible
 
         let menu = NSMenu()
+
+        // Only present at all when a check has actually resolved to a newer
+        // release (release/update plan, phase R6) — no greyed-out "no
+        // update" placeholder item the rest of the time.
+        if case .updateAvailable(let tag, _) = updateChecker.latestResult {
+            menu.addItem(makeItem(title: "Update available: \(tag)", action: #selector(handleOpenUpdatePage)))
+            menu.addItem(.separator())
+        }
 
         menu.addItem(makeItem(
             title: state.running ? "Pause" : "Start", action: #selector(handleStartPause),
@@ -232,6 +242,11 @@ final class TrayController: NSObject, NSMenuDelegate {
 
     @objc private func handleOpenSettings() { onOpenSettingsRequested() }
     @objc private func handleQuit() { onQuitRequested() }
+
+    @objc private func handleOpenUpdatePage() {
+        guard case .updateAvailable(_, let pageURL) = updateChecker.latestResult else { return }
+        NSWorkspace.shared.open(pageURL)
+    }
 
     // -- periodic refresh (icon animation, clock, tooltip) ---------------------
 
