@@ -656,23 +656,37 @@ never a child of the job and booting out cannot kill it.
 
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
-`SettingsStore`, same validation, not reimplemented per platform. **This
-table is stale, though: both native apps actually ship 6 tabs, not 5** —
-a **Keys** tab (shortcut recorder, Phase W7) was added after this table
-was written and belongs between Window and Sound; the last tab was
-renamed **Obsidian → Log** in the 2026-09-19 session-log redesign (§8),
-then **Log folded into Diary** in the 2026-09-20 redesign (§8b), landing
-back at 6 tabs. Order, left to right, as both platforms actually build
-it: Rhythm, Appearance, Window, Keys, Sound, Diary.
+`SettingsStore`, same validation, not reimplemented per platform. Six
+tabs, left to right: **General, Rhythm, Appearance, Keys, Sound, Diary**.
+`General` is `Window` renamed and moved first — `Window` was a grab-bag
+naming only its first section (widget layering + tray clicks + startup +
+updates + reset), and once it also holds Color scheme, "General" is what
+it is; it leads because it is the app-level tab, and because both
+platforms remember the last tab, so "which tab is first" only decides
+what a brand-new install opens on. See `SETTINGS_PLAN.md` for the phase
+that carries this shape into code.
 
-| Tab | Holds |
-|---|---|
-| Rhythm | session lengths, long-break interval, auto-start, ask-for-task |
-| Appearance | color scheme (settings-window chrome only — auto/light/dark), pet picker, pet movement toggle, theme (ink/paper + presets), window edge, background, size, transparency |
-| Window | always-on-top, pop-to-front-on-end, launch at login, start hidden, check for updates, reset to defaults (§15) |
-| Keys *(not in this table — added later)* | one click-to-record row per global shortcut, Reset to Defaults, a static list of the fixed in-app keys |
-| Sound | chime on/off, chime pack picker + Play button, ring duration |
-| Diary *(absorbed the old Log tab in the 2026-09-20 redesign, §8b)* | Logging (logging on/off, cache-size readout, Erase Cached Sessions), Export (sessions-logged count, Export Diary… to a `.zip`), Sync to folder (folder picker, Sync Now, last-run status) |
+| Tab | Section | Controls | Hint footer |
+|---|---|---|---|
+| **General** | Color scheme | Auto / Light / Dark (segmented) | "Applies to Pomoppi's own windows. The widget's colors are under Appearance." |
+| | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
+| | Widget | Keep the widget on top of other windows; Pop to the front when a session ends | — |
+| | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu." / swapped |
+| | Startup | Open Pomoppi when I log in; Start without showing the widget | "Launch at login only registers when Pomoppi is running as an installed app. “Start hidden” applies the next time Pomoppi launches." |
+| | Updates | Automatically check for updates | "Checks lucabessiaristei/Pomoppi on GitHub roughly once a day." |
+| | Reset | **Reset Pomoppi…** | "Erases every setting and your whole session history, and puts Pomoppi back to how it shipped." |
+| **Rhythm** | Focus | Default focus length | "Or click the clock on the widget." |
+| | Breaks | Short break; Long break; Long break every N sessions | "Or click the dots on the widget." |
+| | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."; logging off → "Pomoppi asks before each focus session. Leave it blank to skip." |
+| **Appearance** | Roommate / Theme / Window edge / Background | unchanged | — |
+| | Size & transparency | unchanged | "1× is very small — 104×128 physical pixels." |
+| **Keys** | Global shortcuts | one recorder row per action | "These fire even while Pomoppi isn't the frontmost app. A shortcut needs a modifier; two actions can't share the same combo." |
+| | | **Restore Default Shortcuts** | — |
+| | While the widget is focused | static key list | "Fixed keys. They only fire while the widget window itself has focus." |
+| **Sound** | *(unnamed)* | Play a chime when a session ends; Chime picker; ring length | "Selecting a chime plays it." |
+| **Diary** | Session history | Record every session; History size; **Erase History…** | "Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone." |
+| | Export | Sessions recorded; Export Diary… | — |
+| | Sync to folder | Diary folder; Choose…; Sync Now | — |
 
 Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
 a pixel match for SwiftUI's `Form`/`Section` — see
@@ -690,6 +704,12 @@ Rules that outlive the exact list:
   comsplotchyt — some groups collapsed and some not, with no rule a user could
   predict. If a tab grows unwieldy, split the tab; do not start re-hiding
   things inside it.
+- **Every hint is a footer under its control, never a disclosure, never a
+  tooltip.** The table above's "Hint footer" column is the whole of it —
+  static copy explaining what a control does, and occasionally (marked
+  "live") copy that changes with another control's value. macOS has
+  `Form`'s `footer:` for free; Windows gets its own `addHint` mechanism and
+  uses it the same way.
 - **Window edge lives under Appearance**, next to the pet and the theme — it is
   what the widget *looks* like, not what it *does*. It is not a pet setting.
 - A real tab widget: `role="tablist"`/`role="tab"`/`role="tabpanel"`,
