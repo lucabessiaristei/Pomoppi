@@ -30,6 +30,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify tag matches Version.swift
+        if: github.event_name == 'release'
+        run: node Scripts/check-tag-version.js
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+
       - uses: compnerd/gha-setup-swift@397094e75494a93fa8d81db0268dbc8f5d6cf7c6
         with:
           swift-version: swift-6.4.0-release

@@ -1,0 +1,61 @@
+# Release-only GitHub Actions workflow for building and packaging the macOS
+# version of Pomoppi as an unsigned .pkg (Scripts/make-pkg.js). This is NOT
+# a per-commit CI gate — it only runs on manual triggers (workflow_dispatch)
+# or when a release is published. Mirrors windows.yml's shape.
+#
+# No code signing/notarization — Scripts/make-pkg.js produces an
+# intentionally unsigned pkg (see its own header comment for why). Don't
+# add signing steps, certs, or secrets here.
+
+name: Release macOS
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+# contents: write is needed for the final "gh release upload" step — many
+# orgs now default GITHUB_TOKEN to read-only, which would otherwise 403
+# there.
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    # macos-26 is GitHub's current arm64-native stable image (macos-latest
+    # already points here as of Sept 2026) — pinned explicitly rather than
+    # `macos-latest` so a future label migration can't silently retarget
+    # this build. arm64-only on purpose: no Intel Macs in the small group
+    # this ships to, so no universal-binary complexity is needed.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches Version.swift
+        if: github.event_name == 'release'
+        run: node Scripts/check-tag-version.js
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+      # The image ships several Xcode versions side by side; pin the one
+      # actool (Scripts/make-app.js's icon step, --minimum-deployment-target
+      # 26.0) needs explicitly rather than relying on whatever the image's
+      # default happens to be — currently also the image's own default, but
+      # pinning means a future default bump on the image can't silently
+      # change what this builds against.
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - name: Build and package macOS pkg
+        run: node Scripts/make-pkg.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pomoppi-pkg
+          path: dist/*.pkg
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        run: gh release upload ${{ github.event.release.tag_name }} dist/*.pkg --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
