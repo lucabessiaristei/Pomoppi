@@ -18,7 +18,22 @@ const { execFileSync, execSync } = require('child_process');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const APP_NAME = 'Pomoppi';
-const VERSION = '0.1.0';
+
+// Read the version straight out of Sources/PomoppiCore/Version.swift — the
+// single source of truth, same read-a-generated-looking-line trick
+// refresh-art.js uses on Settings.swift's friendIDs/backgroundIDs — rather
+// than hardcoding a copy here that can drift from the real one.
+function readVersion() {
+  const versionSwift = path.join(REPO_ROOT, 'Sources/PomoppiCore/Version.swift');
+  const contents = fs.readFileSync(versionSwift, 'utf8');
+  const match = contents.match(/public let pomoppiVersion = "([^"]+)"/);
+  if (!match) {
+    console.error(`could not find "public let pomoppiVersion = ..." in ${versionSwift}`);
+    process.exit(1);
+  }
+  return match[1];
+}
+const VERSION = readVersion();
 
 const destFolder = path.resolve(process.argv[2] || path.join(REPO_ROOT, 'dist', 'Pomoppi-win'));
 const destZip = path.join(path.dirname(destFolder), `${path.basename(destFolder)}.zip`);
@@ -143,34 +158,42 @@ function findDumpbin(vsPath, msvcArch) {
 }
 
 // Builds the `rc.exe ...` command that compiles Sources/PomoppiWindows/
-// Pomoppi.rc (which just points at ID 1 ICON "pomoppi.ico") into a .res,
-// and the matching -Xlinker arg to feed that .res straight to link.exe —
-// link.exe accepts a compiled resource file as an ordinary extra input,
-// same as an .obj. rc.exe is already on PATH once vcvarsall.bat has run
-// (it ships with the Windows SDK, which every VS/Build Tools install
-// pulls in). Returns { rcCmd: null, linkerArg: '' } when
-// assets/pomoppi.ico doesn't exist yet — same "ship without it, don't
+// Pomoppi.rc (icon + VERSIONINFO) into a .res, and the matching -Xlinker
+// arg to feed that .res straight to link.exe — link.exe accepts a compiled
+// resource file as an ordinary extra input, same as an .obj. rc.exe is
+// already on PATH once vcvarsall.bat has run (it ships with the Windows
+// SDK, which every VS/Build Tools install pulls in). Always compiles (the
+// VERSIONINFO block has no dependency on the icon existing) — the /D
+// POMOPPI_HAS_ICON define is only added, and /I only points at assets/,
+// when assets/pomoppi.ico is actually there, same "ship without it, don't
 // fail the build" stance copyIconIfPresent below already takes for the
-// loose-file copy.
-function compileIconResourceCmd() {
+// loose-file copy. The version (read out of Sources/PomoppiCore/Version.swift
+// above) is threaded through as three plain numeric /D defines — Pomoppi.rc
+// builds the dotted "x.y.z" string itself via the preprocessor's
+// stringizing operator, so no quoted value ever has to survive Node's
+// cmd.exe/rc.exe argv-escaping.
+function compileResourceCmd() {
+  const [major, minor, patch] = VERSION.split('.').map((n) => parseInt(n, 10) || 0);
+  const versionDefines =
+    `/D POMOPPI_VERSION_MAJOR=${major} /D POMOPPI_VERSION_MINOR=${minor} /D POMOPPI_VERSION_PATCH=${patch}`;
+
   const iconIco = path.join(REPO_ROOT, 'assets', 'pomoppi.ico');
-  if (!fs.existsSync(iconIco)) {
-    return { rcCmd: null, linkerArg: '' };
-  }
+  const hasIcon = fs.existsSync(iconIco);
+  const iconDefine = hasIcon ? ' /D POMOPPI_HAS_ICON=1' : '';
+  const iconIncludePath = hasIcon ? ` /I "${path.join(REPO_ROOT, 'assets')}"` : '';
+
   const rcSource = path.join(REPO_ROOT, 'Sources', 'PomoppiWindows', 'Pomoppi.rc');
   const resOutput = path.join(REPO_ROOT, '.build', 'Pomoppi.res');
   fs.mkdirSync(path.dirname(resOutput), { recursive: true });
-  // /I so the .rc's bare "pomoppi.ico" resolves against assets/ regardless
-  // of rc.exe's own working directory.
-  const rcCmd = `rc.exe /I "${path.join(REPO_ROOT, 'assets')}" /fo "${resOutput}" "${rcSource}"`;
+  const rcCmd = `rc.exe${iconIncludePath} ${versionDefines}${iconDefine} /fo "${resOutput}" "${rcSource}"`;
   return { rcCmd, linkerArg: ` -Xlinker "${resOutput}"` };
 }
 
 // Build the release binary with MSVC environment loaded via vcvarsall.bat.
-// Pass -Xlinker flags to produce a GUI app (no console window), plus a
-// compiled icon resource if assets/pomoppi.ico exists (see
-// compileIconResourceCmd below) — embedded straight into the exe's PE
-// resources at link time, not just a loose file dropped alongside it.
+// Pass -Xlinker flags to produce a GUI app (no console window), plus the
+// compiled icon+version resource (see compileResourceCmd below) —
+// embedded straight into the exe's PE resources at link time, not just a
+// loose file dropped alongside it.
 function buildReleaseBinary(vcvarsallBat, arch) {
   logSection('Building release binary (swift build -c release with MSVC environment)...');
 
@@ -183,10 +206,10 @@ function buildReleaseBinary(vcvarsallBat, arch) {
   const previousBinary = path.join(REPO_ROOT, '.build', 'release', 'PomoppiWindows.exe');
   if (fs.existsSync(previousBinary)) fs.rmSync(previousBinary);
 
-  const { rcCmd, linkerArg } = compileIconResourceCmd();
+  const { rcCmd, linkerArg } = compileResourceCmd();
   const buildCmd =
     `call "${vcvarsallBat}" ${arch}` +
-    (rcCmd ? ` && ${rcCmd}` : '') +
+    ` && ${rcCmd}` +
     ` && swift build -c release --package-path "${REPO_ROOT}" -Xlinker /SUBSYSTEM:WINDOWS -Xlinker /ENTRY:mainCRTStartup${linkerArg}`;
 
   try {
