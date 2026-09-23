@@ -403,17 +403,27 @@ function copySwiftRuntimeDlls(destFolder, dumpbinPath, exePath) {
   requiredDlls.forEach((dll) => console.log(`    - ${dll}`));
 }
 
-// Find ISCC.exe (Inno Setup's command-line compiler). Both this project's
-// dev VM and GitHub's windows-latest runner image ship Inno Setup
-// preinstalled (confirmed against actions/runner-images' own software
-// manifest for windows-2025, the same way findVsInstallPath's -products *
-// gap was confirmed rather than assumed) — try its standard install
-// location first (works whether or not a shim also happens to be on
-// PATH), then fall back to bare "ISCC.exe" for a PATH-based install.
+// Find ISCC.exe (Inno Setup's command-line compiler). GitHub's
+// windows-latest runner image ships Inno Setup preinstalled machine-wide
+// (confirmed against actions/runner-images' own software manifest for
+// windows-2025, the same way findVsInstallPath's -products * gap was
+// confirmed rather than assumed) — that lands under Program Files (x86).
+// This project's own dev VM has no such preinstall and needs it added by
+// hand (`winget install --id JRSoftware.InnoSetup`), which — being a
+// non-elevated install, matching every other low-privilege tool this repo
+// already favors — lands under %LOCALAPPDATA%\Programs instead, confirmed
+// live in the VM. Try both real locations before falling back to a bare
+// "ISCC.exe" for a PATH-based install (e.g. one that added its own shim).
 function findIsccPath() {
   const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-  const standardPath = path.join(programFilesX86, 'Inno Setup 6', 'ISCC.exe');
-  if (fs.existsSync(standardPath)) return standardPath;
+  const localAppData = process.env.LOCALAPPDATA || '';
+  const candidates = [
+    path.join(programFilesX86, 'Inno Setup 6', 'ISCC.exe'),
+    path.join(localAppData, 'Programs', 'Inno Setup 6', 'ISCC.exe'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
   return 'ISCC.exe';
 }
 
