@@ -42,16 +42,22 @@ jobs:
           swift-build: 6.4.0-RELEASE
           build_arch: amd64
 
+      # windows-latest ships Inno Setup preinstalled (confirmed against
+      # actions/runner-images' own software manifest for windows-2025,
+      # rather than assumed) — no install step needed, --installer just
+      # finds ISCC.exe at its standard install path.
       - name: Build and package Windows app
-        run: node Scripts/make-windows-app.js
+        run: node Scripts/make-windows-app.js --installer
 
       - uses: actions/upload-artifact@v4
         with:
           name: Pomoppi-win
-          path: dist/Pomoppi-win.zip
+          path: |
+            dist/Pomoppi-win.zip
+            dist/Pomoppi-Setup-*.exe
 
       - name: Upload to release
         if: github.event_name == 'release'
-        run: gh release upload ${{ github.event.release.tag_name }} dist/Pomoppi-win.zip --clobber
+        run: gh release upload ${{ github.event.release.tag_name }} dist/Pomoppi-win.zip dist/Pomoppi-Setup-*.exe --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

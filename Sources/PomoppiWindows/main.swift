@@ -5,6 +5,27 @@
 import PomoppiCore
 import WinSDK
 
+// -- single-instance guard ---------------------------------------------
+// A named mutex is the standard Win32 way to detect "am I already
+// running" across processes: CreateMutexW either creates a brand-new
+// mutex object or, if one by this name already exists (owned by another
+// process), opens a handle to that existing one instead — only in the
+// latter case does GetLastError() report ERROR_ALREADY_EXISTS right
+// after the call returns. Checked first, before anything else here is
+// constructed, so a second launch never gets as far as creating a
+// second widget window or a second tray icon — a real pre-existing bug
+// (launching Pomoppi twice used to give two of each). This same name is
+// also Scripts/pomoppi.iss's AppMutex, so Inno Setup's installer can
+// detect and close a running instance during an upgrade the same way.
+let singleInstanceMutexName = "PomoppiSingleInstanceMutex"
+let singleInstanceMutex = singleInstanceMutexName.withCString(encodedAs: UTF16.self) { namePtr in
+    CreateMutexW(nil, false, namePtr)
+}
+if GetLastError() == ERROR_ALREADY_EXISTS {
+    print("Pomoppi (Windows) already running, exiting")
+    ExitProcess(0)
+}
+
 let settingsStore = SettingsStore(storageDir: storageDir())
 let sessionLogger = SessionLogger(getSettings: { settingsStore.get() }, storageDir: storageDir())
 let chimePlayer = ChimePlayer()

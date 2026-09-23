@@ -9,7 +9,10 @@
 // windows-latest runners or the project's Windows dev VM.
 //
 // Destination defaults to dist/Pomoppi-win/ (relative to repo root), and
-// the script also produces dist/Pomoppi-win.zip.
+// the script also produces dist/Pomoppi-win.zip. Pass --installer to also
+// build a setup .exe via Inno Setup (Scripts/pomoppi.iss) — the zip stays
+// the default/no-flag output either way (some chat apps block .exe
+// attachments outright, so it's kept as the fallback distribution path).
 'use strict';
 
 const fs = require('fs');
@@ -26,7 +29,13 @@ const APP_NAME = 'Pomoppi';
 // drift from the real one.
 const VERSION = readVersion(REPO_ROOT);
 
-const destFolder = path.resolve(process.argv[2] || path.join(REPO_ROOT, 'dist', 'Pomoppi-win'));
+// --installer is a flag, not positional — filter it out before reading
+// argv[2] as an optional custom destFolder, same as before its addition.
+const rawArgs = process.argv.slice(2);
+const installerRequested = rawArgs.includes('--installer');
+const positionalArgs = rawArgs.filter((a) => a !== '--installer');
+
+const destFolder = path.resolve(positionalArgs[0] || path.join(REPO_ROOT, 'dist', 'Pomoppi-win'));
 const destZip = path.join(path.dirname(destFolder), `${path.basename(destFolder)}.zip`);
 
 function logSection(msg) {
@@ -394,6 +403,54 @@ function copySwiftRuntimeDlls(destFolder, dumpbinPath, exePath) {
   requiredDlls.forEach((dll) => console.log(`    - ${dll}`));
 }
 
+// Find ISCC.exe (Inno Setup's command-line compiler). Both this project's
+// dev VM and GitHub's windows-latest runner image ship Inno Setup
+// preinstalled (confirmed against actions/runner-images' own software
+// manifest for windows-2025, the same way findVsInstallPath's -products *
+// gap was confirmed rather than assumed) — try its standard install
+// location first (works whether or not a shim also happens to be on
+// PATH), then fall back to bare "ISCC.exe" for a PATH-based install.
+function findIsccPath() {
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const standardPath = path.join(programFilesX86, 'Inno Setup 6', 'ISCC.exe');
+  if (fs.existsSync(standardPath)) return standardPath;
+  return 'ISCC.exe';
+}
+
+// Compiles Scripts/pomoppi.iss via ISCC.exe into a setup .exe next to the
+// zip (dist/), reusing the exact contents already assembled at destFolder
+// rather than having the .iss script rebuild or re-locate anything itself.
+function buildInstaller(destFolder) {
+  logSection('Building installer (ISCC.exe)...');
+
+  const isccPath = findIsccPath();
+  const issScript = path.join(REPO_ROOT, 'Scripts', 'pomoppi.iss');
+  const outputDir = path.dirname(destFolder);
+
+  try {
+    execFileSync(
+      isccPath,
+      [
+        `/DMyAppVersion=${VERSION}`,
+        `/DMySourceDir=${destFolder}`,
+        `/DMyOutputDir=${outputDir}`,
+        issScript,
+      ],
+      { stdio: 'inherit' }
+    );
+  } catch (err) {
+    console.error(`ISCC.exe failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  const setupExe = path.join(outputDir, `Pomoppi-Setup-${VERSION}.exe`);
+  if (!fs.existsSync(setupExe)) {
+    console.error(`Expected installer at ${setupExe} but it doesn't exist.`);
+    process.exit(1);
+  }
+  return setupExe;
+}
+
 // Create a zip file of the destFolder's *contents* (not a wrapper folder).
 // Use PowerShell Compress-Archive.
 function createZip(sourceFolder, zipPath) {
@@ -431,11 +488,14 @@ function main() {
 
   createZip(destFolder, destZip);
 
+  const setupExe = installerRequested ? buildInstaller(destFolder) : null;
+
   console.log('\n' + '='.repeat(70));
   console.log('Success! Windows app assembled.');
   console.log('='.repeat(70));
   console.log(`\nFolder: ${destFolder}`);
   console.log(`Zip:    ${destZip}`);
+  if (setupExe) console.log(`Setup:  ${setupExe}`);
   console.log(`Icon:   ${hasIcon ? 'embedded in Pomoppi.exe, and copied loose alongside it' : 'not included (add assets/pomoppi.ico to include it)'}`);
   console.log(`\nTo distribute: send ${destZip} or unzip it and send the folder contents.`);
 }
