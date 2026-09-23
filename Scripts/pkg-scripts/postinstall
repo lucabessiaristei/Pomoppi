@@ -1,0 +1,7 @@
+#!/bin/bash
+# Runs after pkgbuild's payload has been laid down at /Applications/Pomoppi.app.
+# An in-place update over a running instance would otherwise fight the old
+# process (stale code still resident, file handles held on the replaced
+# bundle) — kill it so the next launch picks up the new build cleanly.
+pkill -x Pomoppi || true
+exit 0
