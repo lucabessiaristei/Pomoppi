@@ -7,6 +7,7 @@ import PomoppiCore
 // not in a custom NSWindow.
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @StateObject private var systemAppearance = SystemAppearanceObserver()
     @AppStorage("pomoppi.settingsTab") private var selectedTab = "rhythm"
 
     var body: some View {
@@ -32,7 +33,7 @@ struct SettingsView: View {
         }
         .scenePadding()
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
-        .preferredColorScheme(Self.preferredColorScheme(for: viewModel.settings.colorScheme))
+        .preferredColorScheme(Self.preferredColorScheme(for: viewModel.settings.colorScheme, systemIsDark: systemAppearance.isDark))
         .onAppear(perform: disableSettingsRestoration)
     }
 
@@ -48,14 +49,47 @@ struct SettingsView: View {
 
     // Applied here rather than at SettingsRootView's call site (PomoppiApp.swift):
     // this view's own `viewModel` is an @ObservedObject, so a live picker change
-    // re-renders this body and the window follows immediately. "auto" passes
-    // `nil` — same as never applying the modifier, i.e. keep following the OS.
-    private static func preferredColorScheme(for setting: String) -> ColorScheme? {
+    // re-renders this body and the window follows immediately.
+    //
+    // "auto" used to pass `nil` here (defer to the system) — but AppKit only
+    // reliably repaints a window when `.preferredColorScheme` hands it a real
+    // *different concrete* value; clearing it back to nil doesn't force the
+    // same redraw. Confirmed live: Dark -> Auto while the system is Light left
+    // the window dark, and the "fix" (explicit Light, then Auto again) only
+    // ever worked because Light already matched the system, so no repaint was
+    // actually needed to look right. Resolving "auto" to a concrete value
+    // ourselves — same approach as Windows' resolveDarkMode() in
+    // SettingsWindow.swift, which never lets isDarkMode go "system, unresolved"
+    // either — sidesteps that: every scheme, including Auto tracking a live
+    // system flip via systemAppearance below, is a genuine value change AppKit
+    // redraws for.
+    private static func preferredColorScheme(for setting: String, systemIsDark: Bool) -> ColorScheme? {
         switch setting {
         case "light": return .light
         case "dark": return .dark
-        default: return nil
+        default: return systemIsDark ? .dark : .light
         }
+    }
+}
+
+// Mirrors the OS light/dark setting via KVO on NSApp.effectiveAppearance —
+// the officially recommended way to observe app-wide appearance changes
+// (WWDC 2018 "Dark Mode"), and safe here since nothing in this app ever sets
+// NSApp.appearance itself, so effectiveAppearance always tracks the system.
+// Backs SettingsView.preferredColorScheme(for:systemIsDark:) above.
+private final class SystemAppearanceObserver: ObservableObject {
+    @Published private(set) var isDark: Bool
+    private var observation: NSKeyValueObservation?
+
+    init() {
+        isDark = Self.currentIsDark()
+        observation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            self?.isDark = Self.currentIsDark()
+        }
+    }
+
+    private static func currentIsDark() -> Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 }
 
