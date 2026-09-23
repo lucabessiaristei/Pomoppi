@@ -63,5 +63,13 @@ Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
+[Registry]
+; The app itself (LoginItem.swift) owns writing this value while running —
+; this entry does nothing at install time (ValueType: none means "don't
+; write a value," just ensure the key exists, which it already does as a
+; standard Windows key) and only ever deletes it, at uninstall, so a
+; user's launch-at-login registration doesn't outlive the app it points at.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Pomoppi"; Flags: uninsdeletevalue
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Pomoppi now"; Flags: nowait postinstall skipifsilent
