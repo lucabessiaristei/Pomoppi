@@ -38,6 +38,12 @@ final class WidgetWindow {
     // below forwards to it once set.
     var globalShortcutManager: GlobalShortcutManager?
 
+    // Set by main.swift, same pattern as trayController/globalShortcutManager
+    // above — WM_TIMER (its own 10s/24h schedule) and resultMessageID
+    // (URLSession completions marshaled back onto this hwnd's thread) below
+    // both forward to it once set.
+    var updateChecker: AppUpdateChecker?
+
     // Set by main.swift right after construction — activateButton's
     // "settings" case (WidgetInput.swift) calls this rather than reaching
     // into SettingsWindow directly, same seam shape as the two properties
@@ -226,20 +232,24 @@ final class WidgetWindow {
     func handleMessage(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
         switch Int32(message) {
         case WM_TIMER:
-            // Both WidgetWindow's own ~60fps frame loop and (once set)
-            // TrayController's 500ms icon/tooltip refresh share this hwnd's
-            // WndProc, so WM_TIMER fires for either — dispatch on which
-            // timer ID actually fired rather than assuming it's always this
-            // window's own.
+            // WidgetWindow's own ~60fps frame loop, (once set)
+            // TrayController's 500ms icon/tooltip refresh, and (once set)
+            // AppUpdateChecker's 10s/24h schedule all share this hwnd's
+            // WndProc, so WM_TIMER fires for any of them — dispatch on
+            // which timer ID actually fired rather than assuming it's
+            // always this window's own; the other two each ignore an ID
+            // that isn't theirs.
             if wParam == Self.timerID {
                 tick()
             } else {
                 trayController?.handleTimer(id: wParam)
+                updateChecker?.handleTimer(id: wParam)
             }
             return 0
         case WM_DESTROY:
             KillTimer(hwnd, Self.timerID)
             trayController?.tearDown()
+            updateChecker?.stop()
             // A hotkey left registered after the process exits doesn't
             // linger the way a tray icon does (Windows auto-releases them
             // once the owning window/thread is gone), but explicit,
@@ -250,6 +260,10 @@ final class WidgetWindow {
         case Int32(TrayController.callbackMessageID):
             guard let trayController else { return DefWindowProcW(hwnd, message, wParam, lParam) }
             trayController.handleTrayCallback(lParam: lParam)
+            return 0
+        case Int32(AppUpdateChecker.resultMessageID):
+            guard let updateChecker else { return DefWindowProcW(hwnd, message, wParam, lParam) }
+            updateChecker.handleResultMessage(lParam: lParam)
             return 0
         case WM_COMMAND:
             guard let trayController else { return DefWindowProcW(hwnd, message, wParam, lParam) }

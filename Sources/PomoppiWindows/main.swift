@@ -65,6 +65,9 @@ widgetWindow.trayController = trayController
 let globalShortcutManager = GlobalShortcutManager(hwnd: widgetWindow.hwnd)
 widgetWindow.globalShortcutManager = globalShortcutManager
 
+let updateChecker = AppUpdateChecker(hwnd: widgetWindow.hwnd)
+widgetWindow.updateChecker = updateChecker
+
 // -- global shortcuts -------------------------------------------------------
 
 // One handler per Shortcuts action id, mirroring the tray item or in-app key
@@ -117,7 +120,7 @@ func reapplyGlobalShortcuts() {
 }
 
 widgetWindow.onOpenSettingsRequested = {
-    SettingsWindow.show(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reapplyGlobalShortcuts)
+    SettingsWindow.show(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer, globalShortcutManager: globalShortcutManager, updateChecker: updateChecker, reregisterShortcuts: reapplyGlobalShortcuts)
 }
 
 // -- login item ---------------------------------------------------------
@@ -129,6 +132,19 @@ func applyLoginItemIfNeeded(_ settings: PomoppiSettings) {
     _ = LoginItem.apply(enabled: settings.launchAtLogin)
 }
 
+// -- update checking ------------------------------------------------------
+
+var appliedCheckForUpdates: Bool?
+func applyUpdateCheckingIfNeeded(_ settings: PomoppiSettings) {
+    guard appliedCheckForUpdates != settings.checkForUpdates else { return }
+    appliedCheckForUpdates = settings.checkForUpdates
+    if settings.checkForUpdates {
+        updateChecker.start()
+    } else {
+        updateChecker.stop()
+    }
+}
+
 // Only the window-level properties WidgetWindow applies once rather than
 // re-reading every frame (always-on-top, size-on-scale-change) need this —
 // everything else it draws already re-reads settings on every tick.
@@ -136,10 +152,12 @@ settingsStore.onChange = { settings in
     widgetWindow.applyExternalSettingsChange(settings)
     registerGlobalShortcuts()
     applyLoginItemIfNeeded(settings)
+    applyUpdateCheckingIfNeeded(settings)
 }
 
 registerGlobalShortcuts()
 applyLoginItemIfNeeded(settingsStore.get())
+applyUpdateCheckingIfNeeded(settingsStore.get())
 
 widgetWindow.setVisible(!settingsStore.get().startHidden)
 

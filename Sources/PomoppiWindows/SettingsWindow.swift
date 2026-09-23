@@ -172,6 +172,11 @@ final class SettingsWindow {
     // re-applies the table afterward via main.swift's own registration logic.
     private let globalShortcutManager: GlobalShortcutManager
     private let reregisterShortcuts: () -> Void
+    // Owned by main.swift (WidgetWindow's own instance) — the footer strip
+    // reads/triggers checks through it directly, same "own object passed
+    // in, no separate view-model wrapper" shape as sessionLogger/chimePlayer
+    // above.
+    private let updateChecker: AppUpdateChecker
     // Not `private` — same reason `hwnd`/`appearanceScrollRail` aren't:
     // pomoppiTabControlSubclassProc needs it to identify which HWND it's
     // dispatching for, same shape as every other WndProc free function in
@@ -379,6 +384,27 @@ final class SettingsWindow {
     private var diarySyncButton: HWND?
     private var diarySyncStatusLabel: HWND?
 
+    // The footer strip under the tab control, visible on every tab
+    // (release/update plan, phase R6b) — mirrors macOS's UpdateFooter.
+    // Direct children of `hwnd` itself, not any one page (see createFooter's
+    // own comment for why that's fine for WM_COMMAND/WM_CTLCOLOR* dispatch).
+    private var footerVersionLabel: HWND?
+    private var footerActionButton: HWND?
+    // The manual "Check for updates" button's own little state machine —
+    // separate from updateChecker.latestResult, same split as macOS's
+    // UpdateFooter (@State manualState alongside @ObservedObject
+    // updateChecker): a background check resolving to .updateAvailable
+    // always takes priority once this is back at .idle, but a check
+    // in-flight or just-resolved through *this* button has to keep showing
+    // "Checking…"/"Up to date" for a moment even if the background timer
+    // fires in the same window.
+    private enum ManualCheckState {
+        case idle, checking, upToDate, failed
+    }
+    private var manualCheckState: ManualCheckState = .idle
+    private static let manualCheckRevertTimerID: UINT_PTR = 1
+    private var manualCheckRevertPending = false
+
     // The Appearance page's own scroll state — it's the only page whose
     // content is taller than the window's own floor size (11 theme
     // swatches + 3 picker grids + 2 color rows + size/opacity controls
@@ -471,7 +497,12 @@ final class SettingsWindow {
     // handleMessage) — a smaller window with no scrollbar anywhere but
     // Appearance would make some controls on other tabs unreachable.
     private static let clientWidth: Int32 = 560
-    private static let clientHeight: Int32 = 480
+    // The footer strip (release/update plan, phase R6b) is additional room
+    // below the tab control, not a bite taken out of the original 480 —
+    // every tab's own content keeps exactly the vertical space it was
+    // already proven to fit in.
+    private static let footerHeight: Int32 = 28
+    private static let clientHeight: Int32 = 480 + footerHeight
 
     // WS_THICKFRAME (aka WS_SIZEBOX) is what makes the window user-
     // resizable — shared between window creation and WM_GETMINMAXINFO's
@@ -606,7 +637,7 @@ final class SettingsWindow {
     // onOpenSettingsRequested and main.swift's wiring): creates the window
     // on first call, or brings the existing one to front on every call
     // after that — never a second instance.
-    static func show(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
+    static func show(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer, globalShortcutManager: GlobalShortcutManager, updateChecker: AppUpdateChecker, reregisterShortcuts: @escaping () -> Void) {
         if let existing = shared {
             if IsIconic(existing.hwnd) {
                 ShowWindow(existing.hwnd, SW_RESTORE)
@@ -614,17 +645,18 @@ final class SettingsWindow {
             SetForegroundWindow(existing.hwnd)
             return
         }
-        let window = SettingsWindow(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer, globalShortcutManager: globalShortcutManager, reregisterShortcuts: reregisterShortcuts)
+        let window = SettingsWindow(settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer, globalShortcutManager: globalShortcutManager, updateChecker: updateChecker, reregisterShortcuts: reregisterShortcuts)
         shared = window
         ShowWindow(window.hwnd, SW_SHOW)
         SetForegroundWindow(window.hwnd)
     }
 
-    private init(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer, globalShortcutManager: GlobalShortcutManager, reregisterShortcuts: @escaping () -> Void) {
+    private init(settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer, globalShortcutManager: GlobalShortcutManager, updateChecker: AppUpdateChecker, reregisterShortcuts: @escaping () -> Void) {
         self.settingsStore = settingsStore
         self.sessionLogger = sessionLogger
         self.chimePlayer = chimePlayer
         self.globalShortcutManager = globalShortcutManager
+        self.updateChecker = updateChecker
         self.reregisterShortcuts = reregisterShortcuts
         Self.registerClassesIfNeeded()
         Self.initCommonControlsIfNeeded()
@@ -678,7 +710,9 @@ final class SettingsWindow {
         // is about to create.
         isDarkMode = resolveDarkMode()
         setUpTabsAndPages()
+        createFooter()
         applyTheme()
+        updateChecker.onUpdate = { [weak self] in self?.refreshUpdateFooter() }
     }
 
     // -- tab control + pages -------------------------------------------------
@@ -686,12 +720,18 @@ final class SettingsWindow {
     private func setUpTabsAndPages() {
         var clientRect = RECT()
         GetClientRect(hwnd, &clientRect)
+        // The tab control (and, through TCM_ADJUSTRECT below, every page)
+        // stops footerHeight short of the bottom, leaving room for the
+        // version/update strip createFooter() adds there — see
+        // clientHeight's own comment for why that's extra room, not a bite
+        // out of any tab's existing layout.
+        let tabAreaHeight = clientRect.bottom - clientRect.top - Self.footerHeight
 
         guard let tab = (Self.tabClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
                 DWORD(WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS),
-                0, 0, clientRect.right - clientRect.left, clientRect.bottom - clientRect.top,
+                0, 0, clientRect.right - clientRect.left, tabAreaHeight,
                 hwnd, nil, Self.hInstance, nil)
         }) else {
             fatalError("CreateWindowExW (tab control) failed with error \(GetLastError())")
@@ -716,11 +756,12 @@ final class SettingsWindow {
         }
 
         // TCM_ADJUSTRECT with the tab control's own bounding rect (its own
-        // full client rect, since it's already sized to the window's) gives
-        // back the display area under the tab strip — the standard Win32
-        // technique for laying out a tab control's content pages by hand
-        // (no dialog-template/property-sheet machinery in this codebase).
-        var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: clientRect.bottom - clientRect.top)
+        // full client rect, since it's already sized to tabAreaHeight above)
+        // gives back the display area under the tab strip — the standard
+        // Win32 technique for laying out a tab control's content pages by
+        // hand (no dialog-template/property-sheet machinery in this
+        // codebase).
+        var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: tabAreaHeight)
         withUnsafeMutablePointer(to: &displayRect) { rectPtr in
             _ = SendMessageW(tab, UINT(TCM_ADJUSTRECT), WPARAM(0), LPARAM(Int(bitPattern: rectPtr)))
         }
@@ -745,9 +786,11 @@ final class SettingsWindow {
         guard let tab = tabControl else { return }
         var clientRect = RECT()
         GetClientRect(hwnd, &clientRect)
-        SetWindowPos(tab, nil, 0, 0, clientRect.right - clientRect.left, clientRect.bottom - clientRect.top, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        let tabAreaHeight = clientRect.bottom - clientRect.top - Self.footerHeight
+        SetWindowPos(tab, nil, 0, 0, clientRect.right - clientRect.left, tabAreaHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        repositionFooter(clientRect: clientRect)
 
-        var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: clientRect.bottom - clientRect.top)
+        var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: tabAreaHeight)
         withUnsafeMutablePointer(to: &displayRect) { rectPtr in
             _ = SendMessageW(tab, UINT(TCM_ADJUSTRECT), WPARAM(0), LPARAM(Int(bitPattern: rectPtr)))
         }
@@ -782,6 +825,128 @@ final class SettingsWindow {
             // offset didn't move (e.g. growing from an already-top-scrolled
             // page), so it needs its own unconditional invalidate here.
             InvalidateRect(rail, nil, true)
+        }
+    }
+
+    // -- update footer (release/update plan, phase R6b) -----------------------
+
+    // The version/update line under the tab strip, visible on every tab —
+    // mirrors macOS's UpdateFooter. Direct children of `hwnd` itself, not
+    // any one page: WM_COMMAND/WM_CTLCOLORSTATIC/WM_CTLCOLORBTN all arrive
+    // at pomoppiSettingsWndProc directly that way, with no page-forwarding
+    // needed (pomoppiSettingsPageWndProc's own forwarding only exists for a
+    // *page's* own children — see its comment).
+    private func createFooter() {
+        var clientRect = RECT()
+        GetClientRect(hwnd, &clientRect)
+        footerVersionLabel = addLabel(
+            "Pomoppi \(pomoppiVersion) ·", in: hwnd,
+            x: Self.rowMargin, y: clientRect.bottom - Self.footerHeight + 6, width: 140)
+        footerActionButton = addButton(
+            "Check for updates", in: hwnd,
+            x: Self.rowMargin + 140, y: clientRect.bottom - Self.footerHeight + 3,
+            width: clientRect.right - clientRect.left - Self.rowMargin - 140, height: 20
+        ) { [weak self] in
+            self?.handleFooterActionClick()
+        }
+        refreshUpdateFooter()
+    }
+
+    // Repositions the footer's own children to track the bottom of a
+    // resized window — same "absolute positions, just moved" idea as every
+    // other SetWindowPos in handleResize, not a real layout system.
+    private func repositionFooter(clientRect: RECT) {
+        let y = clientRect.bottom - Self.footerHeight
+        let width = clientRect.right - clientRect.left
+        if let footerVersionLabel {
+            SetWindowPos(footerVersionLabel, nil, Self.rowMargin, y + 6, 140, 18, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        }
+        if let footerActionButton {
+            SetWindowPos(footerActionButton, nil, Self.rowMargin + 140, y + 3, width - Self.rowMargin - 140, 20, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        }
+    }
+
+    // Redraws the footer's action control from updateChecker.latestResult
+    // and this window's own manualCheckState — called after either one
+    // changes (a background check resolving while this window is open, via
+    // updateChecker.onUpdate, or the button's own click-driven state
+    // machine below). Priority order mirrors macOS's UpdateFooter.actionView:
+    // an update found in the background wins over "Check for updates"/
+    // "Up to date"/"Couldn't check", but never mid-check — a click
+    // shouldn't flash straight past "Checking…".
+    private func refreshUpdateFooter() {
+        guard let footerActionButton else { return }
+        if case .updateAvailable(let tag, _) = updateChecker.latestResult, manualCheckState != .checking {
+            setWindowText(footerActionButton, "Update available: \(tag) — Download")
+            EnableWindow(footerActionButton, true)
+            return
+        }
+        switch manualCheckState {
+        case .idle:
+            setWindowText(footerActionButton, "Check for updates")
+            EnableWindow(footerActionButton, true)
+        case .checking:
+            setWindowText(footerActionButton, "Checking…")
+            EnableWindow(footerActionButton, false)
+        case .upToDate:
+            setWindowText(footerActionButton, "Up to date")
+            EnableWindow(footerActionButton, false)
+        case .failed:
+            setWindowText(footerActionButton, "Couldn't check — try again")
+            EnableWindow(footerActionButton, true)
+        }
+    }
+
+    // The footer button's own click — either opens the release page (when
+    // an update is already known) or kicks off an explicit check.
+    private func handleFooterActionClick() {
+        if case .updateAvailable(_, let pageURL) = updateChecker.latestResult, manualCheckState != .checking {
+            Self.openURL(pageURL)
+            return
+        }
+        checkForUpdatesNow()
+    }
+
+    // The explicit-check-only path (unlike the silent 10s/24h background
+    // one AppUpdateChecker itself runs): a genuine fetch failure here is
+    // worth surfacing as "Couldn't check — try again" rather than staying
+    // silent. checkExplicitly's own completion already arrives marshaled
+    // onto this thread (see AppUpdateChecker.postToMainThread), so every
+    // Win32 call below is safe to make directly.
+    private func checkForUpdatesNow() {
+        if manualCheckRevertPending {
+            KillTimer(hwnd, Self.manualCheckRevertTimerID)
+            manualCheckRevertPending = false
+        }
+        manualCheckState = .checking
+        refreshUpdateFooter()
+        updateChecker.checkExplicitly { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(.updateAvailable):
+                self.manualCheckState = .idle
+            case .success(.noUpdate):
+                self.manualCheckState = .upToDate
+                self.manualCheckRevertPending = true
+                SetTimer(self.hwnd, Self.manualCheckRevertTimerID, 5000, nil)
+            case .failure:
+                self.manualCheckState = .failed
+            }
+            self.refreshUpdateFooter()
+        }
+    }
+
+    // Win32's NSWorkspace.shared.open(_:) equivalent — same small helper
+    // TrayController.openURL already duplicates for its own "Update
+    // available" menu item, matching this port's usual small-duplication-
+    // over-shared-abstraction ethos (see CLAUDE.md's Windows invariants).
+    private static func openURL(_ url: URL) {
+        let operation = Array("open".utf16) + [0]
+        let target = Array(url.absoluteString.utf16) + [0]
+        _ = operation.withUnsafeBufferPointer { opPtr in
+            target.withUnsafeBufferPointer { targetPtr in
+                ShellExecuteW(nil, opPtr.baseAddress, targetPtr.baseAddress, nil, nil, SW_SHOWNORMAL)
+            }
         }
     }
 
@@ -2363,6 +2528,39 @@ final class SettingsWindow {
         ) { [settingsStore] checked in
             settingsStore.update { $0.startHidden = checked }
         }
+        y += Self.rowHeight + Self.groupGap
+
+        addLabel("Updates", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 20
+
+        addCheckbox(
+            "Automatically check for updates", in: page, checked: settings.checkForUpdates,
+            x: Self.rowMargin, y: y, width: rowWidth
+        ) { [settingsStore] checked in
+            settingsStore.update { $0.checkForUpdates = checked }
+        }
+        y += Self.rowHeight
+
+        addButton("Reset to Defaults…", in: page, x: Self.rowMargin, y: y, width: 160, height: 24) { [weak self] in
+            self?.confirmResetToDefaults()
+        }
+    }
+
+    // MessageBoxW-based confirmation, same shape as confirmEraseSessionLog
+    // below — wiping storageDir is user-visible and irreversible (every
+    // setting AND the whole session log), so this needs its own explicit
+    // "are you sure," not just a plain click. Replaces the old installer-
+    // side fresh/update toggle by design (release/update plan, phase R6).
+    private func confirmResetToDefaults() {
+        let text = Array("Reset Pomoppi to defaults? This erases all settings and session history. Restart Pomoppi to start fresh.".utf16) + [0]
+        let title = Array("Reset to Defaults".utf16) + [0]
+        let result = text.withUnsafeBufferPointer { textPtr in
+            title.withUnsafeBufferPointer { titlePtr in
+                MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
+            }
+        }
+        guard result == IDYES else { return }
+        try? FileManager.default.removeItem(at: storageDir())
     }
 
     // Mirrors macOS's SoundTab: a chime toggle, a Chime picker + Play
@@ -3299,6 +3497,16 @@ final class SettingsWindow {
         for page in pages {
             RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN) | UINT(RDW_UPDATENOW))
         }
+
+        // Not under any page (see createFooter's own comment), so the loop
+        // above's RDW_ALLCHILDREN cascade never reaches these two — same
+        // reason they need their own explicit redraw here.
+        if let footerVersionLabel {
+            RedrawWindow(footerVersionLabel, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW))
+        }
+        if let footerActionButton {
+            RedrawWindow(footerActionButton, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW))
+        }
     }
 
     // WM_SETTINGCHANGE is broadcast to every top-level window for any of a
@@ -3425,6 +3633,16 @@ final class SettingsWindow {
         case WM_SIZE:
             handleResize()
             return 0
+        case WM_TIMER:
+            // The footer's own "Up to date" -> idle auto-revert, 5s after a
+            // manual check resolves to no update — see checkForUpdatesNow.
+            if wParam == Self.manualCheckRevertTimerID {
+                KillTimer(hwnd, Self.manualCheckRevertTimerID)
+                manualCheckRevertPending = false
+                manualCheckState = .idle
+                refreshUpdateFooter()
+            }
+            return 0
         case WM_KEYDOWN, WM_SYSKEYDOWN:
             // Always swallowed (return 0) rather than falling through to
             // DefWindowProcW: this only ever arrives forwarded from the
@@ -3447,6 +3665,8 @@ final class SettingsWindow {
             DestroyWindow(hwnd)
             return 0
         case WM_DESTROY:
+            if manualCheckRevertPending { KillTimer(hwnd, Self.manualCheckRevertTimerID) }
+            updateChecker.onUpdate = nil
             Self.shared = nil
             return 0
         default:

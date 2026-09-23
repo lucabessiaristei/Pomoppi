@@ -41,6 +41,7 @@ final class TrayController {
         case toggleAlwaysOnTop = 5
         case settings = 6
         case quit = 7
+        case openUpdatePage = 8
     }
 
     private var nid = NOTIFYICONDATAW()
@@ -151,6 +152,9 @@ final class TrayController {
                 // already calls PostQuitMessage — no need to call it again
                 // here.
                 DestroyWindow(window.hwnd)
+            case .openUpdatePage:
+                guard case .updateAvailable(_, let pageURL) = window.updateChecker?.latestResult else { return }
+                Self.openURL(pageURL)
             }
             return
         }
@@ -283,6 +287,20 @@ final class TrayController {
 
     // -- menu -----------------------------------------------------------------
 
+    // Win32's NSWorkspace.shared.open(_:) equivalent — no extra linking
+    // needed, shell32 is already in MSVC's default link set (confirmed by
+    // Shell_NotifyIconW above, from the same DLL, already working with no
+    // explicit linkerSettings entry the way winmm needed one).
+    private static func openURL(_ url: URL) {
+        let operation = Array("open".utf16) + [0]
+        let target = Array(url.absoluteString.utf16) + [0]
+        _ = operation.withUnsafeBufferPointer { opPtr in
+            target.withUnsafeBufferPointer { targetPtr in
+                ShellExecuteW(nil, opPtr.baseAddress, targetPtr.baseAddress, nil, nil, SW_SHOWNORMAL)
+            }
+        }
+    }
+
     // Built fresh every time it's shown, mirroring macOS's buildMenu() —
     // no incremental checkbox syncing needed since it's a transient popup.
     private func showMenu() {
@@ -296,6 +314,14 @@ final class TrayController {
         defer {
             if let sessionsMenu { DestroyMenu(sessionsMenu) }
             DestroyMenu(menu)
+        }
+
+        // Only present at all when a check has actually resolved to a newer
+        // release (release/update plan, phase R6) — no greyed-out "no
+        // update" placeholder item the rest of the time.
+        if case .updateAvailable(let tag, _) = window.updateChecker?.latestResult {
+            appendItem(menu, .openUpdatePage, "Update available: \(tag)")
+            appendSeparator(menu)
         }
 
         appendItem(menu, .startPause, state.running ? "Pause" : "Start")
