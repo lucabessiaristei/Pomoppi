@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             await sessionLogger?.pruneEmptyPomodoros()
         }
         chimePlayer = ChimePlayer()
+        DispatchQueue.main.async { [chimePlayer] in chimePlayer?.prewarm() }
         updateChecker = AppUpdateChecker()
         updateChecker.isSessionActive = { [unowned self] in self.timer.getState().phase != .idle }
         settingsViewModel = SettingsViewModel(

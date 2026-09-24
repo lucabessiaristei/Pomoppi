@@ -24,6 +24,16 @@ final class ChimePlayer {
     // layering both — each cached AVAudioPlayer only ever stops itself.
     private var lastStarted: AVAudioPlayer?
 
+    // Builds and prepares every chime's players up front, which also wakes
+    // the audio output: done lazily, the first preview in the Sound tab
+    // stalled a second or two before any sound came out.
+    func prewarm() {
+        for id in PomoppiSettings.chimeIDs {
+            _ = player(chime: id, focusEnd: true)
+            _ = player(chime: id, focusEnd: false)
+        }
+    }
+
     func play(chime id: String, focusEnd: Bool) {
         guard let player = player(chime: id, focusEnd: focusEnd) else { return }
         if lastStarted !== player { lastStarted?.stop() }
