@@ -194,9 +194,7 @@ answer; the strip in step 3 makes the result not matter.
 unzipped folder would get a *second* install in
 `%LOCALAPPDATA%\Programs\Pomoppi` and stay stale itself. A copy counts
 as installed when Inno's `unins000.exe` sits next to the running exe;
-otherwise only the release page is offered. (Comparing the uninstall key's
-`InstallLocation` was tried first and misreported a real install in the
-VM.)
+otherwise only the release page is offered.
 
 **macOS package layout.** `Scripts/make-pkg.js` builds with `--root` and an
 explicit component plist (`BundleIsRelocatable` and
@@ -276,6 +274,12 @@ the first S6c test hit.
   (Cancel / Release notes / Release page) shown only when a state has a
   second action. A failure's reason is announced once in a `MessageBoxW`
   (it doesn't fit a button); the row then offers Try again / Release page.
+  **First test (2026-09-24):** a local 0.2.9 build updated itself to v0.3.0
+  in-app on both platforms (download, verify, install, no Gatekeeper or
+  SmartScreen prompt). Neither relaunched on its own, as expected: v0.3.0's
+  own installers predate the relaunch (`a9a5086`). The relaunch itself is
+  already verified with a current installer (S6b/S6d); the full loop gets
+  re-checked after v0.3.5 ships, from a local build set to 0.3.4.
 - **S6f — Docs.** `SPEC.md` §15's "passive and notify-only" paragraph
   rewritten (what's downloaded, what the check does and doesn't prove, the
   per-platform install/relaunch, "no auto-install, ever"), §0b's parity

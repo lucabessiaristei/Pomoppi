@@ -160,9 +160,7 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
     // it installed. A copy running from anywhere else (a dist\ build, an old
     // unzipped portable copy) wasn't installed by Inno: running the setup
     // would install a second copy and leave this one stale, so it gets the
-    // release page only. (An earlier version compared the uninstall key's
-    // InstallLocation in the registry, which reported a real installed copy
-    // as not installed in the VM.)
+    // release page only.
     static var isRunningInstalledCopy: Bool {
         guard let exePath = runningExePath() else { return false }
         let folder = (exePath as NSString).deletingLastPathComponent
