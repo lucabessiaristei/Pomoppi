@@ -668,22 +668,22 @@ that carries this shape into code.
 |---|---|---|---|
 | **General** | Widget | Keep the widget on top of other windows; Pop to the front when a session ends | — |
 | | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu." / swapped |
-| | Startup | Open Pomoppi when I log in; Start without showing the widget | "Launch at login only registers when Pomoppi is running as an installed app. “Start hidden” applies the next time Pomoppi launches." |
-| | Color scheme | Auto / Light / Dark (segmented) | "Applies to Pomoppi's own windows. The widget's colors are under Appearance." |
+| | Startup | Open Pomoppi when I log in; Start without showing the widget | "“Start hidden” applies from the next launch." |
+| | Color scheme | Auto / Light / Dark (segmented) | "Pomoppi's own windows only. Widget colors are in Appearance." |
 | | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
-| | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | "Checks lucabessiaristei/Pomoppi on GitHub roughly once a day." |
-| | Reset | **Reset Pomoppi…** | "Erases every setting and your whole session history, and puts Pomoppi back to how it shipped." |
+| | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
+| | Reset | **Reset Pomoppi…** | "Also erases your session history." |
 | **Rhythm** | Focus | Default focus length | "Or click the clock on the widget." |
 | | Breaks | Short break; Long break; Long break every N sessions | "Or click the dots on the widget." |
-| | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."; logging off → "Pomoppi asks before each focus session. Leave it blank to skip." |
+| | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Always asks while session logging is on (Diary tab)."; logging off → "Leave the name blank to skip." |
 | **Appearance** | Roommate / Window edge / Background / Theme | card pickers; theme presets + Ink / Paper | — |
-| | Size & transparency | unchanged | "1× is very small — 104×128 physical pixels." |
-| **Keys** | Global shortcuts | one recorder row per action | "These fire even while Pomoppi isn't the frontmost app. A shortcut needs a modifier; two actions can't share the same combo." |
+| | Size & transparency | Size (segmented); Opacity | — |
+| **Keys** | Global shortcuts | one recorder row per action | "Work from any app. Click one, then press a new combo that includes a modifier." |
 | | | **Restore Default Shortcuts** | — |
-| | While the widget is focused | static key list | "Fixed keys. They only fire while the widget window itself has focus." |
-| **Sound** | Chime | Play a chime when a session ends; Chime picker | "Selecting a chime plays it." |
-| | Ring | ring length | "How long the widget keeps ringing when a session ends, with or without the chime." |
-| **Diary** | Session history | Record every session; History size; **Erase History…** | "Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone." |
+| | While the widget is focused | static key list | — |
+| **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it." |
+| | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off." |
+| **Diary** | Session history | Record every session; History size; **Erase History…** | "Stored only on this computer." |
 | | Export | Sessions recorded; Export Diary… | — |
 | | Sync to folder | Diary folder; Choose…; Sync Now | — |
 

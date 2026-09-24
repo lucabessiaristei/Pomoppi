@@ -391,10 +391,10 @@ final class SettingsWindow {
     private var hintLabels: Set<HWND> = []
     private var trayClickHintLabel: HWND?
     private var askForTaskHintLabel: HWND?
-    // What addHint's own last call measured its height at — read back by
-    // the call site immediately after for its own y += bookkeeping (see
-    // addHint's comment for why this beats a tuple return here).
-    private var lastHintHeight: Int32 = 18
+    // The Sound tab's chime row label and hint, grayed with the picker
+    // while soundEnabled is off (refreshChimeEnabled).
+    private var chimeLabel: HWND?
+    private var chimeHintLabel: HWND?
 
     // The manual "Check for updates" button's own little state machine —
     // separate from updateChecker.latestResult, same split as macOS's
@@ -511,17 +511,25 @@ final class SettingsWindow {
     private static let trackbarClassName: [UInt16] = Array("msctls_trackbar32".utf16) + [0]
     private static let hInstance = GetModuleHandleW(nil)
 
-    // Shared geometry for every tab, standing in for macOS's grouped Form:
-    // each section is a bold header, rows of 24px controls on a 30px pitch,
-    // an optional hint footer, then sectionGap. A row with its own label
+    // Shared geometry for every tab, standing in for macOS's grouped Form.
+    // One vertical rhythm everywhere: every element (header, 24px control
+    // row, hint, picker grid) is followed by the same itemGap, a hint tucks
+    // hintTuck px up under the control it explains, and sectionGap is added
+    // on top of the last element's itemGap, so every section break is the
+    // same 24px whatever ends the section. A row with its own label
     // (stepper, picker, swatch, recorder button, value readout) puts the
     // label at rowMargin and the control at controlX, the same column on
     // every tab.
     private static let rowMargin: Int32 = 20
-    private static let rowHeight: Int32 = 30
     private static let controlHeight: Int32 = 24
-    private static let headerHeight: Int32 = 26
-    private static let sectionGap: Int32 = 22
+    private static let itemGap: Int32 = 6
+    private static let rowHeight: Int32 = controlHeight + itemGap
+    private static let headerHeight: Int32 = 18 + itemGap
+    private static let sectionGap: Int32 = 18
+    private static let hintTuck: Int32 = 2
+    // Every segmented group (color scheme, chime, scale) uses the same
+    // segment width, so their edges line up across tabs.
+    private static let segmentWidth: Int32 = 60
     private static let labelColumnWidth: Int32 = 230
     private static let controlX: Int32 = rowMargin + labelColumnWidth
     // A plain label beside a 24px control: nudged down so its text sits on
@@ -1322,8 +1330,8 @@ final class SettingsWindow {
             settingsStore.update { $0.focusMinutes = Double(newValue) }
         }
         y += Self.rowHeight
-        addHint("Or click the clock on the widget.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.sectionGap
+        addHint("Or click the clock on the widget.", in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader("Breaks", in: page, y: y, width: rowWidth)
         addStepper(
@@ -1333,7 +1341,6 @@ final class SettingsWindow {
             settingsStore.update { $0.shortBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
-
         addStepper(
             "Long break (minutes)", in: page, value: Int32(settings.longBreakMinutes),
             min: 1, max: 180, step: 1, y: y
@@ -1341,7 +1348,6 @@ final class SettingsWindow {
             settingsStore.update { $0.longBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
-
         addStepper(
             "Long break every (sessions)", in: page, value: Int32(settings.longBreakEvery),
             min: 2, max: 10, step: 1, y: y
@@ -1349,8 +1355,8 @@ final class SettingsWindow {
             settingsStore.update { $0.longBreakEvery = Int(newValue) }
         }
         y += Self.rowHeight
-        addHint("Or click the dots on the widget.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.sectionGap
+        addHint("Or click the dots on the widget.", in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader("Automation", in: page, y: y, width: rowWidth)
         addCheckbox(
@@ -1360,7 +1366,6 @@ final class SettingsWindow {
             settingsStore.update { $0.autoStartBreaks = checked }
         }
         y += Self.rowHeight
-
         addCheckbox(
             "Start the next focus automatically", in: page, checked: settings.autoStartFocus,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -1368,7 +1373,6 @@ final class SettingsWindow {
             settingsStore.update { $0.autoStartFocus = checked }
         }
         y += Self.rowHeight
-
         addCheckbox(
             "Ask what I’m working on before each focus", in: page, checked: settings.askForTaskName,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -1376,7 +1380,7 @@ final class SettingsWindow {
             settingsStore.update { $0.askForTaskName = checked }
         }
         y += Self.rowHeight
-        askForTaskHintLabel = addHint(Self.askForTaskHintText(loggingEnabled: settings.loggingEnabled), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        askForTaskHintLabel = addHint(Self.askForTaskHintText(loggingEnabled: settings.loggingEnabled), in: page, y: &y, width: rowWidth)
     }
 
     // The askForTaskName hint's own two variants, keyed only on
@@ -1388,8 +1392,8 @@ final class SettingsWindow {
     // drifting copies" shape as trayClickHintText above.
     private static func askForTaskHintText(loggingEnabled: Bool) -> String {
         loggingEnabled
-            ? "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."
-            : "Pomoppi asks before each focus session. Leave it blank to skip."
+            ? "Always asks while session logging is on (Diary tab)."
+            : "Leave the name blank to skip."
     }
 
     // Called from the Diary tab's own "Record every session" checkbox
@@ -1417,49 +1421,39 @@ final class SettingsWindow {
             kind: .friend, items: PomoppiSettings.friendIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
             // 38 = 32 (image area, after drawPickerCard's 3px margin each
-            // side) + 6 — the native 32x32 sprite at an exact 1x (the
-            // user's preferred size for this grid specifically). A
-            // non-integer ratio here (the old 56, i.e. 50/32 = 1.5625x)
-            // can't produce uniform pixel blocks no matter how careful the
-            // nearest-neighbor resample is — some source pixels must map
-            // to 1 dest pixel and others to 2, which reads as "grainy" on
-            // real pixel art. Confirmed live: even after fixing draw(into:)
-            // itself (PixelCanvas+GDI.swift) to resample cleanly, cards
-            // stayed visibly uneven until the ratio became a true integer.
+            // side) + 6: the native 32x32 sprite at an exact 1x. A
+            // non-integer ratio can't produce uniform pixel blocks, which
+            // reads as "grainy" on real pixel art (confirmed live).
             cardWidth: 38, cardHeight: 38,
             leftAlignLabel: true
         ) { [settingsStore] friend in
             settingsStore.update { $0.friend = friend }
         }
-        y += Self.sectionGap - 10
+        y += Self.sectionGap
 
         y = addSectionHeader("Window edge", in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .frameStyle, items: PomoppiSettings.frameStyles, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
-            // 61x68 = 55x62 (image area, after the 3px margin) + 6 — the
-            // frame preview's native crop (WidgetLayout.frameWidth/2,
-            // frameHeight/2) at an exact 1x, same reasoning as the friend
-            // grid above.
+            // 55x62 image area (the frame preview's native crop,
+            // WidgetLayout.frameWidth/2 x frameHeight/2) + 6, exact 1x.
             cardWidth: 61, cardHeight: 68
         ) { [settingsStore] style in
             settingsStore.update { $0.frameStyle = style }
         }
-        y += Self.sectionGap - 10
+        y += Self.sectionGap
 
         y = addSectionHeader("Background", in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .background, items: PomoppiSettings.backgroundIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
-            // 116x68 = 110x62 (image area, after the 3px margin) + 6 — the
-            // background preview's native crop (WidgetLayout.frameWidth,
-            // frameHeight/2) at an exact 1x, same reasoning as the friend
-            // grid above.
+            // 110x62 image area (WidgetLayout.frameWidth x frameHeight/2)
+            // + 6, exact 1x.
             cardWidth: 116, cardHeight: 68
         ) { [settingsStore] background in
             settingsStore.update { $0.background = background }
         }
-        y += Self.sectionGap - 10
+        y += Self.sectionGap
 
         y = addSectionHeader("Theme", in: page, y: y, width: rowWidth)
         y += addThemePresetGrid(in: page, x: Self.rowMargin, y: y, availableWidth: rowWidth)
@@ -1472,8 +1466,6 @@ final class SettingsWindow {
         addScalePicker(in: page, y: y)
         y += Self.rowHeight
         addOpacitySlider(in: page, y: y)
-        y += Self.rowHeight
-        addHint("1× is very small — 104×128 physical pixels.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
     }
 
     // A plain flow layout (left-to-right, wrapping at `availableWidth`) of
@@ -1525,7 +1517,7 @@ final class SettingsWindow {
         }
 
         let rowCount = (Int32(items.count) + columns - 1) / columns
-        return rowCount * rowHeight
+        return rowCount * rowHeight - gap + Self.itemGap
     }
 
     // Measure-without-painting: grab a throwaway screen DC, swap in the
@@ -1826,7 +1818,7 @@ final class SettingsWindow {
         }
 
         let rowCount = (Int32(Self.themePresets.count) + columns - 1) / columns
-        return rowCount * rowHeight
+        return rowCount * rowHeight - gap + Self.itemGap
     }
 
     private func drawThemeSwatch(_ swatch: ThemeSwatchControl, drawItem: DRAWITEMSTRUCT) {
@@ -1942,7 +1934,7 @@ final class SettingsWindow {
     // highlighted fill when selected.
     private func addScalePicker(in page: HWND, y: Int32) {
         addLabel("Size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        let buttonWidth: Int32 = 50
+        let buttonWidth = Self.segmentWidth
         let gap: Int32 = 6
         for (index, value) in [1, 2, 3, 4].enumerated() {
             let bx = Self.controlX + Int32(index) * (buttonWidth + gap)
@@ -1976,7 +1968,7 @@ final class SettingsWindow {
     // re-resolve and re-apply isDarkMode itself, unlike every other
     // segmented group's onSelect.
     private func addColorSchemePicker(in page: HWND, y: Int32) {
-        let buttonWidth: Int32 = 64
+        let buttonWidth = Self.segmentWidth
         let gap: Int32 = 6
         for (index, value) in PomoppiSettings.colorSchemeIDs.enumerated() {
             let bx = Self.rowMargin + Int32(index) * (buttonWidth + gap)
@@ -2011,11 +2003,11 @@ final class SettingsWindow {
     // instead of colorSchemeIDs. Built from the array rather than hardcoded
     // (same rule CLAUDE.md gives for the friend/background pickers), so a
     // fourth pack needs no changes here.
-    private func addChimePicker(in page: HWND, y: Int32, width: Int32) {
-        addLabel("Chime", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+    private func addChimePicker(in page: HWND, y: Int32) {
+        chimeLabel = addLabel("Chime", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let ids = PomoppiSettings.chimeIDs
         let gap: Int32 = 6
-        let buttonWidth = (width - gap * Int32(ids.count - 1)) / Int32(ids.count)
+        let buttonWidth = Self.segmentWidth
         for (index, value) in ids.enumerated() {
             let bx = Self.controlX + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
@@ -2062,36 +2054,44 @@ final class SettingsWindow {
         drawSegmentedOption(text: displayName(option.value), isSelected: isSelected, drawItem: drawItem)
     }
 
-    // The shared paint both scale (Size & transparency, "N×") and
-    // color-scheme (top of Appearance, "Auto"/"Light"/"Dark") owner-drawn
-    // segmented buttons go through — only the display text and the
-    // isSelected test differ between the two callers just above, so this
-    // is the one place their bevel/text painting logic lives.
+    // The shared paint for every owner-drawn segmented group (scale, color
+    // scheme, chime); only the text and the isSelected test differ between
+    // the callers above. Selected uses COLOR_HIGHLIGHT/COLOR_HIGHLIGHTTEXT,
+    // a fixed accent that reads fine in both themes (confirmed live).
+    // Disabled (the chime picker while soundEnabled is off) drops the accent
+    // fill, grays the text, and keeps the choice visible as a sunken bevel.
     private func drawSegmentedOption(text: String, isSelected: Bool, drawItem: DRAWITEMSTRUCT) {
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
-        // Selected already uses COLOR_HIGHLIGHT/COLOR_HIGHLIGHTTEXT, which
-        // (like drawPickerCard's own accent ring) read fine unmodified in
-        // both themes on their own — confirmed live, a fixed accent color
-        // with enough contrast either way, not something that actually
-        // changes value under dark mode (see drawSelectionBorder's own
-        // comment) — only the unselected fill/text below need an explicit
-        // override.
-        let backgroundColor = isSelected ? GetSysColor(COLOR_HIGHLIGHT) : (isDarkMode ? Self.colorref(hex: WindowsTheme.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE))
+        let isDisabled = (drawItem.itemState & UINT(ODS_DISABLED)) != 0
+        let faceColor = isDarkMode ? Self.colorref(hex: WindowsTheme.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE)
+        let backgroundColor = isSelected && !isDisabled ? GetSysColor(COLOR_HIGHLIGHT) : faceColor
         if let backgroundBrush = CreateSolidBrush(backgroundColor) {
             FillRect(hdc, &rect, backgroundBrush)
             DeleteObject(backgroundBrush)
         }
 
+        let textColor: COLORREF
+        if isDisabled {
+            textColor = isDarkMode ? Self.colorref(hex: Self.hintTextLightHex) : GetSysColor(COLOR_GRAYTEXT)
+        } else if isSelected {
+            textColor = GetSysColor(COLOR_HIGHLIGHTTEXT)
+        } else {
+            textColor = isDarkMode ? Self.colorref(hex: WindowsTheme.darkTextHex) : GetSysColor(COLOR_BTNTEXT)
+        }
         let textUTF16 = Array(text.utf16) + [0]
         SetBkMode(hdc, Int32(TRANSPARENT))
-        SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : (isDarkMode ? Self.colorref(hex: WindowsTheme.darkTextHex) : GetSysColor(COLOR_BTNTEXT)))
+        SetTextColor(hdc, textColor)
         var textRect = rect
         _ = textUTF16.withUnsafeBufferPointer { ptr in
             DrawTextW(hdc, ptr.baseAddress, -1, &textRect, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE))
         }
 
-        drawSelectionBorder(hdc: hdc, rect: rect, isSelected: false)
+        if isDisabled {
+            drawBevel(hdc: hdc, rect: rect, sunken: isSelected)
+        } else {
+            drawSelectionBorder(hdc: hdc, rect: rect, isSelected: false)
+        }
     }
 
     // Mirrors macOS's Slider(value: opacity, in: 0.3...1.0, step: 0.1) plus
@@ -2238,8 +2238,8 @@ final class SettingsWindow {
             self?.refreshTrayClickHint(reversed: checked)
         }
         y += Self.rowHeight
-        trayClickHintLabel = addHint(Self.trayClickHintText(reversed: settings.reverseTrayClick), in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.sectionGap
+        trayClickHintLabel = addHint(Self.trayClickHintText(reversed: settings.reverseTrayClick), in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader("Startup", in: page, y: y, width: rowWidth)
         addCheckbox(
@@ -2256,20 +2256,14 @@ final class SettingsWindow {
             settingsStore.update { $0.startHidden = checked }
         }
         y += Self.rowHeight
-        addHint(
-            "Launch at login only registers when Pomoppi is running as an installed app. \u{201C}Start hidden\u{201D} applies the next time Pomoppi launches.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
-        y += lastHintHeight + Self.sectionGap
+        addHint("\u{201C}Start hidden\u{201D} applies from the next launch.", in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader("Color scheme", in: page, y: y, width: rowWidth)
         addColorSchemePicker(in: page, y: y)
         y += Self.rowHeight
-        addHint(
-            "Applies to Pomoppi's own windows. The widget's colors are under Appearance.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
-        y += lastHintHeight + Self.sectionGap
+        addHint("Pomoppi's own windows only. Widget colors are in Appearance.", in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader("Updates", in: page, y: y, width: rowWidth)
         addCheckbox(
@@ -2280,19 +2274,14 @@ final class SettingsWindow {
         }
         y += Self.rowHeight
         addUpdateStatusRow(in: page, y: y)
-        y += Self.rowHeight
-        addHint("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.sectionGap
+        y += Self.rowHeight + Self.sectionGap
 
         y = addSectionHeader("Reset", in: page, y: y, width: rowWidth)
-        addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 160, height: Self.controlHeight) { [weak self] in
+        addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.confirmResetToDefaults()
         }
         y += Self.rowHeight
-        addHint(
-            "Erases every setting and your whole session history, and puts Pomoppi back to how it shipped.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
+        addHint("Also erases your session history.", in: page, y: &y, width: rowWidth)
     }
 
     // The tray-icon hint's own two variants — kept as a pure function so
@@ -2380,7 +2369,8 @@ final class SettingsWindow {
         hintLabels = []
         trayClickHintLabel = nil
         askForTaskHintLabel = nil
-        lastHintHeight = 18
+        chimeLabel = nil
+        chimeHintLabel = nil
         updatesVersionLabel = nil
         updatesActionButton = nil
         pageScroll = [:]
@@ -2407,14 +2397,16 @@ final class SettingsWindow {
         addCheckbox(
             "Play a chime when a session ends", in: page, checked: settings.soundEnabled,
             x: Self.rowMargin, y: y, width: rowWidth
-        ) { [settingsStore] checked in
+        ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.soundEnabled = checked }
+            self?.refreshChimeEnabled(checked)
         }
         y += Self.rowHeight
-        addChimePicker(in: page, y: y, width: 250)
+        addChimePicker(in: page, y: y)
         y += Self.rowHeight
-        addHint("Selecting a chime plays it.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.sectionGap
+        chimeHintLabel = addHint("Click a chime to hear it.", in: page, y: &y, width: rowWidth)
+        refreshChimeEnabled(settings.soundEnabled)
+        y += Self.sectionGap
 
         y = addSectionHeader("Ring", in: page, y: y, width: rowWidth)
         addStepper(
@@ -2424,10 +2416,17 @@ final class SettingsWindow {
             settingsStore.update { $0.ringSeconds = Double(newValue) }
         }
         y += Self.rowHeight
-        addHint(
-            "How long the widget keeps ringing when a session ends, with or without the chime.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
+        addHint("Visual only, so it rings even with the chime off.", in: page, y: &y, width: rowWidth)
+    }
+
+    // The chime picker only matters while soundEnabled is on. The Ring
+    // section stays live either way: ringSeconds is visual (SPEC.md §4).
+    private func refreshChimeEnabled(_ enabled: Bool) {
+        for option in chimeOptions {
+            EnableWindow(option.hwnd, enabled)
+        }
+        if let chimeLabel { EnableWindow(chimeLabel, enabled) }
+        if let chimeHintLabel { EnableWindow(chimeHintLabel, enabled) }
     }
 
     // Mirrors macOS's KeysTab/ShortcutRow (SettingsView.swift): one row per
@@ -2455,11 +2454,7 @@ final class SettingsWindow {
             shortcutRecorders.append(ShortcutRecorderControl(buttonHwnd: button, actionID: action.id))
             y += Self.rowHeight
         }
-        addHint(
-            "These fire even while Pomoppi isn’t the frontmost app. A shortcut needs a modifier; two actions can’t share the same combo.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
-        y += lastHintHeight + 6
+        addHint("Work from any app. Click one, then press a new combo that includes a modifier.", in: page, y: &y, width: rowWidth)
 
         // Sized to its own text: the recorder buttons' fixed width is too
         // narrow for this label.
@@ -2470,15 +2465,14 @@ final class SettingsWindow {
         y += Self.rowHeight + Self.sectionGap
 
         // Action left, keys in the control column, same as macOS's
-        // LabeledContent rows.
+        // LabeledContent rows. Plain text rows, so a tighter pitch than
+        // rowHeight.
         y = addSectionHeader("While the widget is focused", in: page, y: y, width: rowWidth)
         for binding in Self.widgetKeyBindings {
             addLabel(binding.action, in: page, x: Self.rowMargin, y: y, width: Self.labelColumnWidth - 8)
             addLabel(binding.keys, in: page, x: Self.controlX, y: y, width: rowWidth - Self.labelColumnWidth)
             y += 22
         }
-        y += 4
-        addHint("Fixed keys. They only fire while the widget window itself has focus.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
     }
 
     private struct WidgetKeyBinding {
@@ -2532,12 +2526,11 @@ final class SettingsWindow {
             self?.confirmEraseSessionLog()
         }
         y += Self.rowHeight
-        addHint(
-            "Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
-        y += lastHintHeight + Self.sectionGap
+        addHint("Stored only on this computer.", in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
+        // Export/Sync outcomes sit beside their own button rather than on
+        // a row of their own, so an empty status never leaves a blank gap.
         y = addSectionHeader("Export", in: page, y: y, width: rowWidth)
         addLabel("Sessions recorded", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         diarySessionCountLabel = addLabel("\(sessionLogger.allSessionsSync().count)", in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth)
@@ -2545,9 +2538,8 @@ final class SettingsWindow {
         addButton("Export Diary…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
         }
-        y += Self.rowHeight
-        diaryExportStatusLabel = addHint("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.sectionGap
+        diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 152, y: y, width: rowWidth - 152)
+        y += Self.rowHeight + Self.sectionGap
 
         y = addSectionHeader("Sync to folder", in: page, y: y, width: rowWidth)
         addLabel("Diary folder", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
@@ -2567,8 +2559,7 @@ final class SettingsWindow {
         diarySyncButton = syncButton
         // Matches macOS's `.disabled(viewModel.settings.diaryFolderPath.isEmpty)`.
         EnableWindow(syncButton, !settings.diaryFolderPath.isEmpty)
-        y += Self.rowHeight
-        diarySyncStatusLabel = addHint("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        diarySyncStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 220, y: y, width: rowWidth - 220)
     }
 
     // MessageBoxW blocks the message loop until dismissed — same "modal,
@@ -2949,21 +2940,27 @@ final class SettingsWindow {
     // disclosure, never a tooltip) — SETTINGS_PLAN.md's S4. Built on
     // addLabel above (SS_NOPREFIX comes free), swaps in the smaller hintFont, and registers into hintLabels
     // so handleCtlColor knows to paint this one dimmer than an ordinary
-    // label, in both themes. Height is measured, not guessed: some hints
-    // in the target tab map (SETTINGS_PLAN.md) wrap to two lines at this
-    // window's row width and some don't, and a fixed guess that
-    // undershoots clips the hint's last line (confirmed live on the General
-    // tab's Reset hint under a first pass with one flat height). `lastHintHeight` is what the
-    // height came out to, for the call site's own y += bookkeeping right
-    // after — the same "cache it on self, read it back" shape
-    // opacityValueLabel/sessionHistorySizeLabel already use for a value a later
-    // step needs, rather than turning every add* call site here into a
-    // tuple destructure.
+    // label, in both themes. Height is measured, not guessed: a hint may
+    // wrap, and a fixed guess that undershoots clips its last line
+    // (confirmed live on the General tab under a first pass with one flat
+    // height). Placed hintTuck px up under the preceding row and advances
+    // `y` past itself plus itemGap, like every other element.
     @discardableResult
-    private func addHint(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32) -> HWND {
+    private func addHint(_ text: String, in page: HWND, y: inout Int32, width: Int32) -> HWND {
         let height = Self.measuredHintHeight(text, width: width)
-        lastHintHeight = height
-        let label = addLabel(text, in: page, x: x, y: y, width: width, height: height)
+        let label = addLabel(text, in: page, x: Self.rowMargin, y: y - Self.hintTuck, width: width, height: height)
+        y += height - Self.hintTuck + Self.itemGap
+        if let hintFont = Self.hintFont {
+            SendMessageW(label, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: hintFont)), LPARAM(1))
+        }
+        hintLabels.insert(label)
+        return label
+    }
+
+    // A one-line, hint-styled outcome label beside a button (Diary's
+    // Export/Sync), vertically centered on the button's row.
+    private func addStatusLabel(in page: HWND, x: Int32, y: Int32, width: Int32) -> HWND {
+        let label = addLabel("", in: page, x: x, y: y + Self.labelNudge, width: width)
         if let hintFont = Self.hintFont {
             SendMessageW(label, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: hintFont)), LPARAM(1))
         }
@@ -2995,7 +2992,7 @@ final class SettingsWindow {
         guard size.cy > 0 else { return 18 }
         let wrapWidth = max(width - 24, 1)
         let lineCount = min(3, max(1, Int32((Double(size.cx) / Double(wrapWidth)).rounded(.up))))
-        return lineCount * size.cy + 4
+        return lineCount * size.cy + 2
     }
 
     // One point smaller than DEFAULT_GUI_FONT, same face/weight/charset —
@@ -3503,15 +3500,23 @@ final class SettingsWindow {
             return DefWindowProcW(hwnd, message, wParam, lParam)
         }
         let controlHwnd = HWND(bitPattern: Int(bitPattern: UInt(lParam)))
-        if let controlHwnd, hintLabels.contains(controlHwnd) {
+        // A disabled STATIC (the chime row while soundEnabled is off) is
+        // colored here explicitly rather than trusting the control's own
+        // grayed paint to survive the text color set below.
+        let isDisabledStatic = message == UINT(WM_CTLCOLORSTATIC) && controlHwnd.map { !IsWindowEnabled($0) } == true
+        if let controlHwnd, isDisabledStatic || hintLabels.contains(controlHwnd) {
             // Both themes, always: a hint is always dimmer than an
-            // ordinary control's text. Background still matches whatever
-            // the page is already painted with in that theme —
-            // WindowsTheme's dark brush, or the same (HBRUSH)(COLOR_BTNFACE+1)
-            // cast the page class's own hbrBackground paints with
-            // (registerClassesIfNeeded) — so a hint reads as sitting on
-            // the page, not as its own separate patch.
-            SetTextColor(hdc, Self.colorref(hex: isDarkMode ? Self.hintTextDarkHex : Self.hintTextLightHex))
+            // ordinary control's text, and a disabled label dimmer still.
+            // Background still matches whatever the page is already
+            // painted with in that theme — WindowsTheme's dark brush, or
+            // the same (HBRUSH)(COLOR_BTNFACE+1) cast the page class's own
+            // hbrBackground paints with (registerClassesIfNeeded) — so it
+            // reads as sitting on the page, not as its own separate patch.
+            if isDisabledStatic {
+                SetTextColor(hdc, isDarkMode ? Self.colorref(hex: Self.hintTextLightHex) : GetSysColor(COLOR_GRAYTEXT))
+            } else {
+                SetTextColor(hdc, Self.colorref(hex: isDarkMode ? Self.hintTextDarkHex : Self.hintTextLightHex))
+            }
             if isDarkMode, let brush = WindowsTheme.darkBackgroundBrush {
                 SetBkColor(hdc, WindowsTheme.colorref(hex: WindowsTheme.darkBackgroundHex))
                 return LRESULT(Int(bitPattern: brush))
