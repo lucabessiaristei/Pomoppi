@@ -687,7 +687,7 @@ what a brand-new install opens on.
 | | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu" / swapped |
 | | Startup | Open Pomoppi when I log in; Start without showing the widget | "“Start hidden” applies from the next launch" |
 | | Color scheme | Mode: Auto / Light / Dark (segmented) | "Pomoppi's own windows only, widget colors are in Appearance" |
-| | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
+| | Language | App language: "System (<its name>)" then each language in its own name (English, Deutsch, Español, Français, Italiano); `language` setting. macOS relabels the window live; Windows (a drop-down list) rebuilds it on the same tab | — |
 | | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
 | | Reset | **Reset Pomoppi…** | "Also erases your session history" |
 | **Pomodoro** | Focus | Length; **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each session and a long break at the end, or set the length from the widget's clock" |

@@ -130,7 +130,8 @@ public enum DiaryExporter {
         let count = pomodoro.sessions
         var line = count == 1 ? text.t("diary.sessions.one") : text.t("diary.sessions.other", count)
         if pomodoro.stoppedEarly > 0 {
-            line += " · " + text.t("diary.stoppedEarlyCount", pomodoro.stoppedEarly)
+            let early = pomodoro.stoppedEarly
+            line += " · " + (early == 1 ? text.t("diary.stoppedEarlyCount.one") : text.t("diary.stoppedEarlyCount.other", early))
         }
         return line
     }

@@ -395,6 +395,8 @@ final class SettingsWindow {
     private var hintLabels: Set<HWND> = []
     private var trayClickHintLabel: HWND?
     private var askForTitleCheckbox: HWND?
+    private var languageCombo: HWND?
+    private var languageChoices: [String] = []
     // The Sound tab's chime row label and hint, grayed with the picker
     // while soundEnabled is off (refreshChimeEnabled).
     private var chimeLabel: HWND?
@@ -520,12 +522,16 @@ final class SettingsWindow {
     private static let windowStyle = DWORD(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME)
 
     private static let className: [UInt16] = Array("PomoppiSettingsWindowClass".utf16) + [0]
-    private static let windowTitle: [UInt16] = Array("Pomoppi Settings".utf16) + [0]
+    private static var windowTitle: [UInt16] { Array(L.t("settings.windowTitle").utf16) + [0] }
     private static let pageClassName: [UInt16] = Array("PomoppiSettingsPageClass".utf16) + [0]
     private static let tabClassName: [UInt16] = Array("SysTabControl32".utf16) + [0]
     private static let staticClassName: [UInt16] = Array("STATIC".utf16) + [0]
     private static let buttonClassName: [UInt16] = Array("BUTTON".utf16) + [0]
     private static let editClassName: [UInt16] = Array("EDIT".utf16) + [0]
+    private static let comboClassName: [UInt16] = Array("COMBOBOX".utf16) + [0]
+    // Posted to ourselves when the language changes: the combo box that
+    // picked it is still mid-notification, so it can't be destroyed yet.
+    private static let rebuildMessage = UINT(WM_APP) + 20
     private static let upDownClassName: [UInt16] = Array("msctls_updown32".utf16) + [0]
     private static let trackbarClassName: [UInt16] = Array("msctls_trackbar32".utf16) + [0]
     private static let hInstance = GetModuleHandleW(nil)
@@ -1520,6 +1526,47 @@ final class SettingsWindow {
         }
     }
 
+    // "System (English)" then each language in its own name. A drop-down
+    // list rather than segmented buttons: five-plus options don't fit the
+    // value column. Changing it rebuilds the window (every control bakes its
+    // text in), via rebuildMessage once this notification has returned.
+    private func addLanguageCombo(in page: HWND, y: Int32) {
+        let width: Int32 = 180
+        guard let combo = (Self.comboClassName.withUnsafeBufferPointer { classNamePtr in
+            CreateWindowExW(
+                0, classNamePtr.baseAddress, nil,
+                DWORD(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL) | DWORD(CBS_DROPDOWNLIST),
+                rightX(width), y, width, 200,
+                page, nil, Self.hInstance, nil)
+        }) else {
+            fatalError("CreateWindowExW (language combo) failed with error \(GetLastError())")
+        }
+        applyDefaultFont(combo)
+        anchorRight(combo)
+        languageChoices = ["system"] + L.languageIDs
+        for id in languageChoices {
+            let title = id == "system"
+                ? L.t("general.language.system", L.displayName(of: L.resolvedSystemLanguage))
+                : L.displayName(of: id)
+            let wide = Array(title.utf16) + [0]
+            _ = wide.withUnsafeBufferPointer { SendMessageW(combo, UINT(CB_ADDSTRING), 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
+        }
+        let selected = languageChoices.firstIndex(of: settingsStore.get().language) ?? 0
+        SendMessageW(combo, UINT(CB_SETCURSEL), WPARAM(selected), 0)
+        languageCombo = combo
+    }
+
+    private func languageComboChanged() {
+        guard let languageCombo else { return }
+        let index = Int(SendMessageW(languageCombo, UINT(CB_GETCURSEL), 0, 0))
+        guard index >= 0, index < languageChoices.count else { return }
+        let value = languageChoices[index]
+        guard value != settingsStore.get().language else { return }
+        // onChange (main.swift) applies it to L before the rebuild runs.
+        settingsStore.update { $0.language = value }
+        PostMessageW(hwnd, Self.rebuildMessage, 0, 0)
+    }
+
     // -- Appearance tab content -----------------------------------------------
 
     // Mirrors macOS's AppearanceTab, same section order: what the widget
@@ -2411,6 +2458,12 @@ final class SettingsWindow {
         addHint(L.t("general.colorScheme.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
+        y = addSectionHeader(L.t("general.language.header"), in: page, y: y, width: rowWidth)
+        addLabel(L.t("general.language.label"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLanguageCombo(in: page, y: y)
+        y += Self.rowHeight
+        y += Self.sectionGap
+
         y = addSectionHeader(L.t("general.updates.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
             L.t("general.updates.checkForUpdates"), in: page, checked: settings.checkForUpdates,
@@ -2519,6 +2572,8 @@ final class SettingsWindow {
         hintLabels = []
         trayClickHintLabel = nil
         askForTitleCheckbox = nil
+        languageCombo = nil
+        languageChoices = []
         chimeLabel = nil
         chimeHintLabel = nil
         updatesActionButton = nil
@@ -2531,6 +2586,7 @@ final class SettingsWindow {
         // before rebuilding rather than reusing whatever isDarkMode already
         // held, same order the constructor uses.
         isDarkMode = resolveDarkMode()
+        _ = Self.windowTitle.withUnsafeBufferPointer { SetWindowTextW(hwnd, $0.baseAddress) }
         setUpTabsAndPages()
         applyTheme()
     }
@@ -3711,6 +3767,7 @@ final class SettingsWindow {
             RedrawWindow(stepper.editHwnd, nil, nil, UINT(RDW_FRAME) | UINT(RDW_INVALIDATE) | UINT(RDW_UPDATENOW))
         }
         if let opacityTrackbar { Self.setControlDarkTheme(opacityTrackbar, dark: isDarkMode) }
+        if let languageCombo { Self.setControlDarkTheme(languageCombo, dark: isDarkMode) }
 
         // Checkbox labels: see setControlClassicTheme's own comment for
         // why turning theming off is what actually gets darkTextHex onto
@@ -3842,6 +3899,10 @@ final class SettingsWindow {
     // -- WndProc dispatch -----------------------------------------------------
 
     func handleMessage(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        if message == Self.rebuildMessage {
+            rebuild()
+            return 0
+        }
         switch Int32(message) {
         case WM_NOTIFY:
             let header = UnsafeMutablePointer<NMHDR>(bitPattern: UInt(bitPattern: Int(lParam)))
@@ -3960,6 +4021,9 @@ final class SettingsWindow {
         }
         if notificationCode == EN_KILLFOCUS, let stepper = steppers.first(where: { $0.editHwnd == controlHwnd }) {
             commitTypedStepperValue(stepper)
+        }
+        if notificationCode == CBN_SELCHANGE, controlHwnd == languageCombo {
+            languageComboChanged()
         }
     }
 

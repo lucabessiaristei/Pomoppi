@@ -444,6 +444,18 @@ private struct GeneralTab: View {
                 Text(L.t("general.colorScheme.footer"))
             }
             Section {
+                // Every L.t in this window re-evaluates when settings publish,
+                // so the whole form relabels live (LOCALIZATION_PLAN.md L3).
+                Picker(L.t("general.language.label"), selection: viewModel.binding(\.language)) {
+                    Text(L.t("general.language.system", L.displayName(of: L.resolvedSystemLanguage))).tag("system")
+                    ForEach(L.languageIDs, id: \.self) { id in
+                        Text(L.displayName(of: id)).tag(id)
+                    }
+                }
+            } header: {
+                Text(L.t("general.language.header"))
+            }
+            Section {
                 Toggle(L.t("general.updates.checkForUpdates"), isOn: viewModel.binding(\.checkForUpdates))
                 UpdateStatusRow(updateChecker: viewModel.updateChecker)
             } header: {
