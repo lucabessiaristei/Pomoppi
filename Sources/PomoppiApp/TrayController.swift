@@ -2,6 +2,7 @@ import AppKit
 import PomoppiCore
 import PomoppiRender
 import PomoppiSprites
+import PomoppiStrings
 
 // The menu bar icon, ported from main.js's createTray()/updateTray()/
 // buildTrayTemplate(). By default left-click raises the widget and
@@ -117,36 +118,36 @@ final class TrayController: NSObject, NSMenuDelegate {
         // release — no greyed-out "no
         // update" placeholder item the rest of the time.
         if case .updateAvailable(let tag, _, _) = updateChecker.latestResult {
-            menu.addItem(makeItem(title: "Update available: \(tag)", action: #selector(handleOpenUpdatePage)))
+            menu.addItem(makeItem(title: L.t("tray.updateAvailable", tag), action: #selector(handleOpenUpdatePage)))
             menu.addItem(.separator())
         }
 
         menu.addItem(makeItem(
-            title: state.running ? "Pause" : "Start", action: #selector(handleStartPause),
+            title: state.running ? L.t("tray.pause") : L.t("common.start"), action: #selector(handleStartPause),
             shortcut: settings.shortcuts["startPause"]))
         menu.addItem(makeItem(
-            title: "Skip", action: #selector(handleSkip), enabled: !idle, shortcut: settings.shortcuts["skip"]))
+            title: L.t("tray.skip"), action: #selector(handleSkip), enabled: !idle, shortcut: settings.shortcuts["skip"]))
         menu.addItem(makeItem(
-            title: "Reset", action: #selector(handleReset), enabled: !idle, shortcut: settings.shortcuts["reset"]))
+            title: L.t("tray.reset"), action: #selector(handleReset), enabled: !idle, shortcut: settings.shortcuts["reset"]))
         menu.addItem(.separator())
 
-        let sessionsItem = NSMenuItem(title: "Sessions per long break", action: nil, keyEquivalent: "")
+        let sessionsItem = NSMenuItem(title: L.t("tray.sessionsPerLongBreak"), action: nil, keyEquivalent: "")
         sessionsItem.submenu = buildSessionsSubmenu(current: settings.longBreakEvery)
         menu.addItem(sessionsItem)
         menu.addItem(.separator())
 
         menu.addItem(makeItem(
-            title: widgetVisible ? "Hide Pomoppi" : "Show Pomoppi", action: #selector(handleToggleVisibility),
+            title: widgetVisible ? L.t("tray.hideWidget") : L.t("tray.showWidget"), action: #selector(handleToggleVisibility),
             shortcut: settings.shortcuts["toggleWidget"]))
         let keepOnTop = makeItem(
-            title: "Keep on top", action: #selector(handleToggleAlwaysOnTop), shortcut: settings.shortcuts["toggleOnTop"])
+            title: L.t("shortcut.toggleOnTop.label"), action: #selector(handleToggleAlwaysOnTop), shortcut: settings.shortcuts["toggleOnTop"])
         keepOnTop.state = settings.alwaysOnTop ? .on : .off
         menu.addItem(keepOnTop)
         menu.addItem(.separator())
 
         menu.addItem(makeItem(
-            title: "Settings…", action: #selector(handleOpenSettings), shortcut: settings.shortcuts["openSettings"]))
-        menu.addItem(makeItem(title: "Quit", action: #selector(handleQuit)))
+            title: L.t("tray.settings"), action: #selector(handleOpenSettings), shortcut: settings.shortcuts["openSettings"]))
+        menu.addItem(makeItem(title: L.t("tray.quit"), action: #selector(handleQuit)))
 
         return menu
     }
@@ -272,7 +273,7 @@ final class TrayController: NSObject, NSMenuDelegate {
             }
         }
 
-        let tooltip = "\(Self.phaseLabel(state.phase)) — \(clock)"
+        let tooltip = L.t("tray.tooltip", Self.phaseLabel(state.phase), clock)
         if tooltip != lastTooltip {
             statusItem.button?.toolTip = tooltip
             lastTooltip = tooltip
@@ -286,10 +287,10 @@ final class TrayController: NSObject, NSMenuDelegate {
 
     private static func phaseLabel(_ phase: Phase) -> String {
         switch phase {
-        case .focus: return "Focus"
-        case .shortBreak: return "Short Break"
-        case .longBreak: return "Long Break"
-        case .idle: return "Idle"
+        case .focus: return L.t("tray.phase.focus")
+        case .shortBreak: return L.t("tray.phase.shortBreak")
+        case .longBreak: return L.t("tray.phase.longBreak")
+        case .idle: return L.t("tray.phase.idle")
         }
     }
 

@@ -48,6 +48,15 @@ public enum L {
             ?? key
     }
 
+    // For names that come from data rather than code (backgrounds, frame
+    // styles, chimes): an id added by `node refresh-art` / `refresh-sounds`
+    // shows `fallback` until the catalog gets a key for it.
+    public static func t(_ key: String, fallback: String) -> String {
+        GeneratedStrings.tables[current]?[key]
+            ?? GeneratedStrings.tables[sourceLanguage]?[key]
+            ?? fallback
+    }
+
     // {0}, {1}, ... replaced positionally, so a translation can reorder them.
     public static func t(_ key: String, _ args: CustomStringConvertible...) -> String {
         var result = t(key)
