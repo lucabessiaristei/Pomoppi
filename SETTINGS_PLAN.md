@@ -23,9 +23,9 @@ It has three parts:
   already reshaping around it. Read `RELEASE_PLAN.md` first for why the
   checker exists at all and why it is hand-rolled.
 
-**Status as of 2026-09-24: S0-S4 and T1 are done (S1 in commit `b092865`,
-shipped in the `1dcf97e` 0.3.0 bump; S2 in commit `1ec7af2`); S5, T2-T3
-and S6a-S6f are not started.** `LOCALIZATION_PLAN.md` depends on this
+**Status as of 2026-09-24: S0-S4 and T1-T2 are done (S1 in commit
+`b092865`, shipped in the `1dcf97e` 0.3.0 bump; S2 in commit `1ec7af2`);
+S5, T3 and S6a-S6f are not started.** `LOCALIZATION_PLAN.md` depends on this
 file: S0 locks the copy, and nothing in L0's string-extraction sweep
 should run against labels this plan is still about to rename — or
 against the pile of new strings Part C adds.
@@ -417,16 +417,41 @@ not a side effect; S4's hint is what explains it.
   actually looks like anyway; the dialog/gate code itself was never the
   bug. Not a T1 code change — a note for whoever automates this dialog
   next.
-- **T2 — Chrome and edge cases.** Dark mode via the extracted
-  `WindowsTheme.swift`; cue banner; Return/Escape; Tab order; focus
-  landing in the edit field; work-area clamping; the hidden-widget path;
-  the `isShowing` re-entrancy guard; whitespace trimming. **Exit:**
-  prompt matches the settings window's dark mode; Return starts with no
-  beep; Escape cancels; the `startPause` hotkey pressed twice in a row
-  re-focuses one prompt instead of stacking two; a prompt raised while
-  the widget is hidden appears centred and focused; the widget keeps
-  animating behind the modal (the nested loop still pumps its ~60fps
-  `WM_TIMER`).
+- **T2 — Chrome and edge cases. ✅ DONE.** Dark mode via the extracted
+  `WindowsTheme.swift` (`resolveDarkMode`, `darkBackgroundHex`/
+  `darkTextHex`, the `SystemUsesLightTheme` registry read, all pulled out
+  of `SettingsWindow.swift`); cue banner; Return/Escape (intercepted on
+  `WM_KEYDOWN` before `TranslateMessage`/`IsDialogMessageW`, since a
+  single-line `EDIT` beeps on Return otherwise); Tab order across edit/
+  Cancel/Start; work-area clamping via `SPI_GETWORKAREA`; the
+  hidden-widget path (centers on the work area, relies on
+  `SetForegroundWindow` since nothing of Pomoppi's is foreground then);
+  the `isShowing` re-entrancy guard (`StartCoordinator.requestStart`
+  checks it before ever calling `TaskPromptDialog.run`, so a second fast
+  `startPause` press just re-focuses the existing prompt with no
+  timer/task side effect); whitespace trimming (already correct from T1).
+  Two real findings, not assumptions: `EM_SETCUEBANNER` needs `wParam=0`
+  — the documented `fDrawFocused=1` form silently no-ops on this build;
+  and `SetWindowTheme("DarkMode_Explorer")` has to run *before*
+  `EM_SETCUEBANNER`, not after, or the `WM_THEMECHANGED` it posts resets
+  the banner state. **Exit, all VM-verified with screenshots:** prompt
+  background/text/edit/buttons match the settings window's dark mode;
+  Return starts with no beep; Escape cancels; the `startPause` hotkey
+  pressed twice in a row re-focuses one prompt instead of stacking two
+  (`PomoppiTaskPromptClass` window count confirmed at exactly 1); a
+  prompt raised while the widget is hidden appears centred on the work
+  area with `GetForegroundWindow` matching the prompt's own `hwnd`; the
+  widget keeps animating behind the modal (`GetMessageW`'s `nil` hwnd
+  filter already covers this — the owner's `WM_TIMER` isn't gated on
+  being enabled). **One piece not landed here:** `SettingsWindow.swift`
+  itself switching to `WindowsTheme` (this phase's design also asked for
+  that, "have both the dialog and `SettingsWindow` use it") — S4 landed
+  concurrently in the same file and the two sets of edits were
+  interleaved on disk in a way that wasn't safe to split into this
+  commit. `SettingsWindow.swift` still carries its own private
+  `darkBackgroundHex`/`darkTextHex`/`darkBackgroundBrush` and
+  `resolveDarkMode()`; a follow-up should point it at `WindowsTheme`
+  instead, now that S4 has settled.
 - **T3 — Docs.** `SPEC.md` §5's "**Windows has no prompt at all**"
   paragraph and §0b's "Task-name prompt" ledger row both flip to the
   shipped behavior; `CLAUDE.md`'s Windows file map gains
