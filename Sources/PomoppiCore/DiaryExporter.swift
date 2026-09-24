@@ -37,9 +37,6 @@ public enum DiaryFormat: String, CaseIterable {
 }
 
 public enum DiaryExporter {
-    // A focus stopped early under this is left out of the diary (still in
-    // the log and the JSON export): nothing worth a line happened.
-    static let minimumFocusSeconds = 60
 
     public struct Pomodoro: Equatable {
         public let start: Date
@@ -56,7 +53,7 @@ public enum DiaryExporter {
     // -- grouping -----------------------------------------------------------
 
     static func isShown(_ entry: SessionLogEntry) -> Bool {
-        !(entry.phase == "focus" && !entry.completed && entry.seconds < minimumFocusSeconds)
+        entry.phase != "focus" || entry.isRealFocus
     }
 
     // The log in pomodoros, oldest first, grouped by each entry's

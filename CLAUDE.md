@@ -181,8 +181,9 @@ were removed; their history is in git.
   pomodoro in `<folder>/YYYY/MM/YYYY-MM-DD.md`, files Pomoppi fully owns and
   regenerates. Both group by pomodoro (`pomodoroStart` in the log; pre-0.4.0
   entries without it are deleted once by `migrateLegacyLog()`, never
-  guessed). `sessions.json` carries `"version": 2`; a versioned log is never
-  cleaned automatically, so don't add any other automatic deletion. Its
+  guessed). `sessions.json` carries `"version": 2`; from then on the only
+  automatic removal is `pruneEmptyPomodoros()` at launch (pomodoros with no
+  real focus at all); don't add any other. Its
   entry schema only grows (`SPEC.md` §8): add optional fields, never
   rename, repurpose or remove one. Sync stays idempotent and full-log: no cursor, no
   `diaryLastSyncedCount`, and it never deletes (old flat `<dateKey>.md`

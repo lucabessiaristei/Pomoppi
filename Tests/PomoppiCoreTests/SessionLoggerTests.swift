@@ -270,4 +270,25 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertEqual(entry.timeZone, Calendar.current.timeZone.identifier)
         XCTAssertEqual(entry.appVersion, pomoppiVersion)
     }
+
+    // A pomodoro whose every focus was skipped under a minute is removed at
+    // launch, breaks included; one with a real focus stays whole.
+    func testPruneEmptyPomodorosRemovesOnlyPomodorosWithNoRealFocus() async {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+        let empty = Date(timeIntervalSince1970: 1_758_267_300)
+        let real = Date(timeIntervalSince1970: 1_758_270_900)
+
+        _ = await logger.logSession(makeEntry(actualMs: 20_000, task: "empty", completed: false, pomodoroStart: empty))
+        _ = await logger.logSession(makeEntry(phase: .shortBreak, plannedMs: 5 * 60_000, actualMs: 5 * 60_000, task: "empty", pomodoroStart: empty))
+        _ = await logger.logSession(makeEntry(actualMs: 20_000, task: "real", completed: false, pomodoroStart: real))
+        _ = await logger.logSession(makeEntry(actualMs: 90_000, task: "real", completed: false, pomodoroStart: real))
+
+        let removed = await logger.pruneEmptyPomodoros()
+        XCTAssertEqual(removed, 2)
+        XCTAssertEqual(logger.allSessionsSync().map(\.task), ["real", "real"])
+        let removedAgain = await logger.pruneEmptyPomodoros()
+        XCTAssertEqual(removedAgain, 0)
+    }
 }

@@ -38,7 +38,9 @@ one.
   alone and can be deleted by hand. Sessions logged before this release carry no
   pomodoro id: on first launch they're deleted from the log, once, so
   Diary, Export and Sync start clean. From 0.4.0 on the log is versioned
-  and nothing is deleted automatically again.
+  and the only automatic cleanup left is dropping completely empty
+  pomodoros (every focus skipped under a minute) at launch. The Diary tab
+  counts pomodoros, and Export is disabled while there are none.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 

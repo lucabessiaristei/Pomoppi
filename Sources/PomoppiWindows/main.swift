@@ -35,7 +35,10 @@ let settingsStore = SettingsStore(storageDir: storageDir())
 L.configure(systemLanguages: userInterfaceLanguages())
 L.apply(setting: settingsStore.get().language)
 let sessionLogger = SessionLogger(getSettings: { settingsStore.get() }, storageDir: storageDir())
-Task { await sessionLogger.migrateLegacyLog() }
+Task {
+    await sessionLogger.migrateLegacyLog()
+    await sessionLogger.pruneEmptyPomodoros()
+}
 let chimePlayer = ChimePlayer()
 
 let timer = PomodoroTimer(settingsGetter: {

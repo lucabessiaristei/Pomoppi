@@ -371,6 +371,7 @@ final class SettingsWindow {
     // Export and Sync each report their own last outcome independently,
     // mirroring macOS DiaryTab's separate exportStatus/syncStatus @State.
     private var diarySessionCountLabel: HWND?
+    private var diaryExportButton: HWND?
     private var diaryExportStatusLabel: HWND?
     private var diaryFolderLabel: HWND?
     private var diarySyncButton: HWND?
@@ -2510,6 +2511,7 @@ final class SettingsWindow {
         opacityValueLabel = nil
         sessionHistorySizeLabel = nil
         diarySessionCountLabel = nil
+        diaryExportButton = nil
         diaryExportStatusLabel = nil
         diaryFolderLabel = nil
         diarySyncButton = nil
@@ -2700,13 +2702,16 @@ final class SettingsWindow {
         // Export/Sync outcomes sit beside their own button rather than on
         // a row of their own, so an empty status never leaves a blank gap.
         y = addSectionHeader(L.t("diary.export.header"), in: page, y: y, width: rowWidth)
-        addLabel(L.t("diary.export.sessionsRecorded"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        diarySessionCountLabel = addLabel("\(sessionLogger.allSessionsSync().count)", in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
+        let pomodoroCount = recordedPomodoroCount()
+        addLabel(L.t("diary.export.pomodorosRecorded"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        diarySessionCountLabel = addLabel("\(pomodoroCount)", in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
         anchorRight(diarySessionCountLabel)
         y += Self.rowHeight
-        addButton(L.t("diary.export.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
+        let exportButton = addButton(L.t("diary.export.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
         }
+        EnableWindow(exportButton, pomodoroCount > 0)
+        diaryExportButton = exportButton
         diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 152, y: y, width: rowWidth - 152)
         y += Self.rowHeight
         addHint(L.t("diary.export.footer"), in: page, y: &y, width: rowWidth)
@@ -2755,9 +2760,16 @@ final class SettingsWindow {
         if let label = sessionHistorySizeLabel {
             setWindowText(label, Self.formatHistorySize(sessionLogger.fileSizeBytes()))
         }
+        let pomodoroCount = recordedPomodoroCount()
         if let diarySessionCountLabel {
-            setWindowText(diarySessionCountLabel, "\(sessionLogger.allSessionsSync().count)")
+            setWindowText(diarySessionCountLabel, "\(pomodoroCount)")
         }
+        if let diaryExportButton { EnableWindow(diaryExportButton, pomodoroCount > 0) }
+    }
+
+    // Pomodoros the diary would show (SPEC.md §8b), not raw log entries.
+    private func recordedPomodoroCount() -> Int {
+        DiaryExporter.pomodoros(sessionLogger.allSessionsSync()).count
     }
 
     private static func formatHistorySize(_ bytes: Int64) -> String {

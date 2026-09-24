@@ -817,9 +817,14 @@ decoder. The file carries `"version": 2` from 0.4.0 on. **A log
 without `version` (written before 0.4.0) is cleaned once at launch**
 (`SessionLogger.migrateLegacyLog()`, both platforms): its entries without
 `pomodoroStart` are deleted (they can't be placed in a pomodoro, and the
-diary doesn't guess) and the file is stamped. A versioned file is never
-cleaned: from 0.4.0 on, nothing is removed from the log except by the user
-(Erase History, or reset discarding the pomodoro in progress, §5). `durationSeconds`
+diary doesn't guess) and the file is stamped. From 0.4.0 on, nothing else
+is removed from the log except by the user (Erase History, or reset
+discarding the pomodoro in progress, §5), with **one automatic exception**:
+at launch, after the migration, `SessionLogger.pruneEmptyPomodoros()`
+removes every **completely empty pomodoro**, one with no real focus
+(`isRealFocus`: completed, or stopped early after at least a minute), breaks
+included. Nothing in it could ever show up in the diary. It only runs at
+launch, when no pomodoro can be in progress. `durationSeconds`
 is the exact length (the diary shows `<1m` rather than `0m`; older entries
 fall back to `durationMinutes × 60`). `pomodoroStart` is the pomodoro the
 entry belongs to (§5); §8b groups by it. `completed: false` means stopped
@@ -899,6 +904,11 @@ every day file in the new language (they're Pomoppi's own files, below).
 
 Three sections in the Diary settings tab, top to bottom: Session history
 (§8), Export, Sync to folder.
+
+The tab's Export section shows **"Pomodoros recorded: N"**: the pomodoros
+the diary would show (`DiaryExporter.pomodoros`), not raw log entries.
+"Export Full Log…" is disabled while N is 0, so an export is never an
+empty shell.
 
 **Export: the complete log, one file.** "Export Full Log…" opens a save
 dialog offering Markdown (`.md`, the default: `Pomoppi Diary.md`), plain

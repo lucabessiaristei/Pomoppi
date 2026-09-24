@@ -58,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         L.apply(setting: settingsStore.get().language)
         timer = PomodoroTimer(settingsGetter: { [unowned self] in self.timerSettingsSnapshot() })
         sessionLogger = SessionLogger(getSettings: { [unowned self] in self.settingsStore.get() }, storageDir: Self.storageDir())
-        Task { [sessionLogger] in await sessionLogger?.migrateLegacyLog() }
+        Task { [sessionLogger] in
+            await sessionLogger?.migrateLegacyLog()
+            await sessionLogger?.pruneEmptyPomodoros()
+        }
         chimePlayer = ChimePlayer()
         updateChecker = AppUpdateChecker()
         updateChecker.isSessionActive = { [unowned self] in self.timer.getState().phase != .idle }
