@@ -673,7 +673,7 @@ never a child of the job and booting out cannot kill it.
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. Six
-tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary**. (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
+tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary**. **Terms are fixed**: a *pomodoro* is the whole cycle, a *focus session* (or *focus*) and a *break* are its phases; UI copy never says a bare "session". (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
 `General` is `Window` renamed and moved first — `Window` was a grab-bag
 naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
@@ -683,13 +683,13 @@ what a brand-new install opens on.
 
 | Tab | Section | Controls | Hint footer |
 |---|---|---|---|
-| **General** | Widget | Keep the widget on top of other windows; Pop to the front when a session ends | — |
+| **General** | Widget | Keep the widget on top of other windows; Pop to the front when a focus or break ends | — |
 | | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu" / swapped |
 | | Startup | Open Pomoppi when I log in; Start without showing the widget | "“Start hidden” applies from the next launch" |
 | | Color scheme | Mode: Auto / Light / Dark (segmented) | "Pomoppi's own windows only, widget colors are in Appearance" |
 | | Language | App language: "System (<its name>)" then each language in its own name (English, Deutsch, Español, Français, Italiano); `language` setting. macOS relabels the window live; Windows (a drop-down list) rebuilds it on the same tab | — |
 | | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
-| | Reset | **Reset Pomoppi…** | "Also erases your session history" |
+| | Reset | **Reset Pomoppi…** | "Also erases your pomodoro history" |
 | **Pomodoro** | Focus | Length; **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each session and a long break at the end, or set the length from the widget's clock" |
 | | Breaks | Short break; Long break | — |
 | | Auto-start | Start breaks automatically; Start the next focus automatically | — |
@@ -698,9 +698,9 @@ what a brand-new install opens on.
 | **Shortcuts** | From any app | one recorder row per action | "Click one, then press a new combo that includes a modifier" |
 | | | **Restore Defaults** | — |
 | | In the widget | static key list | — |
-| **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it" |
+| **Sound** | Chime | Play a chime when a focus or break ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it" |
 | | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off" |
-| **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer" |
+| **Diary** | Pomodoro history | Record every pomodoro; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer" |
 | | Export | Full log → Export…; Diary archive → Export… (each with a one-line hint under its label, one shared status line) | — |
 | | Sync to folder | Diary folder; Choose…; Sync Now | "Pomoppi keeps these files up to date, edits inside them are overwritten" |
 
@@ -851,7 +851,7 @@ Diary tab's "Erase History…" button after its own confirmation
 dialog, an accepted simplification for a rare, user-initiated action, not
 a hot path).
 
-The Diary tab's Session history section (§7's settings-window-layout
+The Diary tab's Pomodoro history section (§7's settings-window-layout
 subsection; this used to be its own "Log" tab — renamed from "Obsidian,"
 then folded into Diary entirely in the 2026-09-20 redesign, §8b) holds:
 the `loggingEnabled` toggle, a live history-size readout, and that Erase
@@ -902,10 +902,10 @@ module: the shell passes a `DiaryText` (a lookup closure plus the locale).
 Switching language changes the next export, and the next sync rewrites
 every day file in the new language (they're Pomoppi's own files, below).
 
-Three sections in the Diary settings tab, top to bottom: Session history
+Three sections in the Diary settings tab, top to bottom: Pomodoro history
 (§8), Export, Sync to folder.
 
-The Session history section shows **"Pomodoros recorded: N (size)"**: the
+The Pomodoro history section shows **"Pomodoros recorded: N (size)"**: the
 pomodoros the diary would show (`DiaryExporter.pomodoros`), not raw log
 entries, then the log's size (0 for an emptied log; there is no separate
 "History size" row).
@@ -926,16 +926,16 @@ dialog offering Markdown (`.md`, the default: `Pomoppi Diary.md`), plain
 text (`.txt`), OpenDocument text (`.odt`) and JSON (`.json`); the chosen
 type decides the format. Every day, every pomodoro, every focus and break
 with start–end clock, duration, and "stopped early" where it applies,
-headed "Pomoppi: full session log" so the file says what it is:
+headed "Pomoppi: full pomodoro log" so the file says what it is:
 
 ```
-# Pomoppi: full session log
+# Pomoppi: full pomodoro log
 Exported 2026-09-24 15:02 · 3 pomodoros
 
 ## Thursday, 24 September 2026
 
 ### 14:29 · writing spec
-4 sessions · 1 stopped early · Focus 1h 32m · Breaks 18m
+4 focus sessions · 1 stopped early · Focus 1h 32m · Breaks 18m
 
 - 14:29–14:54 · Focus · 25m
 - 14:54–14:59 · Short break · 5m
@@ -955,7 +955,7 @@ is the same structure as real headings and paragraphs, written with
 ```
 ## 14:29 · writing spec
 
-4 sessions · 1 stopped early
+4 focus sessions · 1 stopped early
 
 Focus 1h 32m · Breaks 18m
 ```
