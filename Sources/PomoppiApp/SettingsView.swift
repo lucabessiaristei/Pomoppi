@@ -343,24 +343,26 @@ private struct ThemePreset {
 
 private let themePresets: [ThemePreset] = [
     ThemePreset(name: "B/W", ink: "#000000", paper: "#FFFFFF"),
-    ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
-    ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
-    ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
-    ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
-    ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
-    ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
     ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
     ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
     ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
     ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
     ThemePreset(name: "Peach", ink: "#683525", paper: "#FFE1CF"),
+    ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
+    ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
+    ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
+    ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
+    ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
+    ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
 ]
 
 private struct ThemePresetPicker: View {
     @ObservedObject var viewModel: SettingsViewModel
 
-    // Two even rows of 6, same as Windows' themePresetColumns.
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 6)
+    // All 12 on one row (Windows wraps the same order into two rows of 6).
+    // Tight at the window's minimum width, hence the smaller swatch and
+    // names that shrink rather than truncate.
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: themePresets.count)
 
     var body: some View {
         // Same fix as CardPickerGrid: centre each item on its column so the
@@ -378,19 +380,20 @@ private struct ThemePresetPicker: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(Color(hex: preset.paper))
-                                .frame(width: 36, height: 36)
+                                .frame(width: 30, height: 30)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
                                         .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSelected ? 2 : 1)
                                 )
                             Circle()
                                 .fill(Color(hex: preset.ink))
-                                .frame(width: 14, height: 14)
+                                .frame(width: 12, height: 12)
                         }
                         Text(preset.name)
                             .font(.caption2)
                             .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                     }
                 }
                 .buttonStyle(.plain)

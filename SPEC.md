@@ -676,7 +676,7 @@ that carries this shape into code.
 | **Rhythm** | Focus | Default focus length | "Or click the clock on the widget." |
 | | Breaks | Short break; Long break; Long break every N sessions | "Or click the dots on the widget." |
 | | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Always asks while session logging is on (Diary tab)."; logging off → "Leave the name blank to skip." |
-| **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets in two rows of 6 (B/W, LCD Green, Pine, Midnight, OLED, Amber, Cherry, Cocoa, Sakura, Lavender, Mint, Peach) + Ink / Paper | — |
+| **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets, one row on macOS, two rows of 6 on Windows (B/W, Cocoa, Sakura, Lavender, Mint, Peach, Pine, Midnight, OLED, Amber, Cherry, LCD Green) + Ink / Paper | — |
 | | Size & transparency | Size (segmented); Opacity | — |
 | **Keys** | Global shortcuts | one recorder row per action | "Work from any app. Click one, then press a new combo that includes a modifier." |
 | | | **Restore Default Shortcuts** | — |
