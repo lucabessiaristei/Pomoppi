@@ -410,13 +410,12 @@ private struct GeneralTab: View {
                 Text("“Start hidden” applies from the next launch.")
             }
             Section {
-                Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
+                Picker("Mode", selection: viewModel.binding(\.colorScheme)) {
                     Text("Auto").tag("auto")
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
                 .pickerStyle(.segmented)
-                .labelsHidden()
             } header: {
                 Text("Color scheme")
             } footer: {

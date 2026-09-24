@@ -419,17 +419,28 @@ final class SettingsWindow {
     // SW_SCROLLCHILDREN blit-and-shift left stale fragments of owner-drawn
     // cards on screen, confirmed live in the VM (a documented MSDN caveat
     // for children straddling the scroll boundary).
+    //
+    // The same pass also handles width: a right-anchored child (a labeled
+    // row's control, see rightX) moves by however much the page is wider
+    // than when it was built, so right edges stay flush on resize.
     private struct ScrollChild {
         let hwnd: HWND
         let baseX: Int32
         let baseY: Int32
+        let anchorRight: Bool
     }
     private struct PageScrollState {
         let contentHeight: Int32
+        let builtWidth: Int32
         let children: [ScrollChild]
         var scrollY: Int32 = 0
+        var widthDelta: Int32 = 0
     }
     private var pageScroll: [HWND: PageScrollState] = [:]
+    // The page being built's right content edge (createPage sets it before
+    // calling a builder), and the controls registered to follow it.
+    private var contentRight: Int32 = 0
+    private var rightAnchored: Set<HWND> = []
 
     // The Keys tab's own page — SetFocus target while recording, so the
     // capture keystroke's WM_(SYS)KEYDOWN has somewhere of ours to land
@@ -518,8 +529,9 @@ final class SettingsWindow {
     // on top of the last element's itemGap, so every section break is the
     // same 24px whatever ends the section. A row with its own label
     // (stepper, picker, swatch, recorder button, value readout) puts the
-    // label at rowMargin and the control at controlX, the same column on
-    // every tab.
+    // label at rowMargin and the control flush with the content's right
+    // edge (rightX), like macOS's Form, and that control follows the right
+    // edge when the window is widened (see ScrollChild.anchorRight).
     private static let rowMargin: Int32 = 20
     private static let controlHeight: Int32 = 24
     private static let itemGap: Int32 = 6
@@ -530,8 +542,11 @@ final class SettingsWindow {
     // Every segmented group (color scheme, chime, scale) uses the same
     // segment width, so their edges line up across tabs.
     private static let segmentWidth: Int32 = 60
+
+    private static func segmentedWidth(count: Int) -> Int32 {
+        Int32(count) * segmentWidth + Int32(max(0, count - 1)) * 6
+    }
     private static let labelColumnWidth: Int32 = 230
-    private static let controlX: Int32 = rowMargin + labelColumnWidth
     // A plain label beside a 24px control: nudged down so its text sits on
     // the control's vertical center.
     private static let labelNudge: Int32 = 4
@@ -781,6 +796,11 @@ final class SettingsWindow {
         let pageHeight = displayRect.bottom - displayRect.top
         for page in pages {
             SetWindowPos(page, nil, displayRect.left, displayRect.top, pageWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+            if var state = pageScroll[page], state.widthDelta != pageWidth - state.builtWidth {
+                state.widthDelta = pageWidth - state.builtWidth
+                pageScroll[page] = state
+                positionChildren(of: page)
+            }
             updatePageScrollInfo(page)
         }
     }
@@ -793,7 +813,7 @@ final class SettingsWindow {
     // (rather than each add* helper registering itself) also picks up
     // controls Windows positions on its own, like a stepper's up-down,
     // which UDS_ALIGNRIGHT docks against its buddy edit.
-    private func captureScrollLayout(page: HWND) {
+    private func captureScrollLayout(page: HWND, builtWidth: Int32) {
         var children: [ScrollChild] = []
         var lowestBottom: Int32 = 0
         var child = GetWindow(page, UINT(GW_CHILD))
@@ -802,11 +822,11 @@ final class SettingsWindow {
             GetWindowRect(current, &rect)
             var topLeft = POINT(x: rect.left, y: rect.top)
             ScreenToClient(page, &topLeft)
-            children.append(ScrollChild(hwnd: current, baseX: topLeft.x, baseY: topLeft.y))
+            children.append(ScrollChild(hwnd: current, baseX: topLeft.x, baseY: topLeft.y, anchorRight: rightAnchored.contains(current)))
             lowestBottom = max(lowestBottom, topLeft.y + (rect.bottom - rect.top))
             child = GetWindow(current, UINT(GW_HWNDNEXT))
         }
-        pageScroll[page] = PageScrollState(contentHeight: lowestBottom + Self.rowMargin, children: children)
+        pageScroll[page] = PageScrollState(contentHeight: lowestBottom + Self.rowMargin, builtWidth: builtWidth, children: children)
         updatePageScrollInfo(page)
     }
 
@@ -848,16 +868,33 @@ final class SettingsWindow {
         guard newScrollY != state.scrollY else { return }
         state.scrollY = newScrollY
         pageScroll[page] = state
+        positionChildren(of: page)
+        SetScrollPos(page, Int32(SB_VERT), newScrollY, true)
+    }
 
+    // Moves every child to its base position, shifted up by the scroll
+    // offset and, if right-anchored, right by the page's width change.
+    private func positionChildren(of page: HWND) {
+        guard let state = pageScroll[page] else { return }
         var batch = BeginDeferWindowPos(Int32(state.children.count))
         for child in state.children {
+            let x = child.baseX + (child.anchorRight ? state.widthDelta : 0)
             batch = DeferWindowPos(
-                batch, child.hwnd, nil, child.baseX, child.baseY - newScrollY, 0, 0,
+                batch, child.hwnd, nil, x, child.baseY - state.scrollY, 0, 0,
                 UINT(SWP_NOZORDER) | UINT(SWP_NOSIZE) | UINT(SWP_NOACTIVATE))
         }
         EndDeferWindowPos(batch)
-        SetScrollPos(page, Int32(SB_VERT), newScrollY, true)
         RedrawWindow(page, nil, nil, UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
+    }
+
+    // x that puts a control of `width` flush with the page's right content
+    // edge, registering it to follow that edge on resize.
+    private func rightX(_ width: Int32) -> Int32 {
+        contentRight - width
+    }
+
+    private func anchorRight(_ hwnd: HWND?) {
+        if let hwnd { rightAnchored.insert(hwnd) }
     }
 
     // WM_VSCROLL from a page's own scrollbar (see pomoppiSettingsPageWndProc).
@@ -912,17 +949,18 @@ final class SettingsWindow {
     // this used to be), so WM_COMMAND/WM_CTLCOLORSTATIC/WM_CTLCOLORBTN all
     // arrive already forwarded through pomoppiSettingsPageWndProc the same
     // way every other General tab control's do — no separate dispatch path
-    // needed anymore. Version on the left, action button in the shared
-    // control column, like every other labeled row.
+    // needed anymore. Version on the left, action button on the right,
+    // like every other labeled row.
     private func addUpdateStatusRow(in page: HWND, y: Int32) {
         updatesVersionLabel = addLabel("Pomoppi \(pomoppiVersion)", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         updatesActionButton = addButton(
             "Check for updates", in: page,
-            x: Self.controlX, y: y,
+            x: rightX(250), y: y,
             width: 250, height: Self.controlHeight
         ) { [weak self] in
             self?.handleUpdateActionClick()
         }
+        anchorRight(updatesActionButton)
         refreshUpdateStatus()
     }
 
@@ -1295,6 +1333,7 @@ final class SettingsWindow {
         // Layout width always leaves the scrollbar's gutter free, whether or
         // not the bar is currently shown, so it never overlaps a control.
         let layoutWidth = width - GetSystemMetrics(SM_CXVSCROLL)
+        contentRight = layoutWidth - Self.rowMargin
         switch tab {
         case .general:
             buildGeneralTab(page: page, width: layoutWidth)
@@ -1309,7 +1348,7 @@ final class SettingsWindow {
         case .diary:
             buildDiaryTab(page: page, width: layoutWidth)
         }
-        captureScrollLayout(page: page)
+        captureScrollLayout(page: page, builtWidth: width)
         return page
     }
 
@@ -1862,11 +1901,12 @@ final class SettingsWindow {
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
                 DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
-                Self.controlX, y, swatchWidth, Self.controlHeight,
+                rightX(swatchWidth), y, swatchWidth, Self.controlHeight,
                 page, nil, Self.hInstance, nil)
         }) else {
             fatalError("CreateWindowExW (color picker) failed with error \(GetLastError())")
         }
+        anchorRight(button)
         colorPickers.append(ColorPickerControl(hwnd: button, keyPath: keyPath))
         pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self] in
             self?.pickColor(keyPath: keyPath)
@@ -1936,8 +1976,9 @@ final class SettingsWindow {
         addLabel("Size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let buttonWidth = Self.segmentWidth
         let gap: Int32 = 6
+        let startX = rightX(Self.segmentedWidth(count: 4))
         for (index, value) in [1, 2, 3, 4].enumerated() {
-            let bx = Self.controlX + Int32(index) * (buttonWidth + gap)
+            let bx = startX + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, nil,
@@ -1948,6 +1989,7 @@ final class SettingsWindow {
                 fatalError("CreateWindowExW (scale option) failed with error \(GetLastError())")
             }
             scaleOptions.append(ScaleOptionControl(hwnd: button, value: value))
+            anchorRight(button)
             pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
                 settingsStore.update { $0.scale = value }
                 self?.invalidateAllScaleOptions()
@@ -1962,16 +2004,17 @@ final class SettingsWindow {
     }
 
     // The General tab's Color scheme section — same owner-drawn segmented
-    // buttons as addScalePicker above, over PomoppiSettings.colorSchemeIDs.
-    // Label-less like macOS's (the section header already names it), so it
-    // starts at rowMargin rather than controlX. A click also has to
-    // re-resolve and re-apply isDarkMode itself, unlike every other
-    // segmented group's onSelect.
+    // buttons as addScalePicker above, over PomoppiSettings.colorSchemeIDs,
+    // as a labeled "Mode" row like macOS's. A click also has to re-resolve
+    // and re-apply isDarkMode itself, unlike every other segmented group's
+    // onSelect.
     private func addColorSchemePicker(in page: HWND, y: Int32) {
+        addLabel("Mode", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let buttonWidth = Self.segmentWidth
         let gap: Int32 = 6
+        let startX = rightX(Self.segmentedWidth(count: PomoppiSettings.colorSchemeIDs.count))
         for (index, value) in PomoppiSettings.colorSchemeIDs.enumerated() {
-            let bx = Self.rowMargin + Int32(index) * (buttonWidth + gap)
+            let bx = startX + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, nil,
@@ -1982,6 +2025,7 @@ final class SettingsWindow {
                 fatalError("CreateWindowExW (color scheme option) failed with error \(GetLastError())")
             }
             schemeOptions.append(SchemeOptionControl(hwnd: button, value: value))
+            anchorRight(button)
             pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
                 settingsStore.update { $0.colorScheme = value }
                 guard let self else { return }
@@ -2008,8 +2052,9 @@ final class SettingsWindow {
         let ids = PomoppiSettings.chimeIDs
         let gap: Int32 = 6
         let buttonWidth = Self.segmentWidth
+        let startX = rightX(Self.segmentedWidth(count: ids.count))
         for (index, value) in ids.enumerated() {
-            let bx = Self.controlX + Int32(index) * (buttonWidth + gap)
+            let bx = startX + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, nil,
@@ -2020,6 +2065,7 @@ final class SettingsWindow {
                 fatalError("CreateWindowExW (chime option) failed with error \(GetLastError())")
             }
             chimeOptions.append(ChimeOptionControl(hwnd: button, value: value))
+            anchorRight(button)
             // Each option is its own button, so unlike macOS's segmented
             // Picker this fires BN_CLICKED on every click, including a
             // reselect of the already-selected option — previewing the
@@ -2109,7 +2155,7 @@ final class SettingsWindow {
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
                 DWORD(WS_CHILD | WS_VISIBLE) | DWORD(bitPattern: TBS_HORZ) | DWORD(bitPattern: TBS_AUTOTICKS),
-                Self.controlX, y, trackWidth, Self.controlHeight,
+                rightX(trackWidth + 8 + 44), y, trackWidth, Self.controlHeight,
                 page, nil, Self.hInstance, nil)
         }) else {
             fatalError("CreateWindowExW (opacity trackbar) failed with error \(GetLastError())")
@@ -2118,9 +2164,11 @@ final class SettingsWindow {
         SendMessageW(trackbar, UINT(TBM_SETRANGE), WPARAM(1), LPARAM(Int(3) | (Int(10) << 16)))
         SendMessageW(trackbar, UINT(TBM_SETPOS), WPARAM(1), LPARAM(Int((settings.opacity * 10).rounded())))
         opacityTrackbar = trackbar
+        anchorRight(trackbar)
 
         let percent = Int((settings.opacity * 100).rounded())
-        opacityValueLabel = addLabel("\(percent)%", in: page, x: Self.controlX + trackWidth + 8, y: y + Self.labelNudge, width: 44)
+        opacityValueLabel = addLabel("\(percent)%", in: page, x: rightX(44), y: y + Self.labelNudge, width: 44, rightAligned: true)
+        anchorRight(opacityValueLabel)
     }
 
     // WM_HSCROLL from the opacity trackbar (forwarded here via
@@ -2374,6 +2422,7 @@ final class SettingsWindow {
         updatesVersionLabel = nil
         updatesActionButton = nil
         pageScroll = [:]
+        rightAnchored = []
         keysPage = nil
 
         // colorScheme may itself have just reset to "auto" — re-derive
@@ -2447,10 +2496,11 @@ final class SettingsWindow {
             addLabel(action.label, in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
             let button = addButton(
                 Shortcuts.displayWindows(bindings[action.id] ?? ""),
-                in: page, x: Self.controlX, y: y, width: 160, height: Self.controlHeight
+                in: page, x: rightX(160), y: y, width: 160, height: Self.controlHeight
             ) { [weak self] in
                 self?.toggleShortcutRecording(actionID: action.id)
             }
+            anchorRight(button)
             shortcutRecorders.append(ShortcutRecorderControl(buttonHwnd: button, actionID: action.id))
             y += Self.rowHeight
         }
@@ -2464,13 +2514,13 @@ final class SettingsWindow {
         }
         y += Self.rowHeight + Self.sectionGap
 
-        // Action left, keys in the control column, same as macOS's
-        // LabeledContent rows. Plain text rows, so a tighter pitch than
+        // Action left, keys right-aligned, same as macOS's LabeledContent
+        // rows. Plain text rows, so a tighter pitch than
         // rowHeight.
         y = addSectionHeader("While the widget is focused", in: page, y: y, width: rowWidth)
         for binding in Self.widgetKeyBindings {
             addLabel(binding.action, in: page, x: Self.rowMargin, y: y, width: Self.labelColumnWidth - 8)
-            addLabel(binding.keys, in: page, x: Self.controlX, y: y, width: rowWidth - Self.labelColumnWidth)
+            anchorRight(addLabel(binding.keys, in: page, x: rightX(160), y: y, width: 160, rightAligned: true))
             y += 22
         }
     }
@@ -2520,7 +2570,8 @@ final class SettingsWindow {
         }
         y += Self.rowHeight
         addLabel("History size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth)
+        sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
+        anchorRight(sessionHistorySizeLabel)
         y += Self.rowHeight
         addButton("Erase History…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.confirmEraseSessionLog()
@@ -2533,7 +2584,8 @@ final class SettingsWindow {
         // a row of their own, so an empty status never leaves a blank gap.
         y = addSectionHeader("Export", in: page, y: y, width: rowWidth)
         addLabel("Sessions recorded", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        diarySessionCountLabel = addLabel("\(sessionLogger.allSessionsSync().count)", in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth)
+        diarySessionCountLabel = addLabel("\(sessionLogger.allSessionsSync().count)", in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
+        anchorRight(diarySessionCountLabel)
         y += Self.rowHeight
         addButton("Export Diary…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
@@ -2547,8 +2599,9 @@ final class SettingsWindow {
         // head-truncated LabeledContent.
         diaryFolderLabel = addLabel(
             Self.folderDisplayText(settings.diaryFolderPath),
-            in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth, pathEllipsis: true
+            in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true, pathEllipsis: true
         )
+        anchorRight(diaryFolderLabel)
         y += Self.rowHeight
         addButton("Choose…", in: page, x: Self.rowMargin, y: y, width: 100, height: Self.controlHeight) { [weak self] in
             self?.chooseDiaryFolder()
@@ -2897,9 +2950,9 @@ final class SettingsWindow {
     // meant to carry a keyboard mnemonic, so this is unconditional rather
     // than something each call site has to remember to ask for.
     @discardableResult
-    private func addLabel(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 18, centered: Bool = false, pathEllipsis: Bool = false) -> HWND {
+    private func addLabel(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 18, centered: Bool = false, rightAligned: Bool = false, pathEllipsis: Bool = false) -> HWND {
         let wide = Array(text.utf16) + [0]
-        let alignmentStyle: Int32 = (centered ? SS_CENTER : 0) | (pathEllipsis ? SS_PATHELLIPSIS : 0) | SS_NOPREFIX
+        let alignmentStyle: Int32 = (centered ? SS_CENTER : 0) | (rightAligned ? SS_RIGHT : 0) | (pathEllipsis ? SS_PATHELLIPSIS : 0) | SS_NOPREFIX
         guard let label = (Self.staticClassName.withUnsafeBufferPointer { classNamePtr in
             wide.withUnsafeBufferPointer { textPtr in
                 CreateWindowExW(
@@ -3090,7 +3143,9 @@ final class SettingsWindow {
     ) -> (edit: HWND, upDown: HWND) {
         addLabel(label, in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
 
-        let editX = Self.controlX
+        // UDS_ALIGNRIGHT docks the up-down inside the edit's own width, so
+        // the pair's right edge is the edit's.
+        let editX = rightX(editWidth)
         let height = Self.controlHeight
         guard let editHwnd = (Self.editClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
@@ -3121,6 +3176,8 @@ final class SettingsWindow {
         SendMessageW(upDownHwnd, UINT(UDM_SETPOS32), 0, LPARAM(Int(value)))
 
         steppers.append(StepperControl(editHwnd: editHwnd, upDownHwnd: upDownHwnd, min: min, max: max, step: step, onChange: onChange))
+        anchorRight(editHwnd)
+        anchorRight(upDownHwnd)
         // pomoppiStepperSubclassProc's own dark-mode-only gate decides
         // when either of these actually intercepts anything — installed
         // unconditionally here, same "every stepper gets one, light mode
