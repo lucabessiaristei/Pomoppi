@@ -41,8 +41,10 @@ one.
   and the only automatic cleanup left is dropping completely empty
   pomodoros (every focus skipped under a minute) at launch. The Diary tab
   shows "Pomodoros recorded: N (size)" instead of a bare history size, and
-  the exports are disabled while there are none. New **Export Diary
-  Archive…**: the same year/month day files Sync writes, as one .zip.
+  the exports are disabled while there are none. Export has two rows,
+  Full log and the new Diary archive (the same year/month day files Sync
+  writes, as one .zip), each with its own hint and Export… button.
+- **No UI sentence ends with a period any more**, on either platform.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 

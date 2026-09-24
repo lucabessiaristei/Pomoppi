@@ -673,7 +673,7 @@ never a child of the job and booting out cannot kill it.
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. Six
-tabs, left to right: **General, Pomodoro, Appearance, Keys, Sound, Diary**. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
+tabs, left to right: **General, Pomodoro, Appearance, Keys, Sound, Diary**. **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
 `General` is `Window` renamed and moved first — `Window` was a grab-bag
 naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
@@ -684,25 +684,25 @@ what a brand-new install opens on.
 | Tab | Section | Controls | Hint footer |
 |---|---|---|---|
 | **General** | Widget | Keep the widget on top of other windows; Pop to the front when a session ends | — |
-| | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu." / swapped |
-| | Startup | Open Pomoppi when I log in; Start without showing the widget | "“Start hidden” applies from the next launch." |
-| | Color scheme | Mode: Auto / Light / Dark (segmented) | "Pomoppi's own windows only. Widget colors are in Appearance." |
+| | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu" / swapped |
+| | Startup | Open Pomoppi when I log in; Start without showing the widget | "“Start hidden” applies from the next launch" |
+| | Color scheme | Mode: Auto / Light / Dark (segmented) | "Pomoppi's own windows only, widget colors are in Appearance" |
 | | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
 | | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
-| | Reset | **Reset Pomoppi…** | "Also erases your session history." |
-| **Pomodoro** | Focus | Length; **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each session, a long break at the end. Or click the clock on the widget." |
+| | Reset | **Reset Pomoppi…** | "Also erases your session history" |
+| **Pomodoro** | Focus | Length; **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each session and a long break at the end, or set the length from the widget's clock" |
 | | Breaks | Short break; Long break | — |
 | | Auto-start | Start breaks automatically; Start the next focus automatically | — |
 | **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets, one row on macOS, two rows of 6 on Windows (B/W, Cocoa, Sakura, Lavender, Mint, Peach, Pine, Midnight, OLED, Amber, Cherry, LCD Green) + Ink / Paper | — |
 | | Size & transparency | Size (segmented); Opacity | — |
-| **Keys** | Global shortcuts | one recorder row per action | "Work from any app. Click one, then press a new combo that includes a modifier." |
+| **Keys** | Global shortcuts | one recorder row per action | "Work from any app: click one, then press a new combo that includes a modifier" |
 | | | **Restore Default Shortcuts** | — |
 | | While the widget is focused | static key list | — |
-| **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it." |
-| | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off." |
-| **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer." |
-| | Export | Sessions recorded; Export Diary… | — |
-| | Sync to folder | Diary folder; Choose…; Sync Now | — |
+| **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it" |
+| | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off" |
+| **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer" |
+| | Export | Full log → Export…; Diary archive → Export… (each with a one-line hint under its label, one shared status line) | — |
+| | Sync to folder | Diary folder; Choose…; Sync Now | "Pomoppi keeps these files up to date, edits inside them are overwritten" |
 
 Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
 a pixel match for SwiftUI's `Form`/`Section` — that's accepted (identical
@@ -908,14 +908,20 @@ Three sections in the Diary settings tab, top to bottom: Session history
 The Session history section shows **"Pomodoros recorded: N (size)"**: the
 pomodoros the diary would show (`DiaryExporter.pomodoros`), not raw log
 entries, then the log's size (0 for an emptied log; there is no separate
-"History size" row). Both export buttons are disabled while N is 0, so an
-export is never an empty shell.
+"History size" row).
 
-**Export Diary Archive…** saves `Pomoppi Diary Archive.zip`: the same
-`YYYY/MM/YYYY-MM-DD.md` files Sync writes, at the same paths, built by the
-same `DiaryExporter.dayFiles` (so the two can't drift).
+The **Export section** is two rows, each with what comes out on the left
+(and a one-line hint under it) and an **Export…** button on the right,
+then one shared status line: *Full log* ("One file with every pomodoro,
+focus and break") and *Diary archive* ("Day files in year and month
+folders, as a .zip"). Both buttons are disabled while N is 0, so an export
+is never an empty shell. The Diary archive saves
+`Pomoppi Diary Archive.zip`: the same `YYYY/MM/YYYY-MM-DD.md` files Sync
+writes, at the same paths, built by the same `DiaryExporter.dayFiles` (so
+the two can't drift). Sync's hint: "Pomoppi keeps these files up to date,
+edits inside them are overwritten".
 
-**Export: the complete log, one file.** "Export Full Log…" opens a save
+**Export: the complete log, one file.** The Full log row's Export… opens a save
 dialog offering Markdown (`.md`, the default: `Pomoppi Diary.md`), plain
 text (`.txt`), OpenDocument text (`.odt`) and JSON (`.json`); the chosen
 type decides the format. Every day, every pomodoro, every focus and break
