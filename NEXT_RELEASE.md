@@ -44,6 +44,7 @@ one.
   the exports are disabled while there are none. Export has two rows,
   Full log and the new Diary archive (the same year/month day files Sync
   writes, as one .zip), each with its own hint and Export… button.
+- **The "Keys" tab is now "Shortcuts"**, with sections "From any app" and "In the widget".
 - **No UI sentence ends with a period any more**, on either platform.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).

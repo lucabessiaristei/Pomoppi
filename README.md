@@ -184,7 +184,7 @@ the checkbox.
 ## Keyboard
 
 **From anywhere**, whatever app you're in. All seven are rebindable in
-**Settings → Keys**, and any of them can be cleared if you'd rather have the
+**Settings → Shortcuts**, and any of them can be cleared if you'd rather have the
 combo back.
 
 | | |
@@ -233,7 +233,7 @@ Everything is editable in the settings window and saved as you type, to
 | General | color scheme, widget always-on-top / raise on end, menu bar click swap, launch at login / start hidden, update checking, reset |
 | Pomodoro | focus length and focus sessions per pomodoro, short / long break lengths, auto-start breaks/focus |
 | Appearance | friend, theme, window edge, background, pixel scale (1-4×), opacity |
-| Keys | the seven global shortcuts, plus a reference card for the in-widget keys |
+| Shortcuts | the seven global shortcuts, plus a reference card for the in-widget keys |
 | Sound | chime pack, ring length |
 | Diary | session history (record every session, ask for a pomodoro title, erase), export the full log (`.md`/`.txt`/`.odt`/`.json`), sync a daily summary to a folder |
 
