@@ -104,6 +104,7 @@ final class TaskPromptDialog {
             windowClass.lpszClassName = classNamePtr.baseAddress
             windowClass.hCursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
             windowClass.hbrBackground = HBRUSH(bitPattern: Int(COLOR_BTNFACE + 1))
+            windowClass.hIcon = SettingsWindow.loadAppIcon(width: GetSystemMetrics(SM_CXICON), height: GetSystemMetrics(SM_CYICON))
             return RegisterClassW(&windowClass)
         }
         guard atom != 0 else {
@@ -176,6 +177,15 @@ final class TaskPromptDialog {
             fatalError("CreateWindowExW (task prompt) failed with error \(GetLastError())")
         }
         hwnd = createdHwnd
+
+        // The titlebar shows the small icon; without WM_SETICON it falls
+        // back to the generic window icon (same pair SettingsWindow sets).
+        if let bigIcon = SettingsWindow.loadAppIcon(width: GetSystemMetrics(SM_CXICON), height: GetSystemMetrics(SM_CYICON)) {
+            SendMessageW(createdHwnd, UINT(WM_SETICON), WPARAM(UInt(ICON_BIG)), LPARAM(Int(bitPattern: bigIcon)))
+        }
+        if let smallIcon = SettingsWindow.loadAppIcon(width: GetSystemMetrics(SM_CXSMICON), height: GetSystemMetrics(SM_CYSMICON)) {
+            SendMessageW(createdHwnd, UINT(WM_SETICON), WPARAM(UInt(ICON_SMALL)), LPARAM(Int(bitPattern: smallIcon)))
+        }
 
         if darkMode {
             // DWMWA_USE_IMMERSIVE_DARK_MODE before the first ShowWindow
