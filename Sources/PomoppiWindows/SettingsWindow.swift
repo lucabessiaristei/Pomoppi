@@ -563,7 +563,8 @@ final class SettingsWindow {
     // handleMessage's own NMHDR/NMUPDOWN reconstruction below). MAKEINTRESOURCE(1)
     // doesn't import as a usable symbol in this overlay (same story as
     // IDC_ARROW just below) — reconstruct via UnsafePointer<WCHAR>(bitPattern:).
-    private static func loadAppIcon(width: Int32, height: Int32) -> HICON? {
+    // Also used by TaskPromptDialog for its own titlebar.
+    static func loadAppIcon(width: Int32, height: Int32) -> HICON? {
         guard let handle = LoadImageW(hInstance, UnsafePointer<WCHAR>(bitPattern: 1), UINT(IMAGE_ICON), width, height, UINT(LR_DEFAULTCOLOR)) else {
             return nil
         }
