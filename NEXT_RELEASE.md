@@ -30,7 +30,9 @@ one.
   one file (Markdown, plain text, OpenDocument or JSON); Sync writes one
   short summary per pomodoro into `YYYY/MM/YYYY-MM-DD.md`. Both are
   localized. Old flat `YYYY-MM-DD.md` files from earlier syncs are left
-  alone and can be deleted by hand.
+  alone and can be deleted by hand. Sessions logged before this release carry no
+  pomodoro id and are left out of Export's readable formats and Sync (the
+  JSON export still has them).
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 

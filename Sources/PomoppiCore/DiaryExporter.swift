@@ -40,9 +40,6 @@ public enum DiaryExporter {
     // A focus stopped early under this is left out of the diary (still in
     // the log and the JSON export): nothing worth a line happened.
     static let minimumFocusSeconds = 60
-    // Older entries carry no pomodoroStart; a gap longer than this between
-    // two of them starts a new pomodoro.
-    static let legacyGapSeconds: TimeInterval = 30 * 60
 
     public struct Pomodoro: Equatable {
         public let start: Date
@@ -62,44 +59,30 @@ public enum DiaryExporter {
         !(entry.phase == "focus" && !entry.completed && entry.seconds < minimumFocusSeconds)
     }
 
-    // The log in pomodoros, oldest first. Entries with a pomodoroStart group
-    // by it; older ones by inference (after a long break, after a long gap,
-    // or on a new day). Pomodoros with no focus left to show are dropped.
+    // The log in pomodoros, oldest first, grouped by each entry's
+    // pomodoroStart. Entries written before that field existed have none and
+    // are left out (no guessing which pomodoro they belonged to); they stay
+    // in the raw JSON export. Pomodoros with no focus left to show are
+    // dropped.
     public static func pomodoros(_ sessions: [SessionLogEntry], calendar: Calendar = .current) -> [Pomodoro] {
         var groups: [[SessionLogEntry]] = []
-        var keyed: [Int64: Int] = [:]
-        var legacyGroup: Int?
-        var previous: SessionLogEntry?
-
+        var index: [Int64: Int] = [:]
         for entry in sessions {
-            if let start = entry.pomodoroStart {
-                let key = pomodoroKey(start)
-                if let index = keyed[key] {
-                    groups[index].append(entry)
-                } else {
-                    keyed[key] = groups.count
-                    groups.append([entry])
-                }
-                legacyGroup = nil
-            } else if let previous, let current = legacyGroup,
-                      previous.phase != "longBreak",
-                      entry.startTime.timeIntervalSince(previous.endTime) <= legacyGapSeconds,
-                      calendar.isDate(previous.startTime, inSameDayAs: entry.startTime) {
-                // legacyGroup is only set while the previous entry was a
-                // legacy one too.
-                groups[current].append(entry)
+            guard let start = entry.pomodoroStart else { continue }
+            let key = pomodoroKey(start)
+            if let i = index[key] {
+                groups[i].append(entry)
             } else {
-                legacyGroup = groups.count
+                index[key] = groups.count
                 groups.append([entry])
             }
-            previous = entry
         }
 
         return groups.compactMap { group -> Pomodoro? in
             let shown = group.filter(isShown)
-            guard shown.contains(where: { $0.phase == "focus" }), let first = group.first else { return nil }
+            guard shown.contains(where: { $0.phase == "focus" }), let start = group.first?.pomodoroStart else { return nil }
             let title = group.last(where: { !$0.task.isEmpty })?.task ?? ""
-            return Pomodoro(start: first.pomodoroStart ?? first.startTime, title: title, entries: shown)
+            return Pomodoro(start: start, title: title, entries: shown)
         }
         .sorted { $0.start < $1.start }
     }
