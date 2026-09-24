@@ -694,17 +694,13 @@ private struct DiaryTab: View {
                 Text(L.t("diary.history.footer"))
             }
             Section {
-                Button(L.t("diary.export.button")) { exportDiary() }
-                    .disabled(pomodoroCount == 0)
-                Button(L.t("diary.export.archiveButton")) { exportArchive() }
-                    .disabled(pomodoroCount == 0)
+                exportRow(title: L.t("diary.export.fullLog"), hint: L.t("diary.export.fullLogHint"), action: exportDiary)
+                exportRow(title: L.t("diary.export.archive"), hint: L.t("diary.export.archiveHint"), action: exportArchive)
                 if let exportStatus {
                     Text(exportStatus).foregroundStyle(.secondary)
                 }
             } header: {
                 Text(L.t("diary.export.header"))
-            } footer: {
-                Text(L.t("diary.export.footer"))
             }
             Section {
                 LabeledContent(L.t("diary.sync.folder")) {
@@ -785,6 +781,22 @@ private struct DiaryTab: View {
             exportStatus = L.t("diary.export.success", url.lastPathComponent)
         } catch {
             exportStatus = L.t("diary.export.failed")
+        }
+    }
+
+    // What comes out on the left (with a one-line hint, like the Keys tab's
+    // rows), the action on the right.
+    private func exportRow(title: String, hint: String, action: @escaping () -> Void) -> some View {
+        LabeledContent {
+            Button(L.t("diary.export.action"), action: action)
+                .disabled(pomodoroCount == 0)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -1093,7 +1093,7 @@ final class SettingsWindow {
             // separate messageText/informativeText/button — this
             // MessageBoxW needs one string, but the rendered English stays
             // byte-identical to the concatenation.
-            let text = Array((L.t("updates.sessionActive.title") + ". " + L.t("updates.sessionActive.message") + "\n\n" + L.t("updates.sessionActive.confirm")).utf16) + [0]
+            let text = Array((L.t("updates.sessionActive.title") + "\n\n" + L.t("updates.sessionActive.message") + "\n\n" + L.t("updates.sessionActive.confirm")).utf16) + [0]
             let title = Array(L.t("updates.dialogTitle").utf16) + [0]
             let answer = text.withUnsafeBufferPointer { textPtr in
                 title.withUnsafeBufferPointer { titlePtr in
@@ -2460,7 +2460,7 @@ final class SettingsWindow {
         // Composed from the same two keys macOS's confirmationDialog shows
         // as a separate title/message — this MessageBoxW needs one string,
         // but the rendered English stays byte-identical to the concatenation.
-        let text = Array((L.t("general.reset.confirm.title") + " " + L.t("general.reset.confirm.message")).utf16) + [0]
+        let text = Array((L.t("general.reset.confirm.title") + "\n\n" + L.t("general.reset.confirm.message")).utf16) + [0]
         let title = Array(L.t("general.reset.confirm.button").utf16) + [0]
         let result = text.withUnsafeBufferPointer { textPtr in
             title.withUnsafeBufferPointer { titlePtr in
@@ -2700,23 +2700,32 @@ final class SettingsWindow {
         addHint(L.t("diary.history.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        // Export/Sync outcomes sit beside their own button rather than on
-        // a row of their own, so an empty status never leaves a blank gap.
+        // Sync's outcome sits beside its button; Export's two rows share
+        // one status line under them.
         y = addSectionHeader(L.t("diary.export.header"), in: page, y: y, width: rowWidth)
-        let exportButton = addButton(L.t("diary.export.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
+        // What comes out on the left with its hint under it, the action
+        // flush right, like every other labeled row.
+        let exportButtonWidth: Int32 = 96
+        addLabel(L.t("diary.export.fullLog"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        let exportButton = addButton(L.t("diary.export.action"), in: page, x: rightX(exportButtonWidth), y: y, width: exportButtonWidth, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
         }
+        anchorRight(exportButton)
         EnableWindow(exportButton, pomodoroCount > 0)
         diaryExportButton = exportButton
-        diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 152, y: y, width: rowWidth - 152)
         y += Self.rowHeight
-        let archiveButton = addButton(L.t("diary.export.archiveButton"), in: page, x: Self.rowMargin, y: y, width: 180, height: Self.controlHeight) { [weak self] in
+        addHint(L.t("diary.export.fullLogHint"), in: page, y: &y, width: rowWidth)
+        addLabel(L.t("diary.export.archive"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        let archiveButton = addButton(L.t("diary.export.action"), in: page, x: rightX(exportButtonWidth), y: y, width: exportButtonWidth, height: Self.controlHeight) { [weak self] in
             self?.exportArchive()
         }
+        anchorRight(archiveButton)
         EnableWindow(archiveButton, pomodoroCount > 0)
         diaryArchiveButton = archiveButton
         y += Self.rowHeight
-        addHint(L.t("diary.export.footer"), in: page, y: &y, width: rowWidth)
+        addHint(L.t("diary.export.archiveHint"), in: page, y: &y, width: rowWidth)
+        diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += Self.rowHeight
         y += Self.sectionGap
 
         y = addSectionHeader(L.t("diary.sync.header"), in: page, y: y, width: rowWidth)
@@ -2750,7 +2759,7 @@ final class SettingsWindow {
     private func confirmEraseSessionLog() {
         // Same two-keys-composed-into-one-string shape as
         // confirmResetToDefaults above.
-        let text = Array((L.t("diary.history.eraseConfirm.title") + " " + L.t("diary.history.eraseConfirm.message")).utf16) + [0]
+        let text = Array((L.t("diary.history.eraseConfirm.title") + "\n\n" + L.t("diary.history.eraseConfirm.message")).utf16) + [0]
         let title = Array(L.t("diary.history.eraseConfirm.button").utf16) + [0]
         let result = text.withUnsafeBufferPointer { textPtr in
             title.withUnsafeBufferPointer { titlePtr in
