@@ -36,7 +36,7 @@ let targets: [Target] = [
     // winmm isn't in MSVC's default link set (unlike kernel32/user32/gdi32/...)
     // — PlaySoundW (ChimePlayer.swift) needs it linked explicitly.
     .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites", "PomoppiStrings"], exclude: ["Pomoppi.exe.manifest", "Pomoppi.rc"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("winmm")]),
-    .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore"], swiftSettings: swiftSettings),
+    .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore", "PomoppiStrings"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiStringsTests", dependencies: ["PomoppiStrings"], swiftSettings: swiftSettings),
 ]
@@ -47,7 +47,7 @@ let targets: [Target] = [
     .target(name: "PomoppiRender", dependencies: ["PomoppiCore", "PomoppiSprites"], swiftSettings: swiftSettings),
     .target(name: "PomoppiStrings", swiftSettings: swiftSettings),
     .executableTarget(name: "PomoppiApp", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiStrings"], swiftSettings: swiftSettings),
-    .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore"], swiftSettings: swiftSettings),
+    .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore", "PomoppiStrings"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiRenderTests", dependencies: ["PomoppiRender"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiStringsTests", dependencies: ["PomoppiStrings"], swiftSettings: swiftSettings),

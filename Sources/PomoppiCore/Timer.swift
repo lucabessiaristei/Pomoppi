@@ -29,6 +29,23 @@ public struct PhaseCompleteEvent {
     public let actualMs: Double
     public let task: String
     public let completed: Bool
+    // The first focus's start in this phase's pomodoro (SPEC.md §5); the log
+    // groups by it. nil only for a phase outside any pomodoro.
+    public let pomodoroStartedAt: Date?
+
+    public init(
+        phase: Phase, startedAt: Date, endedAt: Date, plannedMs: Double, actualMs: Double,
+        task: String, completed: Bool, pomodoroStartedAt: Date? = nil
+    ) {
+        self.phase = phase
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.plannedMs = plannedMs
+        self.actualMs = actualMs
+        self.task = task
+        self.completed = completed
+        self.pomodoroStartedAt = pomodoroStartedAt
+    }
 }
 
 // The slice of settings the timer needs, decoupled from the full Settings
@@ -67,6 +84,9 @@ public final class PomodoroTimer {
     public var onChange: ((TimerState) -> Void)?
     public var onTick: ((TimerState) -> Void)?
     public var onPhaseComplete: ((PhaseCompleteEvent) -> Void)?
+    // reset() threw a pomodoro away: the shell erases its log entries
+    // (SessionLogger.discardPomodoro). Carries that pomodoro's start.
+    public var onPomodoroDiscarded: ((Date) -> Void)?
 
     private let getSettings: () -> TimerSettingsSnapshot
     private let now: () -> Date
@@ -77,8 +97,10 @@ public final class PomodoroTimer {
     private var endsAt: Date?          // set while running; nil while paused/idle
     private var remainingMs: Double = 0 // authoritative while not running
     private var totalMs: Double = 0     // duration locked in when the phase began
-    private var cycleIndex = 0
+    private var cycleIndex = 0             // focus sessions done this pomodoro
     private var completedToday = 0
+    private var completedThisPomodoro = 0  // handed back by reset()
+    private var pomodoroStartedAt: Date?   // nil = no pomodoro under way
     private var completedTodayKey: String?
     private var task: String = ""
     private var phaseStartedAt: Date?
@@ -105,6 +127,7 @@ public final class PomodoroTimer {
         if ringing { silenceRing(emitChange: false, nowTs) }
         if phase == .idle { setupPhase(.focus) }
         if running || remainingMs <= 0 { return getState() }
+        if pomodoroStartedAt == nil { pomodoroStartedAt = nowTs }
         beginRunning(nowTs)
         onChange?(getState())
         return getState()
@@ -122,31 +145,28 @@ public final class PomodoroTimer {
         return getState()
     }
 
+    // Throws the current pomodoro away (SPEC.md §5): nothing is logged, and
+    // onPomodoroDiscarded tells the shell to erase what already was. A no-op
+    // from idle with no pomodoro under way.
     @discardableResult
     public func reset() -> TimerState {
         let nowTs = now()
         if ringing { silenceRing(emitChange: false, nowTs) }
-        if phase != .idle, let startedAt = phaseStartedAt {
-            let remaining = computeRemainingMs(nowTs)
-            let actualMs = max(0, totalMs - remaining)
-            emitPhaseComplete(PhaseCompleteEvent(
-                phase: phase, startedAt: startedAt, endedAt: nowTs,
-                plannedMs: totalMs, actualMs: actualMs, task: task, completed: false))
+        guard phase != .idle || pomodoroStartedAt != nil else { return getState() }
+        if let startedAt = pomodoroStartedAt {
+            rolloverIfNeeded(nowTs)
+            completedToday = max(0, completedToday - completedThisPomodoro)
+            onPomodoroDiscarded?(startedAt)
         }
-        phase = .idle
-        running = false
-        endsAt = nil
-        remainingMs = 0
-        totalMs = 0
-        phaseStartedAt = nil
+        endPomodoro()
         onChange?(getState())
         return getState()
     }
 
-    // Ends the current phase early and moves straight on to the next one,
-    // either direction. A cut-short focus earns no cycle/day credit — a long
-    // break is earned by finishing sessions, not by skipping through them —
-    // and bypasses autoStartFocus/autoStartBreaks.
+    // Ends the current phase and moves on (SPEC.md §5), bypassing
+    // autoStartFocus/autoStartBreaks. A skipped focus fills its dot like a
+    // finished one but is logged as stopped early with its real length;
+    // skipping the long break ends the pomodoro.
     @discardableResult
     public func skip() -> TimerState {
         let nowTs = now()
@@ -158,13 +178,20 @@ public final class PomodoroTimer {
         let actualMs = max(0, totalMs - remaining)
         emitPhaseComplete(PhaseCompleteEvent(
             phase: skippedPhase, startedAt: phaseStartedAt ?? nowTs, endedAt: nowTs,
-            plannedMs: totalMs, actualMs: actualMs, task: task, completed: false))
+            plannedMs: totalMs, actualMs: actualMs, task: task, completed: false,
+            pomodoroStartedAt: pomodoroStartedAt))
 
-        if breakPhases.contains(skippedPhase) {
+        switch skippedPhase {
+        case .focus:
+            // Under a minute nothing worth counting happened (SPEC.md §8b).
+            finishFocus(nowTs, countsForToday: actualMs >= 60_000)
+            setupPhase(cycleIndex >= getSettings().longBreakEvery ? .longBreak : .shortBreak)
+        case .shortBreak:
             setupPhase(.focus)
-        } else {
-            task = ""
-            setupPhase(.shortBreak)
+        case .longBreak, .idle:
+            endPomodoro()
+            onChange?(getState())
+            return getState()
         }
         beginRunning(nowTs)
         onChange?(getState())
@@ -264,6 +291,26 @@ public final class PomodoroTimer {
         phaseStartedAt = nil
     }
 
+    private func finishFocus(_ nowTs: Date, countsForToday: Bool) {
+        cycleIndex += 1
+        if countsForToday {
+            rolloverIfNeeded(nowTs)
+            completedToday += 1
+            completedThisPomodoro += 1
+        }
+    }
+
+    // Back to idle with nothing under way: dots emptied, title cleared.
+    private func endPomodoro() {
+        setupPhase(.idle)
+        cycleIndex = 0
+        completedThisPomodoro = 0
+        pomodoroStartedAt = nil
+        task = ""
+        pendingPhase = nil
+        pendingAutoStart = false
+    }
+
     private func beginRunning(_ nowTs: Date) {
         if phaseStartedAt == nil { phaseStartedAt = nowTs }
         endsAt = nowTs.addingTimeInterval(remainingMs / 1000)
@@ -284,6 +331,10 @@ public final class PomodoroTimer {
     private func advancePendingPhase(_ nowTs: Date) {
         guard let next = pendingPhase else { return }
         pendingPhase = nil
+        if next == .idle {
+            endPomodoro()
+            return
+        }
         setupPhase(next)
         if pendingAutoStart { beginRunning(nowTs) }
         pendingAutoStart = false
@@ -305,22 +356,22 @@ public final class PomodoroTimer {
 
         emitPhaseComplete(PhaseCompleteEvent(
             phase: finishedPhase, startedAt: startedAt, endedAt: nowTs,
-            plannedMs: plannedMs, actualMs: plannedMs, task: finishedTask, completed: true))
+            plannedMs: plannedMs, actualMs: plannedMs, task: finishedTask, completed: true,
+            pomodoroStartedAt: pomodoroStartedAt))
 
         let settings = getSettings()
         let nextPhase: Phase
-        if finishedPhase == .focus {
-            rolloverIfNeeded(nowTs)
-            completedToday += 1
-            cycleIndex += 1
-            if cycleIndex >= settings.longBreakEvery {
-                nextPhase = .longBreak
-                cycleIndex = 0
-            } else {
-                nextPhase = .shortBreak
-            }
-            task = ""
-        } else {
+        switch finishedPhase {
+        case .focus:
+            finishFocus(nowTs, countsForToday: true)
+            nextPhase = cycleIndex >= settings.longBreakEvery ? .longBreak : .shortBreak
+        case .longBreak:
+            // The pomodoro is over as of now, so a reset during the ring
+            // can't discard it; the dots stay full until the ring ends.
+            nextPhase = .idle
+            pomodoroStartedAt = nil
+            completedThisPomodoro = 0
+        case .shortBreak, .idle:
             nextPhase = .focus
         }
 
@@ -331,7 +382,8 @@ public final class PomodoroTimer {
         // played out and been silenced. Logging above already happened
         // immediately: only the *visual* transition is held back.
         pendingPhase = nextPhase
-        pendingAutoStart = nextPhase == .focus ? settings.autoStartFocus : settings.autoStartBreaks
+        pendingAutoStart = nextPhase == .idle ? false
+            : nextPhase == .focus ? settings.autoStartFocus : settings.autoStartBreaks
         ringing = true
         ringStartedAt = nowTs
 

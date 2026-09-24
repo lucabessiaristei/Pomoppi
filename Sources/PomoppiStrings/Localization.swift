@@ -59,6 +59,11 @@ public enum L {
 
     // {0}, {1}, ... replaced positionally, so a translation can reorder them.
     public static func t(_ key: String, _ args: CustomStringConvertible...) -> String {
+        t(key, args: args)
+    }
+
+    // Array form, for callers that forward arguments (the Diary's DiaryText).
+    public static func t(_ key: String, args: [CustomStringConvertible]) -> String {
         var result = t(key)
         for (index, arg) in args.enumerated() {
             result = result.replacingOccurrences(of: "{\(index)}", with: arg.description)

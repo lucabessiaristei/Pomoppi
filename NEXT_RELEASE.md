@@ -17,6 +17,20 @@ one.
   open for an update the floating widget drops to normal level, and goes
   back when it quits (`b34be6b`, `SPEC.md` §9b R1). Shipped in v0.3.5's
   code too, but untested there until now.
+- **Pomodoros, redesigned** (`SPEC.md` §5): a pomodoro is the whole cycle
+  (N focus sessions, short breaks between, one long break) with one title
+  for all of it. Skip counts a focus as done (its dot fills; logged as
+  stopped early), skipping the last focus starts the long break, and the
+  long break ending (or skipped) closes the pomodoro. Reset throws the
+  current pomodoro away, log entries included. The widget's dots are
+  display-only; the reset button is greyed out while idle.
+- **Settings: "Focus sessions"** replaces "Long break every N sessions"
+  (same saved value), at the top of Rhythm and in the tray menu.
+- **Diary, redesigned** (`SPEC.md` §8b): Export writes the complete log as
+  one file (Markdown, plain text, OpenDocument or JSON); Sync writes one
+  short summary per pomodoro into `YYYY/MM/YYYY-MM-DD.md`. Both are
+  localized. Old flat `YYYY-MM-DD.md` files from earlier syncs are left
+  alone and can be deleted by hand.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 
@@ -34,6 +48,9 @@ one.
 ## Suggested release notes
 
 ```
+- Pomodoros: one title per pomodoro, skip counts the session, reset discards the pomodoro.
+- "Focus sessions" setting replaces "Long break every N sessions".
+- Diary: export the full log as Markdown, text, OpenDocument or JSON; sync writes a daily summary per pomodoro in year/month folders.
 - Updates now appear only once the installer for your platform is ready to download.
 - macOS: the update installer opens above the widget.
 - Windows: the task-name prompt shows Pomoppi's icon.

@@ -28,6 +28,37 @@ public struct SessionLogEntry: Codable, Equatable {
     public let endTime: Date
     public let durationMinutes: Int
     public let completed: Bool
+    // Added 2026-09-24, absent from older entries (SPEC.md §8): the exact
+    // length, and the pomodoro this phase belongs to.
+    public let durationSeconds: Int?
+    public let pomodoroStart: Date?
+
+    public init(
+        phase: String, task: String, day: Int, month: Int, year: Int,
+        startTime: Date, endTime: Date, durationMinutes: Int, completed: Bool,
+        durationSeconds: Int? = nil, pomodoroStart: Date? = nil
+    ) {
+        self.phase = phase
+        self.task = task
+        self.day = day
+        self.month = month
+        self.year = year
+        self.startTime = startTime
+        self.endTime = endTime
+        self.durationMinutes = durationMinutes
+        self.completed = completed
+        self.durationSeconds = durationSeconds
+        self.pomodoroStart = pomodoroStart
+    }
+
+    // Older entries only have whole minutes.
+    public var seconds: Int { durationSeconds ?? durationMinutes * 60 }
+}
+
+// ISO8601 in sessions.json keeps whole seconds only, so pomodoros are
+// matched on that rather than on Date equality.
+func pomodoroKey(_ date: Date) -> Int64 {
+    Int64(date.timeIntervalSince1970.rounded(.down))
 }
 
 // The whole file's shape: one growing array, not one file per day — chosen
@@ -44,6 +75,9 @@ public actor SessionLogger {
     // nonisolated: fileSizeBytes() below reads this off-actor. Immutable
     // after init, so sharing it across isolation domains is safe.
     private nonisolated let fileURL: URL
+    // Pomodoros reset() threw away this run: an append for one of them that
+    // arrives after discardPomodoro (both are async) is dropped too.
+    private var discarded: Set<Int64> = []
 
     public init(getSettings: @escaping () -> PomoppiSettings, storageDir: URL) {
         self.getSettings = getSettings
@@ -58,19 +92,35 @@ public actor SessionLogger {
     @discardableResult
     public func logSession(_ event: PhaseCompleteEvent) async -> Bool {
         guard getSettings().loggingEnabled else { return false }
+        if let start = event.pomodoroStartedAt, discarded.contains(pomodoroKey(start)) { return false }
 
         let calendar = Calendar.current
         let comps = calendar.dateComponents([.day, .month, .year], from: event.startedAt)
-        let minutes = max(0, Int(((event.completed ? event.plannedMs : event.actualMs) / 60000).rounded()))
+        let lengthMs = event.completed ? event.plannedMs : event.actualMs
+        let minutes = max(0, Int((lengthMs / 60000).rounded()))
         let entry = SessionLogEntry(
             phase: event.phase.rawValue, task: event.task,
             day: comps.day ?? 0, month: comps.month ?? 0, year: comps.year ?? 0,
             startTime: event.startedAt, endTime: event.endedAt,
-            durationMinutes: minutes, completed: event.completed)
+            durationMinutes: minutes, completed: event.completed,
+            durationSeconds: max(0, Int((lengthMs / 1000).rounded())),
+            pomodoroStart: event.pomodoroStartedAt)
 
         var file = readFile() ?? SessionLogFile(sessions: [])
         file.sessions.append(entry)
         return writeFile(file)
+    }
+
+    // reset() threw this pomodoro away (SPEC.md §5, §8): remove its entries
+    // and ignore any of its appends still in flight.
+    @discardableResult
+    public func discardPomodoro(startedAt: Date) async -> Bool {
+        let key = pomodoroKey(startedAt)
+        discarded.insert(key)
+        guard var file = readFile() else { return true }
+        let before = file.sessions.count
+        file.sessions.removeAll { $0.pomodoroStart.map(pomodoroKey) == key }
+        return file.sessions.count == before || writeFile(file)
     }
 
     // The settings window's "Erase History" button (with its own
