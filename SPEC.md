@@ -59,7 +59,7 @@ not a plan.
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
-| Task-name prompt | Real: `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | **None.** `startPause` starts the timer directly — a known, explicitly-flagged gap, not a silent omission (see `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) |
+| Task-name prompt | `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | Win32 modal via `TaskPromptDialog.swift`, same gate and behavior — part of the settings overhaul's Part B (see `SETTINGS_PLAN.md` T1–T3) |
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
@@ -408,18 +408,16 @@ a reselect of the already-selected option, so it always replays; macOS's
 segmented `Picker` doesn't fire its selection binding on a reselect, so
 re-hearing the current chime there means picking another option and back.
 
-## 5. Timer model `[divergent]`
+## 5. Timer model `[both]`
 
 Phase transitions, `skip()`'s bidirectional semantics, wall-clock timing
-(`endsAt`/`remainingMs`) are all `[both]` — shared `PomodoroTimer`
-(`PomoppiCore`), driven identically by both platforms. **The task-name
-prompt is not.** macOS implements this paragraph for real
-(`StartCoordinator.swift`: prompts via `NSAlert` when `askForTaskName` is
-on, or unconditionally when `loggingEnabled` (§8), exactly as described
-below). **Windows has no prompt at all** — `startPause` calls
-`timer.start()` directly, a known, explicitly-flagged gap (native Win32
-has no attempted implementation of this dialog yet; see
-`WINDOWS_PORT_PLAN.md`'s W3/W5 notes for why no phase has claimed it).
+(`endsAt`/`remainingMs`), and the task-name prompt are all shared across
+both platforms — same `PomodoroTimer` (`PomoppiCore`), driven identically.
+Both macOS and Windows implement the task-name prompt:
+`StartCoordinator.swift` on macOS (via `NSAlert`), `TaskPromptDialog.swift`
+on Windows (via a hand-rolled Win32 modal), each prompting when
+`askForTaskName` is on, or unconditionally when `loggingEnabled` (§8), exactly
+as described below (see `SETTINGS_PLAN.md` Part B, phases T1–T3).
 
 Phases: `focus` → `shortBreak` → `focus` → … and every `longBreakEvery`
 completed focus sessions the break is a `longBreak` instead. `cycleIndex`
