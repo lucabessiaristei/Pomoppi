@@ -154,8 +154,8 @@ private struct RhythmTab: View {
                 Text("Automation")
             } footer: {
                 Text(viewModel.settings.loggingEnabled
-                    ? "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."
-                    : "Pomoppi asks before each focus session. Leave it blank to skip.")
+                    ? "Always asks while session logging is on (Diary tab)."
+                    : "Leave the name blank to skip.")
             }
         }
         .settingsForm()
@@ -245,8 +245,6 @@ private struct AppearanceTab: View {
                 }
             } header: {
                 Text("Size & transparency")
-            } footer: {
-                Text("1× is very small — 104×128 physical pixels.")
             }
         }
         .settingsForm()
@@ -409,7 +407,7 @@ private struct GeneralTab: View {
             } header: {
                 Text("Startup")
             } footer: {
-                Text("Launch at login only registers when Pomoppi is running as an installed app. “Start hidden” applies the next time Pomoppi launches.")
+                Text("“Start hidden” applies from the next launch.")
             }
             Section {
                 Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
@@ -422,15 +420,13 @@ private struct GeneralTab: View {
             } header: {
                 Text("Color scheme")
             } footer: {
-                Text("Applies to Pomoppi's own windows. The widget's colors are under Appearance.")
+                Text("Pomoppi's own windows only. Widget colors are in Appearance.")
             }
             Section {
                 Toggle("Automatically check for updates", isOn: viewModel.binding(\.checkForUpdates))
                 UpdateStatusRow(updateChecker: viewModel.updateChecker)
             } header: {
                 Text("Updates")
-            } footer: {
-                Text("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.")
             }
             Section {
                 Button("Reset Pomoppi…", role: .destructive) {
@@ -439,7 +435,7 @@ private struct GeneralTab: View {
             } header: {
                 Text("Reset")
             } footer: {
-                Text("Erases every setting and your whole session history, and puts Pomoppi back to how it shipped.")
+                Text("Also erases your session history.")
             }
         }
         .settingsForm()
@@ -551,10 +547,14 @@ private struct SoundTab: View {
                         viewModel.chimePlayer.play(chime: viewModel.settings.chime, focusEnd: true)
                     }
                 }
+                // Only used while the chime is on. The Ring section below
+                // stays live either way: ringSeconds is visual (SPEC.md §4).
+                .disabled(!viewModel.settings.soundEnabled)
             } header: {
                 Text("Chime")
             } footer: {
-                Text("Selecting a chime plays it.")
+                Text("Click a chime to hear it.")
+                    .opacity(viewModel.settings.soundEnabled ? 1 : 0.5)
             }
             Section {
                 Stepper(
@@ -563,7 +563,7 @@ private struct SoundTab: View {
             } header: {
                 Text("Ring")
             } footer: {
-                Text("How long the widget keeps ringing when a session ends, with or without the chime.")
+                Text("Visual only, so it rings even with the chime off.")
             }
         }
         .settingsForm()
@@ -603,7 +603,7 @@ private struct DiaryTab: View {
             } header: {
                 Text("Session history")
             } footer: {
-                Text("Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone.")
+                Text("Stored only on this computer.")
             }
             Section("Export") {
                 LabeledContent("Sessions recorded", value: "\(sessionCount)")
@@ -715,7 +715,7 @@ private struct KeysTab: View {
             } header: {
                 Text("Global shortcuts")
             } footer: {
-                Text("These fire even while Pomoppi isn’t the frontmost app. A shortcut needs a modifier; two actions can’t share the same combo.")
+                Text("Work from any app. Click one, then press a new combo that includes a modifier.")
             }
             Section {
                 Button("Restore Default Shortcuts") {
@@ -732,8 +732,6 @@ private struct KeysTab: View {
                 }
             } header: {
                 Text("While the widget is focused")
-            } footer: {
-                Text("Fixed keys. They only fire while the widget window itself has focus.")
             }
         }
         .settingsForm()
