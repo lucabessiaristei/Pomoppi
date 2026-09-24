@@ -1,8 +1,8 @@
-# v0.3.6 — what's in it
+# v0.4.0 — what's in it
 
 Running list of what has landed on `main` since v0.3.5, so the release
 notes write themselves. Cut it with `RELEASING.md`
-(`node Scripts/set-version.js 0.3.6`), then empty this file for the next
+(`node Scripts/set-version.js 0.4.0`), then empty this file for the next
 one.
 
 ## Changes
@@ -31,9 +31,9 @@ one.
   short summary per pomodoro into `YYYY/MM/YYYY-MM-DD.md`. Both are
   localized. Old flat `YYYY-MM-DD.md` files from earlier syncs are left
   alone and can be deleted by hand. Sessions logged before this release carry no
-  pomodoro id: on first launch they're moved out of the log into
-  `sessions-legacy.json` (same folder as `settings.json`), so Diary, Export
-  and Sync start clean.
+  pomodoro id: on first launch they're deleted from the log, once, so
+  Diary, Export and Sync start clean. From 0.4.0 on the log is versioned
+  and nothing is deleted automatically again.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 
@@ -53,6 +53,7 @@ one.
 ```
 - Pomodoros: one title per pomodoro, skip counts the session, reset discards the pomodoro.
 - "Focus sessions" setting replaces "Long break every N sessions".
+- Session history from earlier versions is cleared once on update.
 - Diary: export the full log as Markdown, text, OpenDocument or JSON; sync writes a daily summary per pomodoro in year/month folders.
 - Updates now appear only once the installer for your platform is ready to download.
 - macOS: the update installer opens above the widget.

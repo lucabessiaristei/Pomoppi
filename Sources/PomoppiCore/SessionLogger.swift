@@ -66,8 +66,15 @@ func pomodoroKey(_ date: Date) -> Int64 {
 // back up; re-reading and rewriting the whole array on every append is
 // accepted as a someday problem if session history ever grows large enough
 // for it to matter, not solved for now.
+// `version` is absent from logs written before 0.4.0 and is 2 from then on.
+// It gates the one-time cleanup in migrateLegacyLog(): once a file carries
+// it, nothing in it is ever dropped automatically again.
 private struct SessionLogFile: Codable {
+    static let currentVersion = 2
+    var version: Int?
     var sessions: [SessionLogEntry]
+
+    static var empty: SessionLogFile { SessionLogFile(version: currentVersion, sessions: []) }
 }
 
 public actor SessionLogger {
@@ -106,30 +113,24 @@ public actor SessionLogger {
             durationSeconds: max(0, Int((lengthMs / 1000).rounded())),
             pomodoroStart: event.pomodoroStartedAt)
 
-        var file = readFile() ?? SessionLogFile(sessions: [])
+        var file = readFile() ?? .empty
         file.sessions.append(entry)
         return writeFile(file)
     }
 
-    // One-time cleanup for logs written before pomodoroStart existed
-    // (SPEC.md §8): those entries can't be placed in a pomodoro, so they're
-    // moved out of sessions.json into sessions-legacy.json next to it
-    // (appended if it already exists) rather than guessed at. Called at
-    // launch on both platforms; a no-op once the log is clean. Returns how
-    // many entries were moved.
+    // One-time cleanup for logs written before 0.4.0 (SPEC.md §8): their
+    // entries have no pomodoroStart and can't be placed in a pomodoro, so
+    // they're deleted, and the file is stamped with the current version.
+    // Only a file with no version is ever touched: from 0.4.0 on this never
+    // removes anything. Called at launch on both platforms. Returns how
+    // many entries were removed.
     @discardableResult
-    public func moveLegacyEntriesOut() async -> Int {
-        guard var file = readFile() else { return 0 }
-        let legacy = file.sessions.filter { $0.pomodoroStart == nil }
-        guard !legacy.isEmpty else { return 0 }
-
-        let legacyURL = fileURL.deletingLastPathComponent().appendingPathComponent("sessions-legacy.json")
-        var archive = readFile(at: legacyURL) ?? SessionLogFile(sessions: [])
-        archive.sessions.append(contentsOf: legacy)
-        guard writeFile(archive, to: legacyURL) else { return 0 }
-
+    public func migrateLegacyLog() async -> Int {
+        guard var file = readFile(), file.version == nil else { return 0 }
+        let before = file.sessions.count
         file.sessions.removeAll { $0.pomodoroStart == nil }
-        return writeFile(file) ? legacy.count : 0
+        file.version = SessionLogFile.currentVersion
+        return writeFile(file) ? before - file.sessions.count : 0
     }
 
     // reset() threw this pomodoro away (SPEC.md §5, §8): remove its entries
@@ -149,7 +150,7 @@ public actor SessionLogger {
     // does what it's told).
     @discardableResult
     public func eraseAll() async -> Bool {
-        writeFile(SessionLogFile(sessions: []))
+        writeFile(.empty)
     }
 
     // The settings window's "History size" display. Deliberately
@@ -180,7 +181,7 @@ public actor SessionLogger {
     // worst case is one session's entry surviving an erase that just
     // missed it, not corruption.
     public nonisolated func eraseAllSync() {
-        try? "{\"sessions\":[]}".write(to: fileURL, atomically: true, encoding: .utf8)
+        try? "{\"sessions\":[],\"version\":\(SessionLogFile.currentVersion)}".write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
     // The Diary tab's "Sessions recorded" count and the Export/Sync actions
@@ -197,11 +198,7 @@ public actor SessionLogger {
     }
 
     private nonisolated func readFile() -> SessionLogFile? {
-        readFile(at: fileURL)
-    }
-
-    private nonisolated func readFile(at url: URL) -> SessionLogFile? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(SessionLogFile.self, from: data)
@@ -212,10 +209,6 @@ public actor SessionLogger {
     // FileManager.replaceItemAt isn't implemented in swift-corelibs-
     // foundation on Windows.
     private func writeFile(_ file: SessionLogFile) -> Bool {
-        writeFile(file, to: fileURL)
-    }
-
-    private func writeFile(_ file: SessionLogFile, to fileURL: URL) -> Bool {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
