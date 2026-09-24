@@ -1,5 +1,5 @@
 // UpdateInstaller.swift — the Windows side of the in-app update
-// (UPDATE_PLAN.md S6e): download the release's Setup .exe to %TEMP%, verify
+// (SPEC.md §15): download the release's Setup .exe to %TEMP%, verify
 // it, delete any Mark-of-the-Web stream, and run it with /SILENT. Inno Setup
 // then closes Pomoppi through RestartManager (CloseApplications=yes),
 // installs, and relaunches it (the WizardSilent [Run] entry).

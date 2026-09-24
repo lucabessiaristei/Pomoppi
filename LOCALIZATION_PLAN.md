@@ -4,9 +4,8 @@ A self-contained handoff for making Pomoppi speak more than English. Read
 this first for *why* things are the shape they are; once L5 lands,
 `SPEC.md` §16 is the behavior contract.
 
-**Status as of 2026-09-23: nothing started.** This plan is gated on
-`UPDATE_PLAN.md` finishing (the settings overhaul it waited on is done and
-shipped in v0.3.0).
+**Status as of 2026-09-24: L0 next.** Its gates are cleared: the settings
+overhaul shipped in v0.3.0, the in-app update in v0.3.5.
 
 **One open item before L2**: the language roster below is seeded with
 English + Italian. Confirm the full list before translation content
@@ -79,8 +78,7 @@ first step of L0**, don't fold it in silently.
 ## Full phase plan
 
 - **L0 — Catalog infrastructure + the extraction sweep. English only, no
-  visible change.** Gated on `UPDATE_PLAN.md` finishing (the settings
-  overhaul it waited on is done and shipped in v0.3.0). Build
+  visible change.** Build
   `Localization/en.json` by walking every user-facing literal in
   `Sources/PomoppiApp/` and `Sources/PomoppiWindows/` — settings window,
   tray menu and tooltip, `MessageBoxW` confirmations, update-footer
@@ -159,10 +157,7 @@ first step of L0**, don't fold it in silently.
 
 ## What to do next
 
-1. `UPDATE_PLAN.md` finishing — the settings overhaul this plan waited on
-   (copy locked, every rename landed, the Windows task prompt's own
-   strings) is done and shipped in v0.3.0.
-2. **L0 → L5** here, in order. L0 and L1 are mechanical and can be
+1. **L0 → L5** here, in order. L0 and L1 are mechanical and can be
    delegated; L2 needs a human reader; L4 depends on S3's rebuild; L5 is
    the only phase that needs every language present.
 

@@ -41,7 +41,7 @@ enum URLSessionUpdateFetch {
 // footer can both read it) and owns the 10s/24h scheduling — see `start()`.
 final class AppUpdateChecker: ObservableObject {
     @Published private(set) var latestResult: UpdateChecker.CheckResult?
-    // The in-app update's progress (UPDATE_PLAN.md S6c). Lives here, not on
+    // The in-app update's progress (SPEC.md §15). Lives here, not on
     // the settings window, so it survives closing and reopening it.
     @Published private(set) var installState: UpdateInstallState = .idle
     // Set by AppDelegate: whether a focus or break is under way, so the

@@ -1,6 +1,6 @@
 // UpdateInstallState.swift — the in-app update's download/verify/launch
 // state, shared by both platforms' UpdateInstaller.swift and the General
-// tab's Updates row (UPDATE_PLAN.md "States and the Updates row"). No
+// tab's Updates row (SPEC.md §15). No
 // networking here: each platform owns its own URLSession download and
 // installer launch; this file only holds the state they report and the
 // post-download integrity check, which is the same on both.
