@@ -11,9 +11,9 @@ import PackageDescription
 let swiftSettings: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 
 // Package.swift is evaluated separately on whichever host runs `swift
-// build` — there's no real cross-compilation yet (see WINDOWS_PORT_PLAN.md
-// Phase W1), so this #if is a host check, not a target check. PomoppiRender
-// is now shared/buildable on both platforms (Phase W2 stripped CoreGraphics
+// build` — there's no real cross-compilation yet, so this #if is a host
+// check, not a target check. PomoppiRender is now shared/buildable on
+// both platforms (Phase W2 stripped CoreGraphics
 // out of its internal storage; its one CG-dependent file,
 // PixelCanvas+CoreGraphics.swift, is guarded by its own
 // `#if canImport(CoreGraphics)` and is simply inert on Windows —

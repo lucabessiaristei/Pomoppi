@@ -2,11 +2,9 @@
 // WidgetWindow's layered popup) holding a SysTabControl32 with the same 6
 // tabs/order as macOS's SettingsView.swift (General, Rhythm, Appearance,
 // Keys, Sound, Diary — Window renamed General and moved first, Color
-// scheme moved into it from Appearance, SETTINGS_PLAN.md S2; Log folded
-// into Diary in the 2026-09-20 redesign), bound directly to SettingsStore.
-// One singleton instance, mirroring macOS's single reused `Settings` scene;
-// see WINDOWS_PORT_PLAN.md's W6/W7 entry for how this file grew phase by
-// phase.
+// scheme moved into it from Appearance; Log folded into Diary in the
+// 2026-09-20 redesign), bound directly to SettingsStore. One singleton
+// instance, mirroring macOS's single reused `Settings` scene.
 import Foundation
 import PomoppiCore
 import PomoppiRender
@@ -372,20 +370,16 @@ final class SettingsWindow {
     private var diarySyncButton: HWND?
     private var diarySyncStatusLabel: HWND?
 
-    // The General tab's Updates section own version/check-for-updates row
-    // (release/update plan, phase R6b; moved off the page-wide footer strip
-    // into here) — same "cache the label/button, update in place" pattern
-    // as sessionHistorySizeLabel/the diary labels above, mirrors macOS's
+    // The General tab's Updates row action button, relabeled in place as
+    // the check state changes (refreshUpdateStatus); mirrors macOS's
     // UpdateStatusRow.
-    private var updatesVersionLabel: HWND?
     private var updatesActionButton: HWND?
 
-    // Hint footers created via addHint (SETTINGS_PLAN.md's S4) —
-    // handleCtlColor looks a painted STATIC up here to decide whether it
-    // gets the dimmed hint text color instead of the ordinary one, in
-    // both themes. Most hints are static text baked in at creation, same
-    // as everything else on this window; these two are the live
-    // exceptions (SETTINGS_PLAN.md S4), re-rendered from the *other*
+    // Hint footers created via addHint — handleCtlColor looks a painted
+    // STATIC up here to decide whether it gets the dimmed hint text color
+    // instead of the ordinary one, in both themes. Most hints are static
+    // text baked in at creation, same as everything else on this window;
+    // these two are the live exceptions, re-rendered from the *other*
     // control's own change handler rather than their own.
     private var hintLabels: Set<HWND> = []
     private var trayClickHintLabel: HWND?
@@ -940,7 +934,7 @@ final class SettingsWindow {
         return 0
     }
 
-    // -- update status row (release/update plan, phase R6b) -------------------
+    // -- update status row -------------------------------------------------------
 
     // The General tab's Updates section own version/check-for-updates row —
     // mirrors macOS's UpdateStatusRow. Built as part of buildGeneralTab like
@@ -951,7 +945,7 @@ final class SettingsWindow {
     // needed anymore. Version on the left, action button on the right,
     // like every other labeled row.
     private func addUpdateStatusRow(in page: HWND, y: Int32) {
-        updatesVersionLabel = addLabel("Pomoppi \(pomoppiVersion)", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel("Pomoppi \(pomoppiVersion)", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         updatesActionButton = addButton(
             "Check for updates", in: page,
             x: rightX(250), y: y,
@@ -1434,10 +1428,10 @@ final class SettingsWindow {
             : "Leave the name blank to skip."
     }
 
-    // Called from the Diary tab's own "Record every session" checkbox
-    // (SETTINGS_PLAN.md S4) — it's what overrides askForTaskName, so its
-    // toggle is the other control this live hint has to react to, across
-    // pages, the same "controls bake their text in at creation" gap
+    // Called from the Diary tab's own "Record every session" checkbox —
+    // it's what overrides askForTaskName, so its toggle is the other
+    // control this live hint has to react to, across pages, the same
+    // "controls bake their text in at creation" gap
     // refreshTrayClickHint above exists for.
     private func refreshAskForTaskHint(loggingEnabled: Bool) {
         guard let askForTaskHintLabel else { return }
@@ -2347,10 +2341,10 @@ final class SettingsWindow {
             : "Left-click raises the widget, right-click opens the menu."
     }
 
-    // reverseTrayClick's own checkbox calls this directly on toggle
-    // (SETTINGS_PLAN.md S4) — already live on macOS for free (Form's
-    // footer: reads straight off @Published state); Windows' controls
-    // bake their text in at creation, so this is the explicit repaint
+    // reverseTrayClick's own checkbox calls this directly on toggle —
+    // already live on macOS for free (Form's footer: reads straight off
+    // @Published state); Windows' controls bake their text in at creation,
+    // so this is the explicit repaint
     // macOS doesn't need.
     private func refreshTrayClickHint(reversed: Bool) {
         guard let trayClickHintLabel else { return }
@@ -2361,7 +2355,7 @@ final class SettingsWindow {
     // below — resetting is user-visible and irreversible (every setting AND
     // the whole session log), so this needs its own explicit "are you sure,"
     // not just a plain click. Replaces the old installer-side fresh/update
-    // toggle by design (release/update plan, phase R6).
+    // toggle by design.
     private func confirmResetToDefaults() {
         let text = Array("Reset Pomoppi to defaults? This erases all settings and session history.".utf16) + [0]
         let title = Array("Reset to Defaults".utf16) + [0]
@@ -2423,7 +2417,6 @@ final class SettingsWindow {
         askForTaskHintLabel = nil
         chimeLabel = nil
         chimeHintLabel = nil
-        updatesVersionLabel = nil
         updatesActionButton = nil
         pageScroll = [:]
         rightAnchored = []
@@ -2994,10 +2987,10 @@ final class SettingsWindow {
 
     // Windows' counterpart to macOS Form's `footer:` (SPEC.md §7's
     // hint-footer rule: every hint is a footer under its control, never a
-    // disclosure, never a tooltip) — SETTINGS_PLAN.md's S4. Built on
-    // addLabel above (SS_NOPREFIX comes free), swaps in the smaller hintFont, and registers into hintLabels
-    // so handleCtlColor knows to paint this one dimmer than an ordinary
-    // label, in both themes. Height is measured, not guessed: a hint may
+    // disclosure, never a tooltip). Built on addLabel above (SS_NOPREFIX
+    // comes free), swaps in the smaller hintFont, and registers into
+    // hintLabels so handleCtlColor knows to paint this one dimmer than an
+    // ordinary label, in both themes. Height is measured, not guessed: a hint may
     // wrap, and a fixed guess that undershoots clips its last line
     // (confirmed live on the General tab under a first pass with one flat
     // height). Placed hintTuck px up under the preceding row and advances
@@ -3276,10 +3269,9 @@ final class SettingsWindow {
     // non-manifested Win32 window — confirmed live, same finding design
     // review already
     // had for COLOR_BTNFACE specifically — so this pair of hardcoded
-    // overrides (WindowsTheme.darkBackgroundHex/darkTextHex, extracted in
-    // SETTINGS_PLAN.md's T2 so TaskPromptDialog.swift can share them) is
-    // the one thing every dark-aware owner-drawn surface below actually
-    // needs.
+    // overrides (WindowsTheme.darkBackgroundHex/darkTextHex, extracted so
+    // TaskPromptDialog.swift can share them) is the one thing every
+    // dark-aware owner-drawn surface below actually needs.
     // A little lighter than darkBackgroundHex — raised bevel edges and the
     // trackbar thumb, which need to read as "sitting above" the page.
     private static let darkElevatedHex = "#5A5A5A"
@@ -3293,9 +3285,9 @@ final class SettingsWindow {
     // does against COLOR_BTNFACE in light mode.
     private static let darkBevelShadowHex = "#0F0F0F"
 
-    // A hint's own text color (addHint/handleCtlColor, SETTINGS_PLAN.md's
-    // S4) — dimmer than the ordinary darkTextHex/COLOR_BTNTEXT pair in
-    // both themes, the same "secondary" reading macOS's Form `footer:`
+    // A hint's own text color (addHint/handleCtlColor) — dimmer than the
+    // ordinary darkTextHex/COLOR_BTNTEXT pair in both themes, the same
+    // "secondary" reading macOS's Form `footer:`
     // gets for free from the system. Picked against darkBackgroundHex/
     // COLOR_BTNFACE respectively for contrast that still passes as
     // legible-but-quieter, not a literal token from either platform's own
@@ -3306,8 +3298,8 @@ final class SettingsWindow {
     // The one place isDarkMode gets computed — both call sites below
     // (init and handleSettingChange) assign its result themselves rather
     // than being handed it, matching this file's existing "detect, then
-    // applyTheme() separately" split. Delegates to WindowsTheme.resolveDarkMode
-    // (extracted in SETTINGS_PLAN.md's T2), which TaskPromptDialog.swift now
+    // applyTheme() separately" split. Delegates to
+    // WindowsTheme.resolveDarkMode, which TaskPromptDialog.swift now
     // calls the same way.
     private func resolveDarkMode() -> Bool {
         WindowsTheme.resolveDarkMode(colorScheme: settingsStore.get().colorScheme)
@@ -3548,9 +3540,9 @@ final class SettingsWindow {
     // text color (it does darken the edit's background — see
     // setControlDarkTheme's own comment) — this is what does, forwarded
     // here from every page's own children the same way as
-    // handleEraseBackground above. Runs in both themes now (SETTINGS_PLAN.md's
-    // S4) — a hint label (addHint, tracked in hintLabels) needs its own
-    // dimmed text color in light mode too, not just dark; every other
+    // handleEraseBackground above. Runs in both themes now — a hint label
+    // (addHint, tracked in hintLabels) needs its own dimmed text color in
+    // light mode too, not just dark; every other
     // control still falls through to DefWindowProcW unchanged in light
     // mode, exactly as before.
     private func handleCtlColor(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {

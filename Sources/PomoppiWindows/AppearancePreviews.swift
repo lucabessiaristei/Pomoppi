@@ -4,9 +4,9 @@
 // selecting it actually looks like. Mirrors the algorithm in
 // Sources/PomoppiApp/PixelPreviews.swift (same crop/tint logic) but written
 // fresh here rather than shared with it: Sources/PomoppiApp/ is off-limits
-// for this port (see WINDOWS_PORT_PLAN.md), so this duplicates the small
-// amount of logic instead of extracting it into a common file both targets
-// would import. Produces plain PixelCanvas + a crop rect; SettingsWindow's
+// for this port, so this duplicates the small amount of logic instead of
+// extracting it into a common file both targets would import. Produces
+// plain PixelCanvas + a crop rect; SettingsWindow's
 // WM_DRAWITEM handling blits the result into a picker card's button HDC via
 // PixelCanvas+GDI's draw(into:) helper.
 import Foundation

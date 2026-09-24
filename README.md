@@ -35,11 +35,11 @@ invariants) and `SPEC.md` for the behavior spec.
 Pomoppi ships as an unsigned app on both macOS and Windows via
 [GitHub Releases](https://github.com/lucabessiaristei/Pomoppi/releases) —
 see `SPEC.md` §15 for why it's unsigned (a deliberate, revisitable
-cost/friction tradeoff, not an oversight) and `RELEASING.md`/
-`RELEASE_PLAN.md` for how a release actually gets cut.
+cost/friction tradeoff, not an oversight) and `RELEASING.md` for how a
+release actually gets cut.
 
-**As of this writing there is no release yet** — this hasn't shipped its
-first one. Once it has, grab the right file from the latest release page
+Grab the file for your platform from the
+[latest release](https://github.com/lucabessiaristei/Pomoppi/releases/latest)
 and follow the steps below; being unsigned means both platforms throw up
 a warning the first time you run it.
 

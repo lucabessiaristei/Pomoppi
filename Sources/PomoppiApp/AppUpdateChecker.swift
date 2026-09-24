@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import PomoppiCore
 
-// Cross-platform release/update plan, phase R6a (macOS side): the real
+// The macOS side of the update checker: the real
 // URLSession transport UpdateChecker.swift was built against, plus the
 // object AppDelegate owns to actually run it — a check ~10s after launch,
 // then every 24h for as long as the app keeps running, only while

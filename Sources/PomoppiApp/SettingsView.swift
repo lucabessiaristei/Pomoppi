@@ -479,9 +479,8 @@ private struct GeneralTab: View {
     }
 }
 
-// The General tab's Updates section own version/check-for-updates row
-// (release/update plan, phase R6a; moved off the page-wide footer into
-// here). `@ObservedObject` on updateChecker itself, not just viewModel: a
+// The General tab's Updates section own version/check-for-updates row.
+// `@ObservedObject` on updateChecker itself, not just viewModel: a
 // background check that resolves while the window is already open (or a
 // manual check firing while this tab isn't the visible one) both need to
 // redraw this without the user touching anything.

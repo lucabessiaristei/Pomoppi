@@ -1,8 +1,8 @@
 // UpdateChecker.swift — pure, testable "is a newer Pomoppi release
-// available" logic (cross-platform release/update plan, phase R5). No
+// available" logic. No
 // networking lives here: the actual URLSession-based (macOS) / whatever-
 // works (Windows) transport, the `checkForUpdates` settings toggle, the
-// 24h recheck policy and the tray/settings UI are all R6's job — this file
+// 24h recheck policy and the tray/settings UI live elsewhere — this file
 // only knows how to compare version numbers and parse GitHub's response
 // shape, driven through an injected fetch closure so it's exercisable
 // without a real network call.

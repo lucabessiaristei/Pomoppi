@@ -4,8 +4,8 @@
 // codebase has no dialog templates or resource-file UI anywhere
 // (Pomoppi.rc carries only an icon + VERSIONINFO) — every window here is a
 // registered class + WndProc, and this follows that shape too, rather than
-// DialogBoxParamW. T1 (SETTINGS_PLAN.md) built the mouse-driven light-mode
-// shape; T2 adds dark mode (via WindowsTheme.swift), the cue banner,
+// DialogBoxParamW. T1 built the mouse-driven light-mode shape; T2 adds
+// dark mode (via WindowsTheme.swift), the cue banner,
 // Return/Escape handling, Tab order, work-area clamping, the hidden-widget
 // centering path and the isShowing re-entrancy guard.
 import Foundation

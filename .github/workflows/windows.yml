@@ -3,9 +3,8 @@
 # triggers (workflow_dispatch) or when a release is published.
 #
 # The gha-setup-swift action is pinned to a commit SHA rather than a version
-# tag because, as of Sept 2026, gha-setup-swift's tag resolution is broken
-# (see WINDOWS_PORT_PLAN.md's locked-decisions list). SHA
-# 397094e75494a93fa8d81db0268dbc8f5d6cf7c6 was that repo's actual latest
+# tag because, as of Sept 2026, gha-setup-swift's tag resolution is broken.
+# SHA 397094e75494a93fa8d81db0268dbc8f5d6cf7c6 was that repo's actual latest
 # commit as of 2026-09-18, not something this workflow has itself been run
 # against yet — this repo's dev VM builds locally via Scripts/make-windows-app.js
 # and never runs GitHub Actions, so this specific job is unverified until it

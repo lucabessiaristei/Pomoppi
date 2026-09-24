@@ -3,8 +3,7 @@
 // event handling lives in WidgetInput.swift as an extension on this same
 // class (Win32 has no separate window/view split the way AppKit does — one
 // HWND is both). Ported from WidgetWindow.swift + the frame-loop half of
-// WidgetPixelView.swift on the macOS side; see WINDOWS_PORT_PLAN.md's W3
-// part 2 entry for the full scope.
+// WidgetPixelView.swift on the macOS side.
 import Foundation
 import PomoppiCore
 import PomoppiRender
@@ -85,11 +84,11 @@ final class WidgetWindow {
             windowClass.lpfnWndProc = pomoppiWidgetWndProc
             windowClass.hInstance = hInstance
             windowClass.lpszClassName = classNamePtr.baseAddress
-            // IDC_ARROW is MAKEINTRESOURCE(32512), and (like IDI_APPLICATION,
-            // see WINDOWS_PORT_PLAN.md's WinSDK gotchas) doesn't import as a
-            // usable symbol in this overlay — go through the raw resource ID
-            // instead. Without this the widget would keep whatever cursor
-            // happened to be active before it got focus.
+            // IDC_ARROW is MAKEINTRESOURCE(32512), and (like IDI_APPLICATION)
+            // doesn't import as a usable symbol in this overlay — go through
+            // the raw resource ID instead. Without this the widget would
+            // keep whatever cursor happened to be active before it got
+            // focus.
             windowClass.hCursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
             return RegisterClassW(&windowClass)
         }
@@ -137,11 +136,11 @@ final class WidgetWindow {
     }
 
     // Single show/hide entry point main.swift (startup) and the Escape key
-    // (WidgetInput.swift) call — no fade animation this phase (see
-    // WINDOWS_PORT_PLAN.md's scope note), a plain ShowWindow/SW_HIDE is
-    // enough for now. Kept as one narrow method rather than exposing
-    // raise()/hide() separately so a later phase (tray, global hotkeys) has
-    // one obvious seam to hook into instead of two half-built ones.
+    // (WidgetInput.swift) call — no fade animation this phase, a plain
+    // ShowWindow/SW_HIDE is enough for now. Kept as one narrow method
+    // rather than exposing raise()/hide() separately so a later phase
+    // (tray, global hotkeys) has one obvious seam to hook into instead of
+    // two half-built ones.
     func setVisible(_ visible: Bool) {
         ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE)
     }
