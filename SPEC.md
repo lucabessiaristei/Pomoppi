@@ -1451,7 +1451,10 @@ platforms; a separate "Reset Pomoppi…" button lives in that tab's own
 to "fresh install," see §8's reinstall/upgrade semantics). "failed" on a
 check is only reachable through an explicit manual check; a background
 check's own failure stays silent, folded into "no update" the same way a
-404 ("no releases yet") already is.
+404 ("no releases yet") already is. So is a newer release that doesn't yet
+carry this platform's installer (published, CI still uploading): an update
+is only ever offered when there's something to install, and until then the
+row keeps its Check button to look again.
 
 **In-app update (since v0.3.5).** Checking is background; downloading and
 installing **never start without a click** — no auto-download, no

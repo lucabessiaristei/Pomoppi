@@ -96,16 +96,17 @@ final class UpdateCheckerTests: XCTestCase {
 
     private struct StubFetchError: Error {}
 
-    func testCheckForUpdateReportsUpdateAvailableWhenFetchReturnsNewerRelease() {
+    // Published before CI attached its installers: nothing to install yet.
+    func testCheckForUpdateReportsNoUpdateWhenNewerReleaseHasNoAsset() {
         let json = """
-        {"tag_name": "v0.3.0", "html_url": "https://github.com/lucabessiaristei/Pomoppi/releases/tag/v0.3.0"}
+        {"tag_name": "v0.3.0", "html_url": "https://github.com/lucabessiaristei/Pomoppi/releases/tag/v0.3.0", "assets": []}
         """
         let fetch: UpdateChecker.Fetch = { _, completion in completion(.success(Data(json.utf8))) }
 
         var result: UpdateChecker.CheckResult?
         UpdateChecker.checkForUpdate(currentVersion: "0.2.0", fetch: fetch) { result = $0 }
 
-        XCTAssertEqual(result, .updateAvailable(tag: "v0.3.0", pageURL: URL(string: "https://github.com/lucabessiaristei/Pomoppi/releases/tag/v0.3.0")!, asset: nil))
+        XCTAssertEqual(result, .noUpdate)
     }
 
     func testCheckForUpdateReportsNoUpdateWhenFetchReturnsSameVersion() {

@@ -101,8 +101,7 @@ final class AppUpdateChecker {
     }()
 
     // The asset of the update on offer, when this copy can install it
-    // in-app; nil means "release page only" (no asset yet, or a copy that
-    // Inno didn't install).
+    // in-app; nil means "release page only" (a copy Inno didn't install).
     var installableAsset: ReleaseAsset? {
         guard case .updateAvailable(_, _, let asset) = latestResult, UpdateInstaller.isRunningInstalledCopy else { return nil }
         return asset

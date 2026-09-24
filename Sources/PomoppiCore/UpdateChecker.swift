@@ -195,7 +195,7 @@ public enum UpdateChecker {
     // First asset, in API order, whose name starts with the platform's
     // prefix and ends with its extension, case-insensitively. nil is
     // normal: a release is published before CI finishes attaching its
-    // installers, and for that window the UI falls back to the release page.
+    // installers.
     public static func matchingAsset(in assets: [ReleaseAsset], for platform: UpdatePlatform = .current) -> ReleaseAsset? {
         assets.first { asset in
             let name = asset.name.lowercased()
@@ -217,9 +217,10 @@ public enum UpdateChecker {
     // -- orchestration ------------------------------------------------------------
 
     public enum CheckResult: Equatable {
-        // `asset` is the running platform's installer, nil when the release
-        // has none (yet).
-        case updateAvailable(tag: String, pageURL: URL, asset: ReleaseAsset?)
+        // `asset` is the running platform's installer. A newer release
+        // without one (CI still uploading) is .noUpdate: there's nothing to
+        // install yet, and the next check picks it up.
+        case updateAvailable(tag: String, pageURL: URL, asset: ReleaseAsset)
         case noUpdate
     }
 
@@ -240,15 +241,13 @@ public enum UpdateChecker {
         fetch(latestReleaseAPIURL) { result in
             guard case .success(let data) = result,
                   let release = parseLatestRelease(data),
-                  isUpdateAvailable(currentVersion: currentVersion, latestTag: release.tag)
+                  isUpdateAvailable(currentVersion: currentVersion, latestTag: release.tag),
+                  let asset = matchingAsset(in: release.assets, for: platform)
             else {
                 completion(.noUpdate)
                 return
             }
-            completion(.updateAvailable(
-                tag: release.tag,
-                pageURL: release.pageURL,
-                asset: matchingAsset(in: release.assets, for: platform)))
+            completion(.updateAvailable(tag: release.tag, pageURL: release.pageURL, asset: asset))
         }
     }
 }
