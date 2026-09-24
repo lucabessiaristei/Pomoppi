@@ -78,10 +78,10 @@ Phase W4, not part of W4 itself).
 
 - Palette, and nothing else — **two colours**, `settings.inkColor` and
   `settings.paperColor`:
-  - `--ink` — `#000000` by default
-  - `--paper` — `#FFFFFF` by default
-  - `--blush` — *derived*, ink mixed `55/255` into paper (`#C8C8C8` at the defaults)
-  - `--mute` — *derived*, ink mixed `145/255` into paper (`#6E6E6E` at the defaults)
+  - `--ink` — `#276231` by default (the "LCD Green" preset)
+  - `--paper` — `#80B391` by default
+  - `--blush` — *derived*, ink mixed `55/255` into paper (`#C8C8C8` with the "B/W" preset's `#000000`/`#FFFFFF`)
+  - `--mute` — *derived*, ink mixed `145/255` into paper (`#6E6E6E` with "B/W")
 - The two greys are **mixed from the pair at render time, never stored**, so a
   theme can never be half-applied. Only the pair is persisted.
 - Nothing anywhere hardcodes black or white. Every window — widget, settings,
@@ -550,8 +550,8 @@ with defaults (and the bad file renamed `settings.json.bak`).
   friend: <first of SPRITES.FRIEND_IDS>,
   frameStyle: 'scallopy',            // one of SPRITES.FRAME_STYLES
   background: <first of BACKGROUND_IDS>, // one of renderer/background.js's BACKGROUND_IDS
-  inkColor: '#000000',              // the theme pair -- see section 1
-  paperColor: '#FFFFFF',
+  inkColor: '#276231',              // the theme pair ("LCD Green") -- see section 1
+  paperColor: '#80B391',
   colorScheme: 'auto',              // 'auto' | 'light' | 'dark' -- governs the settings window's own
                                      // chrome only (Appearance tab, top section); 'auto' follows the OS
                                      // light/dark setting, today's behavior. Doesn't touch the widget's
@@ -676,7 +676,7 @@ that carries this shape into code.
 | **Rhythm** | Focus | Default focus length | "Or click the clock on the widget." |
 | | Breaks | Short break; Long break; Long break every N sessions | "Or click the dots on the widget." |
 | | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Always asks while session logging is on (Diary tab)."; logging off → "Leave the name blank to skip." |
-| **Appearance** | Roommate / Window edge / Background / Theme | card pickers; theme presets + Ink / Paper | — |
+| **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets in two rows of 6 (B/W, LCD Green, Pine, Midnight, OLED, Amber, Cherry, Cocoa, Sakura, Lavender, Mint, Peach) + Ink / Paper | — |
 | | Size & transparency | Size (segmented); Opacity | — |
 | **Keys** | Global shortcuts | one recorder row per action | "Work from any app. Click one, then press a new combo that includes a modifier." |
 | | | **Restore Default Shortcuts** | — |

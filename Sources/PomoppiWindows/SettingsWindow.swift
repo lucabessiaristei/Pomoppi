@@ -271,22 +271,21 @@ final class SettingsWindow {
     // The Appearance tab's theme-preset swatches: a plain two-color card
     // (paper fill + ink dot, no PixelCanvas involved — these aren't art
     // previews) that sets ink AND paper together on click. Mirrors macOS's
-    // ThemePresetPicker/themePresets exactly (same 11 presets, same names —
-    // deliberately 11, not 12: at this tab's column math, 11 items fill a
-    // single row exactly, where 12 stranded one swatch alone on a second
-    // row).
+    // ThemePresetPicker/themePresets exactly (same 12 presets, same names,
+    // same order); 12 so the grid is two even rows of themePresetColumns.
     private struct ThemePreset {
         let name: String
         let ink: String
         let paper: String
     }
     private static let themePresets: [ThemePreset] = [
-        ThemePreset(name: "Classic", ink: "#000000", paper: "#FFFFFF"),
+        ThemePreset(name: "B/W", ink: "#000000", paper: "#FFFFFF"),
         ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
         ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
         ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
         ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
         ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
+        ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
         ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
         ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
         ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
@@ -1823,18 +1822,24 @@ final class SettingsWindow {
     // art to preview here, just the two colors themselves. Same flow-layout
     // shape as addPickerGrid, just with a smaller/plainer card.
     @discardableResult
+    // Fixed column count spread across the full content width: the first
+    // column sits on the left margin, the last ends on the right one, with
+    // even spacing between (the same right edge every labeled row uses).
+    private static let themePresetColumns: Int32 = 6
+
     private func addThemePresetGrid(in page: HWND, x: Int32, y: Int32, availableWidth: Int32) -> Int32 {
         let swatchSize: Int32 = 36
         let gap: Int32 = 10
         let labelHeight: Int32 = 14
-        let cellWidth = swatchSize + gap
-        let columns = max(1, (availableWidth + gap) / cellWidth)
+        let labelWidth: Int32 = 64
+        let columns = Self.themePresetColumns
+        let step = (availableWidth - swatchSize) / (columns - 1)
         let rowHeight = swatchSize + labelHeight + 2 + gap
 
         for (index, preset) in Self.themePresets.enumerated() {
             let col = Int32(index) % columns
             let row = Int32(index) / columns
-            let swatchX = x + col * cellWidth
+            let swatchX = x + col * step
             let swatchY = y + row * rowHeight
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
@@ -1853,7 +1858,7 @@ final class SettingsWindow {
                 }
                 self?.invalidateEverythingColorDependent()
             }))
-            addLabel(preset.name, in: page, x: swatchX - 7, y: swatchY + swatchSize + 2, width: swatchSize + 14, height: labelHeight, centered: true)
+            addLabel(preset.name, in: page, x: swatchX - (labelWidth - swatchSize) / 2, y: swatchY + swatchSize + 2, width: labelWidth, height: labelHeight, centered: true)
         }
 
         let rowCount = (Int32(Self.themePresets.count) + columns - 1) / columns
