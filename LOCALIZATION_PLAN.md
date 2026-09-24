@@ -4,17 +4,16 @@ A self-contained handoff for making Pomoppi speak more than English. Read
 this first for *why* things are the shape they are; once L5 lands,
 `SPEC.md` §16 is the behavior contract.
 
-**Status as of 2026-09-24: L0 and L1 done**, built and tested on the Mac
-and in the VM (English unchanged). **L2 waits for the next round of
-settings-tab changes**, so translators work on frozen copy. L0: the
-`PomoppiStrings` target + tests, `refresh-strings.js`, and every
-user-facing literal in both shells routed through `L.t` (189 keys in
-`Localization/en.json`, macOS and Windows sharing a key wherever the English
-and its meaning match). L1: `PomoppiSettings.language` (`"system"` default,
-unknown values clamp back to it), `L.configure`/`L.apply` at startup and on
-every settings change on both platforms; Windows reads the display language
-(`GetUserDefaultUILanguage`), not the regional format. New UI copy goes
-straight into `Localization/en.json` via `L.t`, never as a literal.
+**Status as of 2026-09-24: L0–L4 done, not yet built.** L2: `it`, `es`,
+`fr`, `de` catalogs written (Sonnet drafts; Italian reviewed here: sentence
+case, the visual "Ring" as "Avviso"); **still needs a native read** for es,
+fr, de, and the user's read of it. L3 (macOS): Language section in General,
+a picker bound to `language`, the form relabels live. L4 (Windows): same
+section with a drop-down list; picking a language posts a rebuild to the
+window (the combo can't be destroyed inside its own CBN_SELCHANGE), which
+rebuilds on the same tab and retitles the window. **Next: build on both,
+then L5** (layout pass: every tab in every language, Windows widths first).
+Translated copy follows the app-wide rule: no sentence ends with a period.
 
 **Roster confirmed 2026-09-24:** English (source), Italian, Spanish,
 French, German (`en`, `it`, `es`, `fr`, `de`). Each file carries a
