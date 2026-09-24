@@ -549,7 +549,10 @@ private struct SoundTab: View {
                 }
                 // Only used while the chime is on. The Ring section below
                 // stays live either way: ringSeconds is visual (SPEC.md §4).
+                // Dimmed explicitly too: a disabled segmented control keeps
+                // its selected segment highlighted and barely reads as off.
                 .disabled(!viewModel.settings.soundEnabled)
+                .opacity(viewModel.settings.soundEnabled ? 1 : 0.4)
             } header: {
                 Text("Chime")
             } footer: {
