@@ -291,4 +291,14 @@ final class SessionLoggerTests: XCTestCase {
         let removedAgain = await logger.pruneEmptyPomodoros()
         XCTAssertEqual(removedAgain, 0)
     }
+
+    func testFileSizeBytesIsZeroForAnErasedLog() async {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+        _ = await logger.logSession(makeEntry())
+        XCTAssertGreaterThan(logger.fileSizeBytes(), 0)
+        logger.eraseAllSync()
+        XCTAssertEqual(logger.fileSizeBytes(), 0)
+    }
 }

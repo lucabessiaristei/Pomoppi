@@ -213,8 +213,11 @@ public actor SessionLogger {
     // the one that owns the Win32 controls being updated. Worst case on a
     // read racing an in-flight write: a byte count that's stale by one
     // session's worth of JSON, cosmetically irrelevant for a size display.
+    // An emptied log still holds its `{"sessions": [], "version": 2}`
+    // shell (~40 bytes); that reads as 0, not as history.
     public nonisolated func fileSizeBytes() -> Int64 {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path) else { return 0 }
+        guard readFile()?.sessions.isEmpty == false,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path) else { return 0 }
         return (attributes[.size] as? Int64) ?? 0
     }
 
