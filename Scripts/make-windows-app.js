@@ -471,7 +471,7 @@ function buildInstaller(destFolder) {
     process.exit(1);
   }
 
-  const setupExe = path.join(outputDir, `Pomoppi-Setup-${VERSION}.exe`);
+  const setupExe = path.join(outputDir, `Pomoppi-Setup-${VERSION}_Windows.exe`);
   if (!fs.existsSync(setupExe)) {
     console.error(`Expected installer at ${setupExe} but it doesn't exist.`);
     process.exit(1);

@@ -2,7 +2,7 @@
 // Scripts/make-pkg.js — wraps a release Pomoppi.app (built via
 // Scripts/make-app.js's existing logic, into a scratch staging directory
 // rather than straight to /Applications) into an installable
-// dist/Pomoppi-<version>.pkg via pkgbuild.
+// dist/Pomoppi-<version>_macOS.pkg via pkgbuild.
 //
 // Unsigned on purpose: no `productsign`, no notarization. That's a later
 // phase — this one only proves the payload is structurally sound (installs
@@ -21,7 +21,7 @@ const APP_NAME = 'Pomoppi';
 const VERSION = readVersion(REPO_ROOT);
 
 const distDir = path.join(REPO_ROOT, 'dist');
-const pkgPath = path.join(distDir, `${APP_NAME}-${VERSION}.pkg`);
+const pkgPath = path.join(distDir, `${APP_NAME}-${VERSION}_macOS.pkg`);
 
 // Runs make-app.js's own build/assemble pipeline (release binary, Info.plist,
 // icon, ad-hoc codesign) unchanged, just pointed at a scratch staging
