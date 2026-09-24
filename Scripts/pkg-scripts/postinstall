@@ -3,5 +3,31 @@
 # An in-place update over a running instance would otherwise fight the old
 # process (stale code still resident, file handles held on the replaced
 # bundle) — kill it so the next launch picks up the new build cleanly.
-pkill -x Pomoppi || true
+#
+# If it was running, relaunch the new build afterwards, as the logged-in
+# console user (postinstall runs as root: a bare `open` would start the app
+# as root, with root's settings). A first install, where nothing was
+# running, launches nothing.
+APP="/Applications/Pomoppi.app"
+
+was_running=0
+if pgrep -x Pomoppi >/dev/null; then
+    was_running=1
+    pkill -x Pomoppi || true
+    # Wait (up to ~5s) for the old process to exit, so `open` doesn't just
+    # re-activate the dying instance.
+    for _ in $(seq 1 50); do
+        pgrep -x Pomoppi >/dev/null || break
+        sleep 0.1
+    done
+fi
+
+if [ "$was_running" -eq 1 ]; then
+    console_user=$(stat -f %Su /dev/console)
+    if [ -n "$console_user" ] && [ "$console_user" != "root" ] && [ "$console_user" != "loginwindow" ]; then
+        console_uid=$(id -u "$console_user")
+        launchctl asuser "$console_uid" sudo -u "$console_user" open -a "$APP" || true
+    fi
+fi
+
 exit 0
