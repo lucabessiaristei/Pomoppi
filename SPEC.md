@@ -700,7 +700,7 @@ what a brand-new install opens on.
 | | While the widget is focused | static key list | — |
 | **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it." |
 | | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off." |
-| **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); History size; **Erase History…** | "Stored only on this computer." |
+| **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer." |
 | | Export | Sessions recorded; Export Diary… | — |
 | | Sync to folder | Diary folder; Choose…; Sync Now | — |
 
@@ -905,10 +905,15 @@ every day file in the new language (they're Pomoppi's own files, below).
 Three sections in the Diary settings tab, top to bottom: Session history
 (§8), Export, Sync to folder.
 
-The tab's Export section shows **"Pomodoros recorded: N"**: the pomodoros
-the diary would show (`DiaryExporter.pomodoros`), not raw log entries.
-"Export Full Log…" is disabled while N is 0, so an export is never an
-empty shell.
+The Session history section shows **"Pomodoros recorded: N (size)"**: the
+pomodoros the diary would show (`DiaryExporter.pomodoros`), not raw log
+entries, then the log's size (0 for an emptied log; there is no separate
+"History size" row). Both export buttons are disabled while N is 0, so an
+export is never an empty shell.
+
+**Export Diary Archive…** saves `Pomoppi Diary Archive.zip`: the same
+`YYYY/MM/YYYY-MM-DD.md` files Sync writes, at the same paths, built by the
+same `DiaryExporter.dayFiles` (so the two can't drift).
 
 **Export: the complete log, one file.** "Export Full Log…" opens a save
 dialog offering Markdown (`.md`, the default: `Pomoppi Diary.md`), plain
@@ -961,7 +966,7 @@ failure so the tab can say "Sync failed."
 
 **`ZipWriter`** (`PomoppiCore/ZipWriter.swift`): minimal, from-scratch,
 stored entries only, **written in the order given** (ODT needs `mimetype`
-first). Its only caller is now `ODTWriter`.
+first). Callers: `ODTWriter` and the Diary Archive.
 
 One settings field backs Sync: `diaryFolderPath: String` (empty = not set,
 Sync disabled).

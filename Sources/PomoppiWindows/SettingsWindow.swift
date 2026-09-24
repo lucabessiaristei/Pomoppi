@@ -370,8 +370,8 @@ final class SettingsWindow {
     // as sessionHistorySizeLabel above. Two status labels rather than one —
     // Export and Sync each report their own last outcome independently,
     // mirroring macOS DiaryTab's separate exportStatus/syncStatus @State.
-    private var diarySessionCountLabel: HWND?
     private var diaryExportButton: HWND?
+    private var diaryArchiveButton: HWND?
     private var diaryExportStatusLabel: HWND?
     private var diaryFolderLabel: HWND?
     private var diarySyncButton: HWND?
@@ -2510,8 +2510,8 @@ final class SettingsWindow {
         opacityTrackbar = nil
         opacityValueLabel = nil
         sessionHistorySizeLabel = nil
-        diarySessionCountLabel = nil
         diaryExportButton = nil
+        diaryArchiveButton = nil
         diaryExportStatusLabel = nil
         diaryFolderLabel = nil
         diarySyncButton = nil
@@ -2688,8 +2688,9 @@ final class SettingsWindow {
         EnableWindow(askForTitle, settings.loggingEnabled)
         askForTitleCheckbox = askForTitle
         y += Self.rowHeight
-        addLabel(L.t("diary.history.size"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
+        let pomodoroCount = recordedPomodoroCount()
+        addLabel(L.t("diary.history.pomodorosRecorded"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        sessionHistorySizeLabel = addLabel(historySummaryText(), in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
         anchorRight(sessionHistorySizeLabel)
         y += Self.rowHeight
         addButton(L.t("diary.history.erase"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
@@ -2702,17 +2703,18 @@ final class SettingsWindow {
         // Export/Sync outcomes sit beside their own button rather than on
         // a row of their own, so an empty status never leaves a blank gap.
         y = addSectionHeader(L.t("diary.export.header"), in: page, y: y, width: rowWidth)
-        let pomodoroCount = recordedPomodoroCount()
-        addLabel(L.t("diary.export.pomodorosRecorded"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        diarySessionCountLabel = addLabel("\(pomodoroCount)", in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
-        anchorRight(diarySessionCountLabel)
-        y += Self.rowHeight
         let exportButton = addButton(L.t("diary.export.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
         }
         EnableWindow(exportButton, pomodoroCount > 0)
         diaryExportButton = exportButton
         diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 152, y: y, width: rowWidth - 152)
+        y += Self.rowHeight
+        let archiveButton = addButton(L.t("diary.export.archiveButton"), in: page, x: Self.rowMargin, y: y, width: 180, height: Self.controlHeight) { [weak self] in
+            self?.exportArchive()
+        }
+        EnableWindow(archiveButton, pomodoroCount > 0)
+        diaryArchiveButton = archiveButton
         y += Self.rowHeight
         addHint(L.t("diary.export.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
@@ -2758,13 +2760,16 @@ final class SettingsWindow {
         guard result == IDYES else { return }
         sessionLogger.eraseAllSync()
         if let label = sessionHistorySizeLabel {
-            setWindowText(label, Self.formatHistorySize(sessionLogger.fileSizeBytes()))
+            setWindowText(label, historySummaryText())
         }
         let pomodoroCount = recordedPomodoroCount()
-        if let diarySessionCountLabel {
-            setWindowText(diarySessionCountLabel, "\(pomodoroCount)")
-        }
         if let diaryExportButton { EnableWindow(diaryExportButton, pomodoroCount > 0) }
+        if let diaryArchiveButton { EnableWindow(diaryArchiveButton, pomodoroCount > 0) }
+    }
+
+    // "3 (2 KB)": pomodoros the diary would show, then the log's size.
+    private func historySummaryText() -> String {
+        L.t("diary.history.countAndSize", recordedPomodoroCount(), Self.formatHistorySize(sessionLogger.fileSizeBytes()))
     }
 
     // Pomodoros the diary would show (SPEC.md §8b), not raw log entries.
@@ -2812,6 +2817,55 @@ final class SettingsWindow {
                 setWindowText(diaryExportStatusLabel, L.t("diary.export.failed"))
             }
         }
+    }
+
+    private func exportArchive() {
+        guard let path = promptArchivePath() else { return }
+        let url = URL(fileURLWithPath: path)
+        let data = DiaryExporter.exportArchive(sessions: sessionLogger.allSessionsSync(), text: diaryText)
+        do {
+            try data.write(to: url, options: .atomic)
+            if let diaryExportStatusLabel {
+                setWindowText(diaryExportStatusLabel, L.t("diary.export.success", url.lastPathComponent))
+            }
+        } catch {
+            if let diaryExportStatusLabel {
+                setWindowText(diaryExportStatusLabel, L.t("diary.export.failed"))
+            }
+        }
+    }
+
+    // Same GetSaveFileNameW shape as promptDiaryExportPath below, one .zip
+    // filter only.
+    private func promptArchivePath() -> String? {
+        var pathBuffer = [UInt16](repeating: 0, count: 260)
+        for (index, unit) in Array("Pomoppi Diary Archive.zip".utf16).enumerated() {
+            pathBuffer[index] = unit
+        }
+        let filter = Array("\(L.t("diary.format.zip"))\0*.zip\0\0".utf16)
+        let defExt = Array("zip".utf16) + [0]
+
+        var dialog = OPENFILENAMEW()
+        dialog.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
+        dialog.hwndOwner = hwnd
+        dialog.Flags = DWORD(OFN_OVERWRITEPROMPT) | DWORD(OFN_HIDEREADONLY)
+        dialog.nFilterIndex = 1
+
+        let picked = filter.withUnsafeBufferPointer { filterPtr in
+            defExt.withUnsafeBufferPointer { defExtPtr in
+                pathBuffer.withUnsafeMutableBufferPointer { bufferPtr -> Bool in
+                    dialog.lpstrFilter = filterPtr.baseAddress
+                    dialog.lpstrDefExt = defExtPtr.baseAddress
+                    dialog.lpstrFile = bufferPtr.baseAddress
+                    dialog.nMaxFile = DWORD(bufferPtr.count)
+                    return GetSaveFileNameW(&dialog)
+                }
+            }
+        }
+        guard picked else { return nil }
+        var path = pathBuffer.withUnsafeBufferPointer { String(decodingCString: $0.baseAddress!, as: UTF16.self) }
+        if !path.lowercased().hasSuffix(".zip") { path += ".zip" }
+        return path
     }
 
     private func chooseDiaryFolder() {
