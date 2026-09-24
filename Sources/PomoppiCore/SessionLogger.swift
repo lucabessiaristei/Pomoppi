@@ -69,6 +69,12 @@ public struct SessionLogEntry: Codable, Equatable {
 
     // Older entries only have whole minutes.
     public var seconds: Int { durationSeconds ?? durationMinutes * 60 }
+
+    // A focus worth a line in the diary: completed, or stopped early after
+    // at least a minute (SPEC.md §8b). A pomodoro with none is empty.
+    public var isRealFocus: Bool {
+        phase == "focus" && (completed || seconds >= 60)
+    }
 }
 
 // ISO8601 in sessions.json keeps whole seconds only, so pomodoros are
@@ -152,6 +158,27 @@ public actor SessionLogger {
         let before = file.sessions.count
         file.sessions.removeAll { $0.pomodoroStart == nil }
         file.version = SessionLogFile.currentVersion
+        return writeFile(file) ? before - file.sessions.count : 0
+    }
+
+    // Launch-time tidy-up (SPEC.md §8): removes every pomodoro that has no
+    // real focus at all (each focus skipped under a minute), breaks
+    // included. Only called at launch, when no pomodoro can be in progress.
+    // The one automatic removal the versioned log allows. Returns how many
+    // entries were removed.
+    @discardableResult
+    public func pruneEmptyPomodoros() async -> Int {
+        guard var file = readFile() else { return 0 }
+        var real: Set<Int64> = []
+        for entry in file.sessions where entry.isRealFocus {
+            if let start = entry.pomodoroStart { real.insert(pomodoroKey(start)) }
+        }
+        let before = file.sessions.count
+        file.sessions.removeAll { entry in
+            guard let start = entry.pomodoroStart else { return false }
+            return !real.contains(pomodoroKey(start))
+        }
+        guard file.sessions.count != before else { return 0 }
         return writeFile(file) ? before - file.sessions.count : 0
     }
 

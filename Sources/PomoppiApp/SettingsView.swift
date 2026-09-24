@@ -670,7 +670,7 @@ private struct DiaryTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var historySizeBytes: Int64 = 0
     @State private var showingEraseConfirmation = false
-    @State private var sessionCount = 0
+    @State private var pomodoroCount = 0
     @State private var exportStatus: String?
     @State private var syncStatus: String?
 
@@ -692,8 +692,9 @@ private struct DiaryTab: View {
                 Text(L.t("diary.history.footer"))
             }
             Section {
-                LabeledContent(L.t("diary.export.sessionsRecorded"), value: "\(sessionCount)")
+                LabeledContent(L.t("diary.export.pomodorosRecorded"), value: "\(pomodoroCount)")
                 Button(L.t("diary.export.button")) { exportDiary() }
+                    .disabled(pomodoroCount == 0)
                 if let exportStatus {
                     Text(exportStatus).foregroundStyle(.secondary)
                 }
@@ -756,7 +757,7 @@ private struct DiaryTab: View {
     }
 
     private func refreshCount() {
-        sessionCount = viewModel.sessionLogger.allSessionsSync().count
+        pomodoroCount = DiaryExporter.pomodoros(viewModel.sessionLogger.allSessionsSync()).count
     }
 
     private var diaryText: DiaryText {

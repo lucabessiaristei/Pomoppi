@@ -118,7 +118,7 @@
   "diary.history.eraseConfirm.button": "Erase History",
   "diary.history.eraseConfirm.message": "This can't be undone.",
   "diary.export.header": "Export",
-  "diary.export.sessionsRecorded": "Sessions recorded",
+  "diary.export.pomodorosRecorded": "Pomodoros recorded",
   "diary.export.button": "Export Full Log…",
   "diary.export.footer": "One file with every pomodoro, focus and break.",
   "diary.format.markdown": "Markdown (.md)",
