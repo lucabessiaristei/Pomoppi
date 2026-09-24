@@ -59,6 +59,7 @@ final class AppUpdateChecker: ObservableObject {
         self.currentVersion = currentVersion
         self.fetch = fetch
         installer.onStateChange = { [weak self] in self?.installState = $0 }
+        UpdateInstaller.pruneCache(currentVersion: currentVersion)
     }
 
     // The asset of the update currently on offer, when there is one to

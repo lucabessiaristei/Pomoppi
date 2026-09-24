@@ -156,24 +156,17 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
 
     // -- which copies can self-update ------------------------------------------
 
-    // Inno's per-user uninstall key for this AppId (Scripts/pomoppi.iss)
-    // records where it installed Pomoppi. A copy running from anywhere else
-    // (a dist\ build, an old unzipped portable copy) wasn't installed by
-    // Inno: running the setup would install a second copy and leave this one
-    // stale, so it gets the release page only.
+    // Inno Setup always puts its uninstaller (unins000.exe) next to the app
+    // it installed. A copy running from anywhere else (a dist\ build, an old
+    // unzipped portable copy) wasn't installed by Inno: running the setup
+    // would install a second copy and leave this one stale, so it gets the
+    // release page only. (An earlier version compared the uninstall key's
+    // InstallLocation in the registry, which reported a real installed copy
+    // as not installed in the VM.)
     static var isRunningInstalledCopy: Bool {
-        guard let installLocation = registryString(
-                subKey: "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{EC3E39B4-1C22-4A15-A54C-769ACA07A1C8}_is1",
-                value: "InstallLocation"),
-              let exePath = runningExePath() else { return false }
-        let exeFolder = (exePath as NSString).deletingLastPathComponent
-        return normalized(exeFolder) == normalized(installLocation)
-    }
-
-    private static func normalized(_ path: String) -> String {
-        var p = path.replacingOccurrences(of: "/", with: "\\").lowercased()
-        while p.hasSuffix("\\") { p.removeLast() }
-        return p
+        guard let exePath = runningExePath() else { return false }
+        let folder = (exePath as NSString).deletingLastPathComponent
+        return FileManager.default.fileExists(atPath: (folder as NSString).appendingPathComponent("unins000.exe"))
     }
 
     private static func runningExePath() -> String? {
@@ -181,26 +174,5 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
         let length = GetModuleFileNameW(nil, &buffer, DWORD(buffer.count))
         guard length > 0 else { return nil }
         return String(decoding: buffer.prefix(Int(length)), as: UTF16.self)
-    }
-
-    private static func registryString(subKey: String, value: String) -> String? {
-        var size: DWORD = 0
-        let probe = subKey.withCString(encodedAs: UTF16.self) { subKeyPtr in
-            value.withCString(encodedAs: UTF16.self) { valuePtr in
-                RegGetValueW(HKEY_CURRENT_USER, subKeyPtr, valuePtr, DWORD(RRF_RT_REG_SZ), nil, nil, &size)
-            }
-        }
-        guard probe == ERROR_SUCCESS, size > 1 else { return nil }
-        var buffer = [UInt16](repeating: 0, count: Int(size) / 2 + 1)
-        let status = subKey.withCString(encodedAs: UTF16.self) { subKeyPtr in
-            value.withCString(encodedAs: UTF16.self) { valuePtr in
-                buffer.withUnsafeMutableBytes { bytes in
-                    RegGetValueW(HKEY_CURRENT_USER, subKeyPtr, valuePtr, DWORD(RRF_RT_REG_SZ), nil, bytes.baseAddress, &size)
-                }
-            }
-        }
-        guard status == ERROR_SUCCESS else { return nil }
-        let end = buffer.firstIndex(of: 0) ?? buffer.count
-        return String(decoding: buffer[..<end], as: UTF16.self)
     }
 }

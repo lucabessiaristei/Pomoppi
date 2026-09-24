@@ -192,10 +192,19 @@ answer; the strip in step 3 makes the result not matter.
 **Copies not installed by Inno can't self-update.** 0.3.0 also shipped
 `Pomoppi-win.zip` (dropped from releases since); a copy running from an
 unzipped folder would get a *second* install in
-`%LOCALAPPDATA%\Programs\Pomoppi` and stay stale itself. Compare the
-running exe's directory with `InstallLocation` under
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{EC3E39B4-1C22-4A15-A54C-769ACA07A1C8}_is1`;
-on a mismatch, offer only the release page.
+`%LOCALAPPDATA%\Programs\Pomoppi` and stay stale itself. A copy counts
+as installed when Inno's `unins000.exe` sits next to the running exe;
+otherwise only the release page is offered. (Comparing the uninstall key's
+`InstallLocation` was tried first and misreported a real install in the
+VM.)
+
+**macOS package layout.** `Scripts/make-pkg.js` builds with `--root` and an
+explicit component plist (`BundleIsRelocatable` and
+`BundleIsVersionChecked` both false). With `pkgbuild --component`'s
+defaults, Installer.app installed over another copy with the same bundle ID
+it found on disk (a `dist/` or `.build` copy) instead of
+`/Applications`, and refused to replace a newer version, which is what
+the first S6c test hit.
 
 ## Phases
 
