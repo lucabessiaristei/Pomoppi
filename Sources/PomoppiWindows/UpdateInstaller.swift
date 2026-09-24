@@ -15,7 +15,9 @@ import FoundationNetworking
 import PomoppiCore
 import WinSDK
 
-final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
+// @unchecked: corelibs' URLSessionDelegate is Sendable, but every mutable
+// property here is only touched on the message-loop thread (see `post`).
+final class UpdateInstaller: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     var onStateChange: ((UpdateInstallState) -> Void)?
 
     private let post: (@escaping () -> Void) -> Void
