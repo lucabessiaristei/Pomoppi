@@ -52,7 +52,7 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Pomodoro/Appearance/Keys/Sound/Diary | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Pomodoro/Appearance/Shortcuts/Sound/Diary | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
@@ -673,7 +673,7 @@ never a child of the job and booting out cannot kill it.
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. Six
-tabs, left to right: **General, Pomodoro, Appearance, Keys, Sound, Diary**. **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
+tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary**. (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
 `General` is `Window` renamed and moved first — `Window` was a grab-bag
 naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
@@ -695,9 +695,9 @@ what a brand-new install opens on.
 | | Auto-start | Start breaks automatically; Start the next focus automatically | — |
 | **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets, one row on macOS, two rows of 6 on Windows (B/W, Cocoa, Sakura, Lavender, Mint, Peach, Pine, Midnight, OLED, Amber, Cherry, LCD Green) + Ink / Paper | — |
 | | Size & transparency | Size (segmented); Opacity | — |
-| **Keys** | Global shortcuts | one recorder row per action | "Work from any app: click one, then press a new combo that includes a modifier" |
-| | | **Restore Default Shortcuts** | — |
-| | While the widget is focused | static key list | — |
+| **Shortcuts** | From any app | one recorder row per action | "Click one, then press a new combo that includes a modifier" |
+| | | **Restore Defaults** | — |
+| | In the widget | static key list | — |
 | **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it" |
 | | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off" |
 | **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer" |
