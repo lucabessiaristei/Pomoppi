@@ -60,7 +60,7 @@ not a plan.
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
-| Update check UI | A tray item ("Update available: `<tag>`", opens the release page) shown only when one exists, plus a version + "Check for Updates" button + status line inline in the General tab's Updates section, cycling idle/checking/up-to-date/update-available/failed (§15) | Same tray item via `TrayController.swift`; the General tab's Updates row is a plain child of that page (no separate footer strip) with the same five states, driven by a `WM_TIMER`-based auto-revert instead of SwiftUI state. Behavior (endpoint, cadence, states, opt-out) is identical on both — only the chrome differs, Win32 vs AppKit/SwiftUI rendering (§15) |
+| Update check and in-app update | A tray item ("Update available: `<tag>`", opens the General tab) shown only when one exists; the General tab's Updates row shows the version, check states, and Update (download, verify, open the `.pkg` in Installer.app; postinstall relaunches) (§15) | Same tray item and row (Win32 children of the General page, `WM_TIMER` auto-revert). Update runs the Setup `.exe` with `/SILENT`; Inno closes and relaunches Pomoppi. Only an Inno-installed copy offers Update, others get the release page. Endpoint, cadence, verification and opt-out identical (§15) |
 
 ## 1. Art direction (non-negotiable) `[divergent]`
 
@@ -1394,7 +1394,7 @@ the user's disk, and §12's posture is why it is the narrow one.
 ## 15. Versioning and updates `[both]`
 
 Added before v0.3.0 (`RELEASING.md` has the checklist that cuts a
-release; `UPDATE_PLAN.md` is the in-app update that comes next) — the first time either platform's app
+release; the in-app update below shipped in v0.3.5) — the first time either platform's app
 has shipped a version number that means anything beyond a source comment,
 or made an outbound network call at all.
 
@@ -1440,31 +1440,67 @@ it needs a real network call to exercise. Each platform's own
 `AppUpdateChecker.swift` (`Sources/PomoppiApp/` / `Sources/PomoppiWindows/`)
 owns the real transport and the scheduling on top of it.
 
-It is **passive and notify-only** — it never downloads or installs
-anything on either platform, only reports that a newer tag exists and
-links to its GitHub release page. It checks ~10 seconds after launch,
-then every 24 hours for as long as the app keeps running; **no state is
-persisted across launches** — no "last checked," no "skipped version" —
-because `/releases/latest` already excludes drafts/prereleases
-server-side, so there is nothing worth remembering between runs. Opt-out
-is `Settings.checkForUpdates` (default `true`), a toggle in the General
-tab's "Updates" section (§7) on both platforms; a separate "Reset
-Pomoppi…" button lives in that tab's own "Reset" section (wipes the
-storage dir after confirming — the in-app answer to "fresh install," see
-§8's reinstall/upgrade semantics). A tray item ("Update available:
-`<tag>`") appears only when one exists and opens the release page; the
-General tab's Updates section itself shows the current version, a "Check
-for Updates" button, and a status line cycling through
-idle/checking/up-to-date/update-available/failed — "failed" is only
-reachable through an explicit manual check; a background check's own
-failure stays silent, folded into "no update" the same way a 404 ("no
-releases yet") already is.
+It checks ~10 seconds after launch, then every 24 hours for as long as
+the app keeps running; **no state is persisted across launches** — no
+"last checked," no "skipped version" — because `/releases/latest` already
+excludes drafts/prereleases server-side, so there is nothing worth
+remembering between runs. Opt-out is `Settings.checkForUpdates` (default
+`true`), a toggle in the General tab's "Updates" section (§7) on both
+platforms; a separate "Reset Pomoppi…" button lives in that tab's own
+"Reset" section (wipes the storage dir after confirming — the in-app answer
+to "fresh install," see §8's reinstall/upgrade semantics). "failed" on a
+check is only reachable through an explicit manual check; a background
+check's own failure stays silent, folded into "no update" the same way a
+404 ("no releases yet") already is.
 
-**Security posture.** This is the first outbound network call either
-platform's app has ever made, which is worth being explicit about: exactly
-one endpoint, `GET
+**In-app update (since v0.3.5).** Checking is background; downloading and
+installing **never start without a click** — no auto-download, no
+auto-install, no extra setting. When a check finds a newer release, the
+General tab's Updates row shows "vX available" with an **Update** button,
+and the tray item ("Update available: `<tag>`") opens that tab instead of
+a browser. Update picks this platform's asset out of the release
+(`ReleaseAsset`/`UpdatePlatform` in `UpdateChecker.swift`, matched by name
+prefix + extension), downloads it with `URLSession` (progress + Cancel in
+the row), and checks it: size, plus SHA-256 (`SHA256.swift`, hand-rolled,
+NIST-tested) against GitHub's per-asset `digest` when the API supplies
+one. Only a file that passes has its quarantine marker stripped
+(`com.apple.quarantine` / the `Zone.Identifier` stream) — which is why an
+update never shows Gatekeeper or SmartScreen, only the first, browser-
+downloaded install does — and is then handed to the platform's own
+release installer:
+
+- **macOS:** the `.pkg` (cached in `~/Library/Caches/Pomoppi/Updates`,
+  reused while it still verifies, pruned once installed) opens in
+  Installer.app, with its normal UI and password prompt. While it's open
+  the widget drops below it (§9b R1). The pkg's `postinstall` quits the
+  running copy and relaunches the new one. Cancelling the installer
+  changes nothing; the row offers "Open again".
+- **Windows:** the Setup `.exe` (in `%TEMP%`) runs with `/SILENT
+  /SUPPRESSMSGBOXES /NORESTART` (a progress window, no wizard pages); Inno
+  Setup closes Pomoppi through RestartManager (`CloseApplications=yes`),
+  installs, and relaunches it (the `WizardSilent` `[Run]` entry). Only an
+  Inno-installed copy (`unins000.exe` next to the exe) offers Update; any
+  other copy gets the release page.
+
+If a focus or break is running, Update confirms first ("A session is in
+progress. Pomoppi will close to finish updating."), since a session cut
+short is never logged. Any failure leaves the installed app untouched and
+offers Try again plus the release page. Install state lives on
+`AppUpdateChecker`, not the settings window, so a download survives
+closing it.
+
+**What the check proves.** The `digest` catches a truncated or corrupted
+download; it does not prove who published it, because it arrives in the
+same HTTPS response as the download URL. Until code signing (R2) the trust
+root is TLS to `api.github.com` plus the GitHub account that owns the
+repository — the same as the notifier before it, except the app now runs
+what it downloaded.
+
+**Security posture.** Exactly one API endpoint, `GET
 https://api.github.com/repos/lucabessiaristei/Pomoppi/releases/latest`,
-hit on the schedule above and nowhere else. No telemetry, no analytics, no
+hit on the schedule above and nowhere else; the only other request is the
+asset download a user's Update click starts, from the URL that response
+names. No telemetry, no analytics, no
 crash reporting. Nothing is sent but a `User-Agent: Pomoppi/<version>`
 header plus the two GitHub-API-version headers `requestHeaders(appVersion:)`
 sets — no request body, no user data, no machine identifier of any kind.

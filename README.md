@@ -73,6 +73,15 @@ Download `Pomoppi-Setup-<version>_Windows.exe` and run it.
 3. Click **Run anyway**. The installer runs normally from here (a
    per-user install under your user profile, no admin prompt needed).
 
+### Updates
+
+From v0.3.5 on, updates are in-app: when a new release is out, **Settings
+→ General → Updates** shows **Update**. Pomoppi downloads the installer,
+verifies it, and runs it, then restarts itself. No browser, and no
+Gatekeeper or SmartScreen warning: that happens only on the first install.
+macOS still asks for your password in the installer. Versions before
+v0.3.5 only link to the release page, so update those once by hand.
+
 
 ## The pets
 
