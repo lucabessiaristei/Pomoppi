@@ -47,6 +47,11 @@ final class AppUpdateChecker: ObservableObject {
     // Set by AppDelegate: whether a focus or break is under way, so the
     // Updates row can confirm before an install quits the app mid-session.
     var isSessionActive: () -> Bool = { false }
+    // Set by AppDelegate: see UpdateInstaller.onInstallerRunningChange.
+    var onInstallerRunningChange: ((Bool) -> Void)? {
+        get { installer.onInstallerRunningChange }
+        set { installer.onInstallerRunningChange = newValue }
+    }
 
     private let installer = UpdateInstaller()
 

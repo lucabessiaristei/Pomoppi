@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         widgetWindow = WidgetWindow(
             timer: timer, settingsStore: settingsStore,
             onOpenSettingsRequested: { [unowned self] in self.showSettingsWindow() })
+        updateChecker.onInstallerRunningChange = { [unowned self] in self.widgetWindow.yieldLevel($0) }
 
         settingsOpenerWindow = Self.makeSettingsOpenerWindow(model: settingsOpenerModel)
 
