@@ -8,7 +8,7 @@ final class SessionLoggerTests: XCTestCase {
 
     private func makeEntry(
         phase: Phase = .focus, plannedMs: Double = 25 * 60_000, actualMs: Double = 25 * 60_000,
-        task: String = "", completed: Bool = true
+        task: String = "", completed: Bool = true, pomodoroStart: Date? = nil
     ) -> PhaseCompleteEvent {
         var startComponents = DateComponents()
         startComponents.year = 2026; startComponents.month = 9; startComponents.day = 19
@@ -20,7 +20,8 @@ final class SessionLoggerTests: XCTestCase {
         let ended = cal.date(from: endComponents)!
         return PhaseCompleteEvent(
             phase: phase, startedAt: started, endedAt: ended,
-            plannedMs: plannedMs, actualMs: actualMs, task: task, completed: completed)
+            plannedMs: plannedMs, actualMs: actualMs, task: task, completed: completed,
+            pomodoroStartedAt: pomodoroStart)
     }
 
     private func readSessions(at dir: URL) -> [[String: Any]] {
@@ -114,5 +115,83 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertEqual(logger.fileSizeBytes(), 0)
         _ = await logger.logSession(makeEntry(task: "Write the report"))
         XCTAssertGreaterThan(logger.fileSizeBytes(), 0)
+    }
+
+    // 9. New entries carry durationSeconds (the exact elapsed length) and
+    // pomodoroStart (the pomodoro they belong to), round-tripped through
+    // the same ISO8601-in-JSON path logSession/allSessionsSync use.
+    func testNewEntriesCarryDurationSecondsAndPomodoroStart() async {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+
+        let pomodoroStart = Date(timeIntervalSince1970: 1_758_267_300)
+        _ = await logger.logSession(makeEntry(actualMs: 90_000, completed: false, pomodoroStart: pomodoroStart))
+
+        let sessions = logger.allSessionsSync()
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions[0].durationSeconds, 90)
+        XCTAssertEqual(
+            sessions[0].pomodoroStart.map { Int($0.timeIntervalSince1970) },
+            Int(pomodoroStart.timeIntervalSince1970))
+    }
+
+    // 10. discardPomodoro(startedAt:) removes only that pomodoro's entries
+    // and causes a later append for the same pomodoro (arriving after the
+    // discard, since both are async) to be dropped too. Other pomodoros are
+    // untouched.
+    func testDiscardPomodoroRemovesItsEntriesAndDropsLateAppends() async {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+
+        let pomodoroA = Date(timeIntervalSince1970: 1000)
+        let pomodoroB = Date(timeIntervalSince1970: 2000)
+
+        _ = await logger.logSession(makeEntry(task: "A focus", pomodoroStart: pomodoroA))
+        _ = await logger.logSession(makeEntry(phase: .shortBreak, task: "", pomodoroStart: pomodoroA))
+        _ = await logger.logSession(makeEntry(task: "B focus", pomodoroStart: pomodoroB))
+        XCTAssertEqual(logger.allSessionsSync().count, 3)
+
+        let ok = await logger.discardPomodoro(startedAt: pomodoroA)
+        XCTAssertTrue(ok)
+
+        let remaining = logger.allSessionsSync()
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining[0].task, "B focus")
+
+        let dropped = await logger.logSession(makeEntry(task: "late focus A", pomodoroStart: pomodoroA))
+        XCTAssertFalse(dropped, "an append for a discarded pomodoro that lands after the discard must be dropped")
+        XCTAssertEqual(logger.allSessionsSync().count, 1)
+    }
+
+    // An old-format sessions.json (written before durationSeconds/
+    // pomodoroStart existed) still decodes; the missing fields read back nil
+    // and `seconds` falls back to durationMinutes * 60.
+    func testOldFormatJSONWithoutDurationSecondsOrPomodoroStartDecodes() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let oldJSON = """
+        {"sessions": [{
+          "phase": "focus",
+          "task": "old style entry",
+          "day": 19, "month": 9, "year": 2026,
+          "startTime": "2026-09-19T09:00:00Z",
+          "endTime": "2026-09-19T09:25:00Z",
+          "durationMinutes": 25,
+          "completed": true
+        }]}
+        """
+        try! oldJSON.write(to: dir.appendingPathComponent("sessions.json"), atomically: true, encoding: .utf8)
+
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+        let sessions = logger.allSessionsSync()
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions[0].task, "old style entry")
+        XCTAssertNil(sessions[0].durationSeconds)
+        XCTAssertNil(sessions[0].pomodoroStart)
+        XCTAssertEqual(sessions[0].seconds, 25 * 60, "falls back to durationMinutes x 60")
     }
 }
