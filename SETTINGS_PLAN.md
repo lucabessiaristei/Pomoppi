@@ -23,10 +23,14 @@ It has three parts:
   already reshaping around it. Read `RELEASE_PLAN.md` first for why the
   checker exists at all and why it is hand-rolled.
 
-**Status as of 2026-09-24: S0-S4 and T1-T3 are all done (S1 in commit
-`b092865`, shipped in the `1dcf97e` 0.3.0 bump; S2 in commit `1ec7af2`; T3
-in `3f4727d`); S5 and S6a-S6f are not started.** Part B (the Windows
-task-name prompt) is now fully complete. `LOCALIZATION_PLAN.md` depends on this
+**Status as of 2026-09-24: Parts A (S0-S5) and B (T1-T3) are fully done**
+(S1 in `b092865`, shipped in the `1dcf97e` 0.3.0 bump; S2 `1ec7af2`; T3
+`3f4727d`; S5 `c388a2f`). **Part C (S6a-S6f) is not started, and is being
+rescoped simpler than originally designed** — the user opted out of the
+password-free bundle-swap complexity on macOS: standard OS install dialogs
+(including a password prompt) are acceptable, the only goal is automating
+fetch-from-GitHub + launch-the-installer instead of making the user do it
+by hand manually. `LOCALIZATION_PLAN.md` depends on this
 file: S0 locks the copy, and nothing in L0's string-extraction sweep
 should run against labels this plan is still about to rename — or
 against the pile of new strings Part C adds.
