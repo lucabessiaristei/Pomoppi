@@ -97,7 +97,7 @@ final class DiaryExporterTests: XCTestCase {
         let pomodoroStart = date(hour: 9, minute: 0)
         let entries = [
             makeEntry(task: "kept", hour: 9, minute: 0, completed: true, pomodoroStart: pomodoroStart),
-            makeEntry(task: "too short", hour: 9, minute: 25, durationSeconds: 30, completed: false, pomodoroStart: pomodoroStart),
+            makeEntry(task: "too short", hour: 9, minute: 25, completed: false, durationSeconds: 30, pomodoroStart: pomodoroStart),
         ]
         let pomodoros = DiaryExporter.pomodoros(entries, calendar: utcCalendar)
         XCTAssertEqual(pomodoros.count, 1)
@@ -106,7 +106,7 @@ final class DiaryExporterTests: XCTestCase {
 
         let onlyStart = date(hour: 12, minute: 0)
         let onlyAShortStoppedFocus = [
-            makeEntry(task: "alone", hour: 12, minute: 0, durationSeconds: 45, completed: false, pomodoroStart: onlyStart),
+            makeEntry(task: "alone", hour: 12, minute: 0, completed: false, durationSeconds: 45, pomodoroStart: onlyStart),
         ]
         XCTAssertTrue(
             DiaryExporter.pomodoros(onlyAShortStoppedFocus, calendar: utcCalendar).isEmpty,
@@ -217,7 +217,7 @@ final class DiaryExporterTests: XCTestCase {
             makeEntry(task: "R&D <plan>", hour: 14, minute: 59, durationMinutes: 8, completed: false, pomodoroStart: start),
             // Sub-minute stopped-early focus: excluded from md/txt/odt, but
             // still present in the raw JSON export.
-            makeEntry(task: "R&D <plan>", hour: 15, minute: 7, durationSeconds: 30, completed: false, pomodoroStart: start),
+            makeEntry(task: "R&D <plan>", hour: 15, minute: 7, completed: false, durationSeconds: 30, pomodoroStart: start),
         ]
     }
 
