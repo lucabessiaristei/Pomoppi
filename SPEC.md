@@ -63,7 +63,7 @@ not a plan.
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
-| Update check UI | A tray item ("Update available: `<tag>`", opens the release page) shown only when one exists, plus a settings-window footer — outside the `TabView`, visible under every tab — cycling idle/checking/up-to-date/update-available/failed (§15) | Same tray item via `TrayController.swift`; the settings-window footer is a fixed button row under `SysTabControl32` (no `TabView` equivalent) with the same five states, driven by a `WM_TIMER`-based auto-revert instead of SwiftUI state. Behavior (endpoint, cadence, states, opt-out) is identical on both — only the chrome differs, native tray menu item + settings footer either way, Win32 vs AppKit/SwiftUI rendering (§15) |
+| Update check UI | A tray item ("Update available: `<tag>`", opens the release page) shown only when one exists, plus a version + "Check for Updates" button + status line inline in the General tab's Updates section, cycling idle/checking/up-to-date/update-available/failed (§15) | Same tray item via `TrayController.swift`; the General tab's Updates row is a plain child of that page (no separate footer strip) with the same five states, driven by a `WM_TIMER`-based auto-revert instead of SwiftUI state. Behavior (endpoint, cadence, states, opt-out) is identical on both — only the chrome differs, Win32 vs AppKit/SwiftUI rendering (§15) |
 
 ## 1. Art direction (non-negotiable) `[divergent]`
 
@@ -1450,17 +1450,18 @@ then every 24 hours for as long as the app keeps running; **no state is
 persisted across launches** — no "last checked," no "skipped version" —
 because `/releases/latest` already excludes drafts/prereleases
 server-side, so there is nothing worth remembering between runs. Opt-out
-is `Settings.checkForUpdates` (default `true`), a toggle in the Window
-tab's "Updates" section (§7) on both platforms, alongside a "Reset to
-Defaults…" button (wipes the storage dir after confirming — the in-app
-answer to "fresh install," see §8's reinstall/upgrade semantics). A tray
-item ("Update available: `<tag>`") appears only when one exists and
-opens the release page; the settings window's footer, visible under every
-tab rather than inside any one of them, cycles through
+is `Settings.checkForUpdates` (default `true`), a toggle in the General
+tab's "Updates" section (§7) on both platforms; a separate "Reset
+Pomoppi…" button lives in that tab's own "Reset" section (wipes the
+storage dir after confirming — the in-app answer to "fresh install," see
+§8's reinstall/upgrade semantics). A tray item ("Update available:
+`<tag>`") appears only when one exists and opens the release page; the
+General tab's Updates section itself shows the current version, a "Check
+for Updates" button, and a status line cycling through
 idle/checking/up-to-date/update-available/failed — "failed" is only
-reachable through an explicit manual check ("Check for updates" in the
-footer); a background check's own failure stays silent, folded into "no
-update" the same way a 404 ("no releases yet") already is.
+reachable through an explicit manual check; a background check's own
+failure stays silent, folded into "no update" the same way a 404 ("no
+releases yet") already is.
 
 **Security posture.** This is the first outbound network call either
 platform's app has ever made, which is worth being explicit about: exactly
