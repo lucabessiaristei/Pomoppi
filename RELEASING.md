@@ -70,8 +70,8 @@ Publishing the release fires `release: published` on both
 2. Each platform builds and packages: `Scripts/make-pkg.js` (unsigned
    `.pkg`) on macOS, `Scripts/make-windows-app.js --installer` (zip +
    Inno Setup `.exe`) on Windows.
-3. Each workflow uploads its artifacts straight onto the GitHub release
-   (`gh release upload ... --clobber`).
+3. Each workflow uploads its installer straight onto the GitHub release
+   (`gh release upload ... --clobber`): the `.pkg` and the Setup `.exe`.
 
 Nothing here is signed (see `SPEC.md` §15's "Unsigned, on purpose, for
 now" — that's R2, deliberately deferred, not an oversight). A recipient
@@ -81,9 +81,10 @@ downloading the result hits Gatekeeper/SmartScreen friction — see
 ## 6. Verify
 
 - Check both workflow runs went green under the Actions tab.
-- Confirm the release page carries all the expected assets:
-  `Pomoppi-<version>_macOS.pkg`, `Pomoppi-win.zip`, and
-  `Pomoppi-Setup-<version>_Windows.exe`.
+- Confirm the release page carries both expected assets:
+  `Pomoppi-<version>_macOS.pkg` and `Pomoppi-Setup-<version>_Windows.exe`.
+  The portable `Pomoppi-win.zip` is deliberately not attached; it's only a
+  workflow artifact.
 - If this was a pre-release test run, delete or leave it as-is (it's
   invisible to `/releases/latest` either way) before publishing the real
   one.
