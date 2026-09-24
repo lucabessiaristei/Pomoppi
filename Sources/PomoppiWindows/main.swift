@@ -60,6 +60,9 @@ timer.onPhaseComplete = { event in
         chimePlayer.play(chime: settings.chime, focusEnd: event.phase == .focus)
     }
 }
+timer.onPomodoroDiscarded = { start in
+    Task { await sessionLogger.discardPomodoro(startedAt: start) }
+}
 
 let widgetWindow = WidgetWindow(timer: timer, settingsStore: settingsStore)
 let trayController = TrayController(window: widgetWindow)

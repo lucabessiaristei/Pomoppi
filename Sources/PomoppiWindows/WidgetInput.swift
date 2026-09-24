@@ -32,9 +32,9 @@ extension WidgetWindow {
     // -- hit-testing ----------------------------------------------------------
 
     // Exact priority order ported from WidgetPixelView.regionAt: pet, then
-    // clock steppers (only while visible), then dots — which can OVERRIDE
-    // whichever of those two just matched, since geometry can overlap — and
-    // finally buttons, but only if nothing else already claimed the region.
+    // clock steppers (only while visible), then buttons, but only if
+    // nothing else already claimed the region. The dot row is display-only
+    // (SPEC.md §3): no hit region, no hover, no click.
     func regionAt(lx: Int, ly: Int) -> (region: String?, button: String?) {
         let pet = WidgetLayout.petPosition(
             isBreak: WidgetLayout.isBreak(state),
@@ -54,13 +54,9 @@ extension WidgetWindow {
             }
         }
 
-        let dots = WidgetLayout.dotGeometry(longBreakEvery: settings.longBreakEvery)
-        if lx >= dots.x, lx < dots.x + dots.width, ly >= WidgetLayout.cycleDotsY - 2, ly < WidgetLayout.cycleDotsY + WidgetLayout.dotSize + 2 {
-            region = "dots"
-        }
-
         if region == nil {
             for box in WidgetLayout.buttonHitBoxes() {
+                guard WidgetLayout.isButtonEnabled(box.id, state: state) else { continue }
                 if lx >= box.x - 2, lx < box.x + WidgetLayout.buttonSize + 2,
                    ly >= WidgetLayout.buttonsY - 2, ly < WidgetLayout.buttonsY + WidgetLayout.buttonSize + 2 {
                     button = box.id
@@ -152,11 +148,6 @@ extension WidgetWindow {
             stepFocusMinutes(-1)
         case "clock-plus":
             stepFocusMinutes(1)
-        case "dots":
-            let (lx, _) = logicalPoint(fromLParam: lParam)
-            if let slot = WidgetLayout.dotSlot(at: lx, longBreakEvery: settings.longBreakEvery) {
-                settings = settingsStore.update { $0.longBreakEvery = slot + 1 }
-            }
         default:
             if let clickedButton { activateButton(clickedButton) }
         }
@@ -196,7 +187,7 @@ extension WidgetWindow {
         case Int32(UnicodeScalar("S").value):
             activateButton("skip")
         case Int32(UnicodeScalar("R").value):
-            activateButton("reset")
+            if WidgetLayout.isButtonEnabled("reset", state: state) { activateButton("reset") }
         case Int32(UnicodeScalar("O").value):
             toggleAlwaysOnTop()
         case VK_OEM_COMMA:
