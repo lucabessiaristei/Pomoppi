@@ -40,6 +40,7 @@ Task {
     await sessionLogger.pruneEmptyPomodoros()
 }
 let chimePlayer = ChimePlayer()
+chimePlayer.prewarm()
 
 let timer = PomodoroTimer(settingsGetter: {
     let s = settingsStore.get()

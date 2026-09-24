@@ -51,6 +51,16 @@ final class ChimePlayer {
     // copy-in/copy-out temporary.
     private let header = UnsafeMutablePointer<WAVEHDR>.allocate(capacity: 1)
 
+    // Opens the device and copies every chime's samples at launch: done on
+    // the first play, the first preview stalled before any sound came out.
+    func prewarm() {
+        _ = openDeviceIfNeeded()
+        for (id, pack) in GeneratedSounds.chimes {
+            _ = pcmBuffer(chime: id, focusEnd: true, pcm: pack.focusEnd)
+            _ = pcmBuffer(chime: id, focusEnd: false, pcm: pack.breakEnd)
+        }
+    }
+
     func play(chime id: String, focusEnd: Bool) {
         guard let pack = GeneratedSounds.chimes[id] else { return }
         let pcm = focusEnd ? pack.focusEnd : pack.breakEnd
