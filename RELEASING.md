@@ -81,8 +81,9 @@ downloading the result hits Gatekeeper/SmartScreen friction — see
 ## 6. Verify
 
 - Check both workflow runs went green under the Actions tab.
-- Confirm the release page carries all the expected assets: the `.pkg`,
-  `Pomoppi-win.zip`, and `Pomoppi-Setup-<version>.exe`.
+- Confirm the release page carries all the expected assets:
+  `Pomoppi-<version>_macOS.pkg`, `Pomoppi-win.zip`, and
+  `Pomoppi-Setup-<version>_Windows.exe`.
 - If this was a pre-release test run, delete or leave it as-is (it's
   invisible to `/releases/latest` either way) before publishing the real
   one.

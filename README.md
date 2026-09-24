@@ -45,7 +45,7 @@ a warning the first time you run it.
 
 ### macOS
 
-Download `Pomoppi-<version>.pkg` and run it.
+Download `Pomoppi-<version>_macOS.pkg` and run it.
 
 1. Double-click the `.pkg`. macOS refuses it: "*Pomoppi.pkg* can't be
    opened because it is from an unidentified developer," with no way to
@@ -65,7 +65,7 @@ there or Spotlight.
 
 ### Windows
 
-Download `Pomoppi-Setup-<version>.exe` and run it.
+Download `Pomoppi-Setup-<version>_Windows.exe` and run it.
 
 1. Run the `.exe`. Windows shows a blue **"Windows protected your PC"**
    screen with only a **Don't run** button visible.
