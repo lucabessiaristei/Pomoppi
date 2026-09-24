@@ -1179,6 +1179,16 @@ caller — the tray right-click, the tray's Show item, `raiseOnEnd`, and
 → focus the window. Unconditional, no flags, no per-caller variants, **no
 temporary level change and no timer**.
 
+**Fades** (2026-09-24, both platforms). Showing the widget (launch, tray,
+the toggle shortcut) fades in over ~220 ms, eased out; hiding (tray,
+shortcut, Escape) fades out over ~180 ms, eased in, and only then hides the
+window; **Quit fades out first**, then exits. Fades start from wherever the
+current one is, so raising an already visible widget never blinks and a
+toggle mid-fade reverses it instead of restarting. macOS animates
+`alphaValue` (`applicationShouldTerminate` waits for the fade-out); Windows
+scales the layered window's alpha on its existing ~60fps frame tick. Toggles
+read "shown" (showing or fading in), not "the window is on screen".
+
 `app.focus({ steal: true })` is app-level activation; a window-level `focus()`
 alone does not activate an accessory app while another app is frontmost.
 Activating **does** pull the user out of a full-screen Space and **can** take

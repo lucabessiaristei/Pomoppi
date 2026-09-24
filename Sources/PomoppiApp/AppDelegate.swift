@@ -120,6 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
+    // Quit fades the widget out first, then lets termination go on.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let widgetWindow, widgetWindow.isShown else { return .terminateNow }
+        widgetWindow.hide { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // globalShortcut is process-wide, not window-scoped — it outlives
         // every window, so it needs its own explicit teardown on quit.
@@ -164,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // no-op, leaving that combo free until the feature exists.
     private lazy var shortcutHandlers: [String: () -> Void] = [
         "toggleWidget": { [unowned self] in
-            self.widgetWindow.isVisible ? self.widgetWindow.hide() : self.widgetWindow.raise()
+            self.widgetWindow.isShown ? self.widgetWindow.hide() : self.widgetWindow.raise()
         },
         "startPause": { [unowned self] in
             if self.timer.getState().running {

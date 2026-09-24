@@ -45,6 +45,7 @@ one.
   Full log and the new Diary archive (the same year/month day files Sync
   writes, as one .zip), each with its own hint and Export… button.
 - **The "Keys" tab is now "Shortcuts"**, with sections "From any app" and "In the widget".
+- **Smoother show/hide:** the widget fades in at launch and when shown, fades out when hidden and on Quit, on both platforms (Windows had no fade before).
 - **No UI sentence ends with a period any more**, on either platform.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).

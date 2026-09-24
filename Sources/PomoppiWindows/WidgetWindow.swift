@@ -69,6 +69,16 @@ final class WidgetWindow {
     private var appliedScale: Int
     private var lastTimestamp: TimeInterval?
 
+    // Show/hide fade (SPEC.md §3): `fade` multiplies the opacity setting
+    // every frame and moves toward 1 or 0 on the existing ~60fps tick.
+    // isShown is the intent (showing or fading in); IsWindowVisible stays
+    // true through a fade-out, so toggles read isShown.
+    private(set) var isShown = false
+    private var fade: Double = 0
+    private var onFadedOut: (() -> Void)?
+    private static let fadeInMs: Double = 220
+    private static let fadeOutMs: Double = 180
+
     private static let timerID: UINT_PTR = 1
     private static let frameIntervalMs: UINT = 16 // ~60fps, same target cadence as WidgetPixelView's frame timer.
 
@@ -135,14 +145,51 @@ final class WidgetWindow {
         SetTimer(hwnd, Self.timerID, Self.frameIntervalMs, nil)
     }
 
-    // Single show/hide entry point main.swift (startup) and the Escape key
-    // (WidgetInput.swift) call — no fade animation this phase, a plain
-    // ShowWindow/SW_HIDE is enough for now. Kept as one narrow method
-    // rather than exposing raise()/hide() separately so a later phase
-    // (tray, global hotkeys) has one obvious seam to hook into instead of
-    // two half-built ones.
+    // Single show/hide entry point (startup, tray, toggle shortcut, the
+    // Escape key). Showing fades in from wherever the fade is; hiding fades
+    // out and only then hides the window, on the frame tick.
     func setVisible(_ visible: Bool) {
-        ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE)
+        if visible {
+            isShown = true
+            onFadedOut = nil
+            if !IsWindowVisible(hwnd) {
+                fade = 0
+                renderFrame() // push a transparent frame before showing, no flash
+                ShowWindow(hwnd, SW_SHOW)
+            }
+        } else {
+            isShown = false
+        }
+    }
+
+    // Tray Quit: fade out, then destroy (WM_DESTROY posts the quit).
+    func fadeOutAndQuit() {
+        guard isShown || IsWindowVisible(hwnd) else {
+            DestroyWindow(hwnd)
+            return
+        }
+        onFadedOut = { [weak self] in
+            guard let self else { return }
+            DestroyWindow(self.hwnd)
+        }
+        isShown = false
+    }
+
+    // Eased (smoothstep) so the ends of the fade don't snap.
+    private var fadeAlpha: Double { fade * fade * (3 - 2 * fade) }
+
+    private func stepFade(dt: Double) {
+        if isShown {
+            fade = min(1, fade + dt / Self.fadeInMs)
+        } else if fade > 0 {
+            fade = max(0, fade - dt / Self.fadeOutMs)
+            if fade == 0 {
+                ShowWindow(hwnd, SW_HIDE)
+                let done = onFadedOut
+                onFadedOut = nil
+                done?()
+            }
+        }
     }
 
     // HWND_TOPMOST/HWND_NOTOPMOST are `#define`d as `((HWND)-1)`/`((HWND)-2)`
@@ -186,6 +233,7 @@ final class WidgetWindow {
         settings = settingsStore.get()
         state = timer.tick()
         animation.tick(dt: dt, state: state, settings: settings)
+        stepFade(dt: dt)
         renderFrame()
     }
 
@@ -218,7 +266,7 @@ final class WidgetWindow {
         // macOS's NSWindow.alphaValue.
         var blend = BLENDFUNCTION(
             BlendOp: UInt8(AC_SRC_OVER), BlendFlags: 0,
-            SourceConstantAlpha: UInt8(max(0, min(255, Int((settings.opacity * 255).rounded())))),
+            SourceConstantAlpha: UInt8(max(0, min(255, Int((settings.opacity * fadeAlpha * 255).rounded())))),
             AlphaFormat: UInt8(AC_SRC_ALPHA))
 
         UpdateLayeredWindow(hwnd, screenDC, nil, &sizeVar, hdc, &srcPoint, 0, &blend, DWORD(ULW_ALPHA))

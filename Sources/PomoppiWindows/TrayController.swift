@@ -139,8 +139,7 @@ final class TrayController {
             case .reset:
                 window.activateButton("reset")
             case .toggleVisibility:
-                let visible: Bool = IsWindowVisible(window.hwnd)
-                window.setVisible(!visible)
+                window.setVisible(!window.isShown)
             case .toggleAlwaysOnTop:
                 window.toggleAlwaysOnTop()
             case .settings:
@@ -151,7 +150,7 @@ final class TrayController {
                 // Triggers WidgetWindow's existing WM_DESTROY handler, which
                 // already calls PostQuitMessage — no need to call it again
                 // here.
-                DestroyWindow(window.hwnd)
+                window.fadeOutAndQuit()
             case .openUpdatePage:
                 // Updating happens in Settings' General tab, not a browser.
                 SettingsWindow.selectGeneralTab()
@@ -294,7 +293,7 @@ final class TrayController {
         let state = window.state
         let settings = window.settings
         let idle = state.phase == .idle
-        let widgetVisible: Bool = IsWindowVisible(window.hwnd)
+        let widgetVisible = window.isShown
 
         guard let menu = CreatePopupMenu() else { return }
         var sessionsMenu: HMENU?

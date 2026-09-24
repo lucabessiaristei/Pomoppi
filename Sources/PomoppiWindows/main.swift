@@ -91,8 +91,7 @@ widgetWindow.updateChecker = updateChecker
 // calls StartCoordinator.requestStart.
 let shortcutHandlers: [String: () -> Void] = [
     "toggleWidget": {
-        let visible: Bool = IsWindowVisible(widgetWindow.hwnd)
-        widgetWindow.setVisible(!visible)
+        widgetWindow.setVisible(!widgetWindow.isShown)
     },
     // activateButton("play") already does exactly this toggle (plus
     // dismissing a ringing alarm first) — reused rather than duplicated.
