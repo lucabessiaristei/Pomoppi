@@ -30,7 +30,20 @@ enum StartCoordinator {
             return timer.start()
         }
 
-        switch TaskPromptDialog.run(owner: owner, mandatory: loggingMandatory) {
+        // WM_HOTKEY is still dispatched by TaskPromptDialog's own nested
+        // message loop even while the widget (this function's owner) is
+        // disabled for the prompt's duration, so the startPause hotkey
+        // pressed twice fast re-enters this function while the first
+        // prompt is still up. Re-focus it instead of stacking a second one
+        // — no timer/task state changes on this call, since nothing about
+        // the still-open first prompt has resolved yet.
+        guard !TaskPromptDialog.isShowing else {
+            TaskPromptDialog.refocus()
+            return state
+        }
+
+        let darkMode = WindowsTheme.resolveDarkMode(colorScheme: settings.colorScheme)
+        switch TaskPromptDialog.run(owner: owner, mandatory: loggingMandatory, darkMode: darkMode) {
         case .started(let task):
             if !task.isEmpty { timer.setTask(task) }
             return timer.start()
