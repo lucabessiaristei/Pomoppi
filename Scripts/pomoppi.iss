@@ -85,4 +85,8 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Pomoppi"; Flags: uninsdeletevalue
 
 [Run]
+; Interactive install: the finish page's checkbox. Silent install (the
+; in-app updater runs this Setup with /SILENT after RestartManager has
+; closed the running copy): relaunch unconditionally, no page to ask on.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Pomoppi now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent
