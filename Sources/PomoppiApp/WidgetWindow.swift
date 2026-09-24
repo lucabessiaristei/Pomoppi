@@ -101,28 +101,26 @@ final class WidgetWindow: NSWindow {
     // through a fade-out, so toggles read this instead: a second toggle
     // mid-fade-out brings it back rather than fading out again.
     private(set) var isShown = false
-    // Bumped by every raise()/hide(), so a fade-out that gets interrupted
-    // by a raise() never orders the window out when it finishes.
-    private var fadeGeneration = 0
+    // The fade is stepped by hand rather than through NSAnimationContext /
+    // animator(): window-alpha animations there were unreliable (no visible
+    // fade at all in practice), and a timer added in .common mode keeps
+    // running while the tray menu is tracking. Starting a new fade cancels
+    // the running one, completion included.
+    private var fadeTimer: Timer?
 
     // Single entry point for every "bring the widget to front" caller
-    // (tray, shortcut, raiseOnEnd, launch). No temporary level bumps, no
-    // timers — a raise is not sticky by design. Fades in from wherever the
-    // alpha is: 0 when hidden, the current value mid-fade, so raising an
-    // already visible widget (raiseOnEnd) never blinks.
+    // (tray, shortcut, raiseOnEnd, launch). No temporary level bumps — a
+    // raise is not sticky by design. Fades in from wherever the alpha is:
+    // 0 when hidden, the current value mid-fade, so raising an already
+    // visible widget (raiseOnEnd) never blinks.
     func raise() {
-        fadeGeneration += 1
         if !isVisible { alphaValue = 0 }
         isShown = true
         orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         makeKey()
         makeFirstResponder(pixelView)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.fadeInDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            self.animator().alphaValue = self.settingsOpacity
-        }
+        fade(to: settingsOpacity, duration: Self.fadeInDuration, easeOut: true, completion: nil)
     }
 
     // The show/hide counterpart to raise(): fades to transparent, then
@@ -135,20 +133,34 @@ final class WidgetWindow: NSWindow {
             return
         }
         isShown = false
-        fadeGeneration += 1
-        let generation = fadeGeneration
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.fadeOutDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            self.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
+        fade(to: 0, duration: Self.fadeOutDuration, easeOut: false) { [weak self] in
             guard let self else { return }
-            if self.fadeGeneration == generation {
-                self.orderOut(nil)
-                self.alphaValue = self.settingsOpacity
-            }
+            self.orderOut(nil)
+            self.alphaValue = self.settingsOpacity
             completion?()
-        })
+        }
+    }
+
+    private func fade(to target: CGFloat, duration: TimeInterval, easeOut: Bool, completion: (() -> Void)?) {
+        fadeTimer?.invalidate()
+        let start = alphaValue
+        let began = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            let progress = min(1, (CACurrentMediaTime() - began) / duration)
+            // Ease-out for appearing, ease-in for disappearing.
+            let eased = easeOut ? 1 - (1 - progress) * (1 - progress) : progress * progress
+            self.alphaValue = start + (target - start) * CGFloat(eased)
+            guard progress >= 1 else { return }
+            timer.invalidate()
+            self.fadeTimer = nil
+            completion?()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        fadeTimer = timer
     }
 
     private static let fadeInDuration: TimeInterval = 0.22

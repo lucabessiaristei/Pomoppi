@@ -1184,8 +1184,10 @@ the toggle shortcut) fades in over ~220 ms, eased out; hiding (tray,
 shortcut, Escape) fades out over ~180 ms, eased in, and only then hides the
 window; **Quit fades out first**, then exits. Fades start from wherever the
 current one is, so raising an already visible widget never blinks and a
-toggle mid-fade reverses it instead of restarting. macOS animates
-`alphaValue` (`applicationShouldTerminate` waits for the fade-out); Windows
+toggle mid-fade reverses it instead of restarting. macOS steps
+`alphaValue` itself on a 60 Hz timer in `.common` run-loop mode (animator()
+fades didn't show, and the timer keeps going while the tray menu tracks;
+`applicationShouldTerminate` waits for the fade-out); Windows
 scales the layered window's alpha on its existing ~60fps frame tick. Toggles
 read "shown" (showing or fading in), not "the window is on screen".
 
