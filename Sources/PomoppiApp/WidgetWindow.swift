@@ -170,8 +170,8 @@ final class WidgetWindow: NSWindow {
         fadeTimer = timer
     }
 
-    private static let fadeInDuration: TimeInterval = 0.35
-    private static let fadeOutDuration: TimeInterval = 0.25
+    private static let fadeInDuration: TimeInterval = 0.22
+    private static let fadeOutDuration: TimeInterval = 0.16
 
     override var canBecomeKey: Bool { true }
 }
