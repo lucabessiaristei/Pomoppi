@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import PomoppiCore
 import PomoppiStrings
 
@@ -147,6 +148,15 @@ private struct RhythmTab: View {
         Form {
             Section {
                 Stepper(
+                    L.t("rhythm.focusSessions.stepper", viewModel.settings.longBreakEvery),
+                    value: viewModel.binding(\.longBreakEvery), in: 2...10)
+            } header: {
+                Text(L.t("rhythm.pomodoro.header"))
+            } footer: {
+                Text(L.t("rhythm.pomodoro.footer"))
+            }
+            Section {
+                Stepper(
                     L.t("rhythm.focus.stepper", Int(viewModel.settings.focusMinutes)),
                     value: viewModel.binding(\.focusMinutes), in: 1...180, step: 1)
             } header: {
@@ -161,13 +171,8 @@ private struct RhythmTab: View {
                 Stepper(
                     L.t("rhythm.breaks.longStepper", Int(viewModel.settings.longBreakMinutes)),
                     value: viewModel.binding(\.longBreakMinutes), in: 1...180, step: 1)
-                Stepper(
-                    L.t("rhythm.breaks.everyStepper", viewModel.settings.longBreakEvery),
-                    value: viewModel.binding(\.longBreakEvery), in: 2...10)
             } header: {
                 Text(L.t("rhythm.breaks.header"))
-            } footer: {
-                Text(L.t("rhythm.breaks.footer"))
             }
             Section {
                 Toggle(L.t("rhythm.automation.autoStartBreaks"), isOn: viewModel.binding(\.autoStartBreaks))
@@ -668,9 +673,10 @@ private struct SoundTab: View {
 
 // Merged Log into Diary (2026-09-20 redesign, SPEC.md §8/§8b): one tab,
 // three sections top to bottom — Session history (moved verbatim from the
-// old Log tab), Export (now a `.zip` of per-day files, the same shape Sync
-// writes), Sync to folder (idempotent, no cursor — Erase below no longer
-// touches one either).
+// old Log tab), Export (the complete log as one file, in a chosen format:
+// Markdown/text/ODT/JSON — SPEC.md §8b), Sync to folder (one summarized
+// file per day, idempotent, no cursor — Erase below no longer touches one
+// either).
 private struct DiaryTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var historySizeBytes: Int64 = 0
@@ -692,14 +698,18 @@ private struct DiaryTab: View {
             } footer: {
                 Text(L.t("diary.history.footer"))
             }
-            Section(L.t("diary.export.header")) {
+            Section {
                 LabeledContent(L.t("diary.export.sessionsRecorded"), value: "\(sessionCount)")
                 Button(L.t("diary.export.button")) { exportDiary() }
                 if let exportStatus {
                     Text(exportStatus).foregroundStyle(.secondary)
                 }
+            } header: {
+                Text(L.t("diary.export.header"))
+            } footer: {
+                Text(L.t("diary.export.footer"))
             }
-            Section(L.t("diary.sync.header")) {
+            Section {
                 LabeledContent(L.t("diary.sync.folder")) {
                     Text(folderDisplayPath)
                         .foregroundStyle(viewModel.settings.diaryFolderPath.isEmpty ? .secondary : .primary)
@@ -712,6 +722,10 @@ private struct DiaryTab: View {
                 if let syncStatus {
                     Text(syncStatus).foregroundStyle(.secondary)
                 }
+            } header: {
+                Text(L.t("diary.sync.header"))
+            } footer: {
+                Text(L.t("diary.sync.footer"))
             }
         }
         .settingsForm()
@@ -752,14 +766,25 @@ private struct DiaryTab: View {
         sessionCount = viewModel.sessionLogger.allSessionsSync().count
     }
 
+    private var diaryText: DiaryText {
+        DiaryText(locale: Locale(identifier: L.current), lookup: { key, args in L.t(key, args: args) })
+    }
+
     private func exportDiary() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "Pomoppi Diary.zip"
-        panel.allowedContentTypes = [.zip]
+        let accessory = DiaryFormatAccessory(initialFormat: .markdown)
+        panel.accessoryView = accessory.view
+        accessory.onChange = { format in
+            panel.allowedContentTypes = [UTType(filenameExtension: format.fileExtension) ?? .data]
+            panel.nameFieldStringValue = "Pomoppi Diary.\(format.fileExtension)"
+        }
+        panel.nameFieldStringValue = "Pomoppi Diary.md"
+        panel.allowedContentTypes = [UTType(filenameExtension: DiaryFormat.markdown.fileExtension) ?? .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let zipData = DiaryExporter.exportZip(sessions: viewModel.sessionLogger.allSessionsSync())
+        let format = accessory.selectedFormat
+        let data = DiaryExporter.export(sessions: viewModel.sessionLogger.allSessionsSync(), format: format, text: diaryText)
         do {
-            try zipData.write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
             exportStatus = L.t("diary.export.success", url.lastPathComponent)
         } catch {
             exportStatus = L.t("diary.export.failed")
@@ -780,15 +805,66 @@ private struct DiaryTab: View {
         let allSessions = viewModel.sessionLogger.allSessionsSync()
         let folderURL = URL(fileURLWithPath: viewModel.settings.diaryFolderPath)
         do {
-            let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions)
+            let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions, text: diaryText)
             if written == 0 {
                 syncStatus = L.t("diary.sync.upToDate")
             } else {
-                syncStatus = L.t(written == 1 ? "diary.sync.added.one" : "diary.sync.added.other", written)
+                syncStatus = L.t(written == 1 ? "diary.sync.updated.one" : "diary.sync.updated.other", written)
             }
         } catch {
             syncStatus = L.t("diary.sync.failed")
         }
+    }
+}
+
+// NSSavePanel's accessory view for the Export flow's format picker
+// (SPEC.md §8b): a label plus a popup listing DiaryFormat.allCases. The
+// popup needs a real NSObject target/action, so this small class holds
+// both the view and the selection state, kept alive for the save panel's
+// lifetime by its owner (exportDiary()'s local `accessory`).
+private final class DiaryFormatAccessory: NSObject {
+    let view: NSView
+    var onChange: ((DiaryFormat) -> Void)?
+    private(set) var selectedFormat: DiaryFormat
+
+    init(initialFormat: DiaryFormat) {
+        selectedFormat = initialFormat
+
+        let label = NSTextField(labelWithString: L.t("diary.format.label"))
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for format in DiaryFormat.allCases {
+            popup.addItem(withTitle: L.t("diary.format.\(Self.key(for: format))"))
+        }
+        popup.selectItem(at: DiaryFormat.allCases.firstIndex(of: initialFormat) ?? 0)
+
+        let stack = NSStackView(views: [label, popup])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 0, bottom: 12, right: 0)
+        view = stack
+
+        super.init()
+
+        popup.target = self
+        popup.action = #selector(popupChanged(_:))
+        self.popup = popup
+    }
+
+    private var popup: NSPopUpButton?
+
+    private static func key(for format: DiaryFormat) -> String {
+        switch format {
+        case .markdown: return "markdown"
+        case .text: return "text"
+        case .odt: return "odt"
+        case .json: return "json"
+        }
+    }
+
+    @objc private func popupChanged(_ sender: NSPopUpButton) {
+        let format = DiaryFormat.allCases[sender.indexOfSelectedItem]
+        selectedFormat = format
+        onChange?(format)
     }
 }
 
