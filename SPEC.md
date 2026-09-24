@@ -1029,7 +1029,9 @@ small.
 
 **R1 — Level.** Two states, driven only by the `alwaysOnTop` setting: on →
 `'floating'` (`NSFloatingWindowLevel`, 3); off → normal. Nothing else ever
-changes the level. `'floating'` stays below `NSMainMenuWindowLevel` (24), and
+changes the level, with one exception on macOS: while Installer.app is open
+for an in-app update (§15) the widget drops to normal so it can't cover the
+installer, and goes back to the setting's level when Installer.app quits. `'floating'` stays below `NSMainMenuWindowLevel` (24), and
 that is not optional: **the widget must never be able to hide the macOS menu
 bar.** A window that becomes key at or above the menu bar's level makes macOS
 withdraw the menu bar entirely, which reads as the app having gone

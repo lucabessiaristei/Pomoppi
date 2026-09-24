@@ -8,6 +8,10 @@ import PomoppiRender
 // NSWindow control that SwiftUI's scene APIs don't expose.
 final class WidgetWindow: NSWindow {
     private var appliedAlwaysOnTop: Bool?
+    private var wantsAlwaysOnTop = false
+    // True while Installer.app is open for an in-app update: a floating
+    // widget would sit on top of the installer's window.
+    private var yieldingLevel = false
     private let pixelView: WidgetPixelView
     // The opacity setting's actual target — kept separate from `alphaValue`
     // itself because raise()/hide() drive alphaValue down to/up from 0 for
@@ -55,6 +59,17 @@ final class WidgetWindow: NSWindow {
     // when handed the value it already has, so a redundant call here would
     // silently sink the widget behind other windows.
     func setAlwaysOnTop(_ value: Bool) {
+        wantsAlwaysOnTop = value
+        applyLevel()
+    }
+
+    func yieldLevel(_ yielding: Bool) {
+        yieldingLevel = yielding
+        applyLevel()
+    }
+
+    private func applyLevel() {
+        let value = wantsAlwaysOnTop && !yieldingLevel
         guard appliedAlwaysOnTop != value else { return }
         level = value ? .floating : .normal
         appliedAlwaysOnTop = value

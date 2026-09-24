@@ -16,6 +16,9 @@ import PomoppiCore
 
 final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
     var onStateChange: ((UpdateInstallState) -> Void)?
+    // true when Installer.app is opened on the package, false when it quits:
+    // AppDelegate drops the floating widget below it meanwhile.
+    var onInstallerRunningChange: ((Bool) -> Void)?
 
     private var session: URLSession?
     private var asset: ReleaseAsset?
@@ -72,7 +75,24 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
             report(.failed(.installerLaunchFailed))
             return
         }
-        report(NSWorkspace.shared.open(downloadedPackage) ? .installerOpened : .failed(.installerLaunchFailed))
+        report(openInstaller(downloadedPackage) ? .installerOpened : .failed(.installerLaunchFailed))
+    }
+
+    private var terminationObserver: NSObjectProtocol?
+
+    private func openInstaller(_ package: URL) -> Bool {
+        guard NSWorkspace.shared.open(package) else { return false }
+        onInstallerRunningChange?(true)
+        if terminationObserver == nil {
+            terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                guard app?.bundleIdentifier == "com.apple.installer" else { return }
+                self?.onInstallerRunningChange?(false)
+            }
+        }
+        return true
     }
 
     private func report(_ state: UpdateInstallState) {
@@ -139,7 +159,7 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
                 removexattr(package.path, "com.apple.quarantine", 0)
                 self.downloadedPackage = package
                 self.asset = nil
-                self.report(NSWorkspace.shared.open(package) ? .installerOpened : .failed(.installerLaunchFailed))
+                self.report(self.openInstaller(package) ? .installerOpened : .failed(.installerLaunchFailed))
             }
         }
     }
