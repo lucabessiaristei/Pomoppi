@@ -27,6 +27,29 @@ any of it piecemeal.
 
 ## Locked decisions (S6) — do not re-derive
 
+- **An update never triggers Gatekeeper or SmartScreen.** Only the first
+  install does: the user downloads it with a browser, so it's quarantined
+  (macOS `com.apple.quarantine`, Windows' Mark of the Web) and unsigned,
+  and the one-time "Open Anyway" / "Run anyway" step is unavoidable without
+  code signing (R2, `SPEC.md` §15). Every update after that must go through
+  with no such prompt and no trip to System Settings. Two layers make that
+  hold:
+  - The app downloads with `URLSession`, which marks nothing: a
+    non-sandboxed app without `LSFileQuarantineEnabled` writes no
+    quarantine xattr, and nothing writes a `Zone.Identifier` on Windows.
+    Files the installer then lays down aren't quarantined either, so the
+    relaunched app opens clean.
+  - Safety net, not optional: **after the checksum passes and before
+    opening the installer**, the app strips the markers from its own
+    download anyway — `removexattr(path, "com.apple.quarantine", 0)` on
+    macOS, `DeleteFileW("<path>:Zone.Identifier")` on Windows (both no-ops
+    when absent). This keeps the guarantee from resting on an OS default
+    Apple or Microsoft could change. It's safe because it only ever touches
+    a file whose SHA-256 just matched the release's own `digest`; a
+    download without a `digest` gets the size check only, and still gets
+    the strip (same trust root as the notifier, see the integrity point
+    below).
+
 - **User-initiated only.** No auto-download, no auto-install, no new
   setting. `checkForUpdates` stays the only knob; checking stays
   background, downloading and installing never start without a click.
@@ -125,23 +148,26 @@ match its checksum", "couldn't start the installer"), and always offers
 
 1. Download the `.pkg` into a fresh temporary directory.
 2. Verify: byte count equals `size`, SHA-256 equals `digest` when present.
-3. `NSWorkspace.shared.open(pkgURL)`: Installer.app shows its own UI and
-   asks for the password. Pomoppi keeps running; if the user cancels the
-   installer, nothing changed.
-4. The pkg's `postinstall` already runs `pkill -x Pomoppi`. It gains the
+3. Strip `com.apple.quarantine` from the verified `.pkg` (the safety net
+   above).
+4. `NSWorkspace.shared.open(pkgURL)`: Installer.app shows its own UI and
+   asks for the password, and no Gatekeeper dialog. Pomoppi keeps
+   running; if the user cancels the installer, nothing changed.
+5. The pkg's `postinstall` already runs `pkill -x Pomoppi`. It gains the
    relaunch: `launchctl asuser <console uid> open -a /Applications/Pomoppi.app`
    (R1 considered and dropped it as unverified; S6b verifies it).
 
-Unknown to settle in S6b: whether a `URLSession` download made from inside
-the installed, unsigned app gets `com.apple.quarantine`. An earlier spike
-from a loose binary saw none. If it does appear, Installer.app refuses an
-unsigned quarantined `.pkg`; the fix is removing that one xattr from our
-own freshly verified download before opening it.
+An earlier spike from a loose binary saw no `com.apple.quarantine` on a
+`URLSession` download (only `com.apple.provenance`, which doesn't gate
+launching). S6b re-checks from inside the installed app and records the
+answer; the strip in step 3 makes the result not matter.
 
 ## Windows path
 
 1. Download `Pomoppi-Setup-*.exe` to `%TEMP%` (never the install folder,
-   which is about to be overwritten). Verify the same way.
+   which is about to be overwritten). Verify the same way, then delete any
+   `Zone.Identifier` stream (the safety net above), so SmartScreen has
+   nothing to flag.
 2. `ShellExecuteW(nil, "open", path, "/SILENT /SUPPRESSMSGBOXES /NORESTART /LOG=\"%TEMP%\\Pomoppi-update.log\"", nil, SW_SHOWNORMAL)`.
    A return value ≤ 32 is a launch failure, so fall back to the release page.
    The log is the only way a silent install's failure is diagnosable.
@@ -174,15 +200,20 @@ on a mismatch, offer only the release page.
   the NIST vectors and `shasum -a 256` of a real file; `swift build` green
   on the Mac **and in the VM** (shared code).
 - **S6b — macOS installer side. No app code.** The postinstall relaunch
-  line, and the quarantine check from inside an installed bundle.
-  **Exit:** installing the `.pkg` over a running Pomoppi relaunches it by
-  itself; the quarantine answer is recorded here.
+  line, and the Gatekeeper check. **Exit:** installing the `.pkg` over a
+  running Pomoppi relaunches it by itself, with no Gatekeeper dialog for
+  the relaunched app; whether a `URLSession` download from inside the
+  installed app carries `com.apple.quarantine` is recorded here; and a
+  `.pkg` deliberately quarantined (`xattr -w com.apple.quarantine ...`)
+  then stripped opens in Installer.app with no Gatekeeper dialog and no
+  System Settings step, proving the safety net.
 - **S6c — macOS in-app update.** `Sources/PomoppiApp/UpdateInstaller.swift`
   (download with progress, verify, open), owned by `AppUpdateChecker`;
   `UpdateStatusRow` in `SettingsView.swift` grows the state table; the tray
   item opens Settings. **Exit:** Update downloads with a moving bar,
-  verifies, opens Installer.app, and after installing the new version is
-  running; Cancel mid-download changes nothing; a corrupted digest shows
+  verifies, opens Installer.app with only its password prompt (no
+  Gatekeeper dialog, no System Settings step, before or after), and after
+  installing the new version is running; Cancel mid-download changes nothing; a corrupted digest shows
   the checksum failure plus a working release-page link; a mid-session
   update asks first.
 - **S6d — Windows installer side. VM only, no app code.** The second
@@ -192,17 +223,19 @@ on a mismatch, offer only the release page.
   shows only a progress window, closes the running instance, and Pomoppi
   comes back by itself on the new version; the interactive installer still
   shows its "Launch Pomoppi now" checkbox; settings and the login item
-  survive. **If `CloseApplications` prompts in silent mode, or
+  survive; the setup launched with a `Zone.Identifier` stream deliberately
+  added and then deleted shows no SmartScreen dialog. **If `CloseApplications` prompts in silent mode, or
   `WizardSilent` doesn't fire, stop and report.**
-- **S6e — Windows in-app update.** `Sources/PomoppiWindows/UpdateInstaller.swift`;
-  the General tab's Updates row gains a hidden-by-default
-  `msctls_progress32` and a second button; the tray item opens Settings.
-  Throttle progress repaints to ~10/s. **Spike first:** whether
-  `URLSessionDownloadDelegate` progress fires under `FoundationNetworking`;
-  if not, the bar goes `PBS_MARQUEE` and the byte counts drop. **Exit:**
-  same list as S6c in the VM, plus the download survives closing and
-  reopening the settings window, and a copy run from an unzipped folder
-  offers only the release page.
+- **S6e — Windows in-app update.**
+  `Sources/PomoppiWindows/UpdateInstaller.swift`; the General tab's Updates
+  row gains a hidden-by-default `msctls_progress32` and a second button; the
+  tray item opens Settings. Throttle progress repaints to ~10/s. **Spike
+  first:** whether `URLSessionDownloadDelegate` progress fires under
+  `FoundationNetworking`; if not, the bar goes `PBS_MARQUEE` and the byte
+  counts drop. **Exit:** same list as S6c in the VM (no SmartScreen dialog
+  at any point), plus the download survives closing and reopening the
+  settings window, and a copy run from an unzipped folder offers only the
+  release page.
 - **S6f — Docs.** `SPEC.md` §15's "passive and notify-only" paragraph
   rewritten (what's downloaded, what the check does and doesn't prove, the
   per-platform install/relaunch, "no auto-install, ever"), §0b's parity
@@ -225,4 +258,5 @@ before committing anything.
   first design, above).
 - **Delta updates, "skip this version", rollback**: more machinery than
   what they save; the release page always has the previous version.
-- **Signing (R2)**: still deferred; the integrity caveat above is its cost.
+- **Signing (R2)**: still deferred. Its cost is the integrity caveat above
+  and the one-time Gatekeeper / SmartScreen step on a first install.
