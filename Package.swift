@@ -37,7 +37,7 @@ let targets: [Target] = [
     // — PlaySoundW (ChimePlayer.swift) needs it linked explicitly.
     .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites", "PomoppiStrings"], exclude: ["Pomoppi.exe.manifest", "Pomoppi.rc"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("winmm")]),
     .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore", "PomoppiStrings"], swiftSettings: swiftSettings),
-    .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
+    .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites", "PomoppiCore"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiStringsTests", dependencies: ["PomoppiStrings"], swiftSettings: swiftSettings),
 ]
 #else
@@ -48,7 +48,7 @@ let targets: [Target] = [
     .target(name: "PomoppiStrings", swiftSettings: swiftSettings),
     .executableTarget(name: "PomoppiApp", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiStrings"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore", "PomoppiStrings"], swiftSettings: swiftSettings),
-    .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
+    .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites", "PomoppiCore"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiRenderTests", dependencies: ["PomoppiRender"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiStringsTests", dependencies: ["PomoppiStrings"], swiftSettings: swiftSettings),
 ]
