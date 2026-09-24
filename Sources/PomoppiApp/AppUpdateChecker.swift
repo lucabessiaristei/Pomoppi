@@ -67,8 +67,7 @@ final class AppUpdateChecker: ObservableObject {
         UpdateInstaller.pruneCache(currentVersion: currentVersion)
     }
 
-    // The asset of the update currently on offer, when there is one to
-    // install in-app (nil means "release page only").
+    // The installer of the update currently on offer; nil when there's none.
     var availableAsset: ReleaseAsset? {
         guard case .updateAvailable(_, _, let asset) = latestResult else { return nil }
         return asset

@@ -145,7 +145,7 @@ any step ─ failure ─▶ installFailed(reason) ─▶ [Try again] [Open relea
 | State | Row reads | Controls |
 |---|---|---|
 | `updateAvailable` + asset | `Update available: v0.4.0` | **Update**, Release notes |
-| `updateAvailable`, no asset | `Update available: v0.4.0` | Release notes (today's behavior) |
+| ~~`updateAvailable`, no asset~~ | Dropped in v0.3.5 testing: a release without this platform's installer is `.noUpdate`, so the row keeps its Check button until CI has uploaded | |
 | `downloading` | `Downloading… 3.2 MB of 8.1 MB` | progress bar, Cancel |
 | `verifying` | `Verifying…` | — |
 | `installerOpened` | macOS: `Installer opened. Follow its steps.` / Windows: `Installing…` | — |

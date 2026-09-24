@@ -541,13 +541,10 @@ private struct UpdateStatusRow: View {
 
     @ViewBuilder
     private var checkView: some View {
-        if case .updateAvailable(let tag, let pageURL, let asset) = updateChecker.latestResult, manualState != .checking {
+        if case .updateAvailable(let tag, let pageURL, _) = updateChecker.latestResult, manualState != .checking {
             HStack(spacing: 8) {
                 Text("\(tag) available").foregroundStyle(.secondary)
-                // No asset yet (CI still uploading): release page only.
-                if asset != nil {
-                    Button("Update", action: requestUpdate)
-                }
+                Button("Update", action: requestUpdate)
                 Button("Release notes") { NSWorkspace.shared.open(pageURL) }
                     .buttonStyle(.link)
             }

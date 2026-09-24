@@ -1003,8 +1003,8 @@ final class SettingsWindow {
                 if updateChecker.installableAsset != nil {
                     setUpdateButtons(primary: "Update to \(tag)", enabled: true, secondary: "Release notes")
                 } else {
-                    // No asset yet, or a copy Inno didn't install: the
-                    // release page is the only way.
+                    // A copy Inno didn't install: the release page is the
+                    // only way.
                     setUpdateButtons(primary: "Download \(tag)", enabled: true, secondary: nil)
                 }
                 return
