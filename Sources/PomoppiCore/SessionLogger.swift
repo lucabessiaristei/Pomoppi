@@ -28,15 +28,25 @@ public struct SessionLogEntry: Codable, Equatable {
     public let endTime: Date
     public let durationMinutes: Int
     public let completed: Bool
-    // Added 2026-09-24, absent from older entries (SPEC.md §8): the exact
-    // length, and the pomodoro this phase belongs to.
-    public let durationSeconds: Int?
-    public let pomodoroStart: Date?
+    // Added in 0.4.0 (log version 2, SPEC.md §8), absent from older entries.
+    // Fields are only ever added, never renamed or removed, so a future
+    // version can always read this one.
+    public let durationSeconds: Int?   // the length that counted (planned if completed, else actual)
+    public let plannedSeconds: Int?
+    public let pausedSeconds: Int?     // paused inside the phase, not in durationSeconds
+    public let pomodoroStart: Date?    // identifies the pomodoro
+    public let focusNumber: Int?       // 1-based; a break carries the focus it follows
+    public let focusCount: Int?        // focus sessions planned for the pomodoro then
+    public let timeZone: String?       // what day/month/year were computed in
+    public let appVersion: String?     // the Pomoppi that wrote the entry
 
     public init(
         phase: String, task: String, day: Int, month: Int, year: Int,
         startTime: Date, endTime: Date, durationMinutes: Int, completed: Bool,
-        durationSeconds: Int? = nil, pomodoroStart: Date? = nil
+        durationSeconds: Int? = nil, pomodoroStart: Date? = nil,
+        plannedSeconds: Int? = nil, pausedSeconds: Int? = nil,
+        focusNumber: Int? = nil, focusCount: Int? = nil,
+        timeZone: String? = nil, appVersion: String? = nil
     ) {
         self.phase = phase
         self.task = task
@@ -49,6 +59,12 @@ public struct SessionLogEntry: Codable, Equatable {
         self.completed = completed
         self.durationSeconds = durationSeconds
         self.pomodoroStart = pomodoroStart
+        self.plannedSeconds = plannedSeconds
+        self.pausedSeconds = pausedSeconds
+        self.focusNumber = focusNumber
+        self.focusCount = focusCount
+        self.timeZone = timeZone
+        self.appVersion = appVersion
     }
 
     // Older entries only have whole minutes.
@@ -111,7 +127,13 @@ public actor SessionLogger {
             startTime: event.startedAt, endTime: event.endedAt,
             durationMinutes: minutes, completed: event.completed,
             durationSeconds: max(0, Int((lengthMs / 1000).rounded())),
-            pomodoroStart: event.pomodoroStartedAt)
+            pomodoroStart: event.pomodoroStartedAt,
+            plannedSeconds: max(0, Int((event.plannedMs / 1000).rounded())),
+            pausedSeconds: max(0, Int((event.pausedMs / 1000).rounded())),
+            focusNumber: event.focusNumber > 0 ? event.focusNumber : nil,
+            focusCount: event.focusCount > 0 ? event.focusCount : nil,
+            timeZone: calendar.timeZone.identifier,
+            appVersion: pomoppiVersion)
 
         var file = readFile() ?? .empty
         file.sessions.append(entry)

@@ -32,10 +32,18 @@ public struct PhaseCompleteEvent {
     // The first focus's start in this phase's pomodoro (SPEC.md §5); the log
     // groups by it. nil only for a phase outside any pomodoro.
     public let pomodoroStartedAt: Date?
+    // Which focus of the pomodoro this is, 1-based; a break carries the
+    // number of the focus it follows. focusCount is the pomodoro's planned
+    // number of focus sessions (longBreakEvery) at the time. 0 when unknown.
+    public let focusNumber: Int
+    public let focusCount: Int
+    // Time spent paused inside this phase, not counted in actualMs.
+    public let pausedMs: Double
 
     public init(
         phase: Phase, startedAt: Date, endedAt: Date, plannedMs: Double, actualMs: Double,
-        task: String, completed: Bool, pomodoroStartedAt: Date? = nil
+        task: String, completed: Bool, pomodoroStartedAt: Date? = nil,
+        focusNumber: Int = 0, focusCount: Int = 0, pausedMs: Double = 0
     ) {
         self.phase = phase
         self.startedAt = startedAt
@@ -45,6 +53,9 @@ public struct PhaseCompleteEvent {
         self.task = task
         self.completed = completed
         self.pomodoroStartedAt = pomodoroStartedAt
+        self.focusNumber = focusNumber
+        self.focusCount = focusCount
+        self.pausedMs = pausedMs
     }
 }
 
@@ -101,6 +112,8 @@ public final class PomodoroTimer {
     private var completedToday = 0
     private var completedThisPomodoro = 0  // handed back by reset()
     private var pomodoroStartedAt: Date?   // nil = no pomodoro under way
+    private var pausedMs: Double = 0       // paused time in the current phase
+    private var pausedAt: Date?
     private var completedTodayKey: String?
     private var task: String = ""
     private var phaseStartedAt: Date?
@@ -128,6 +141,10 @@ public final class PomodoroTimer {
         if phase == .idle { setupPhase(.focus) }
         if running || remainingMs <= 0 { return getState() }
         if pomodoroStartedAt == nil { pomodoroStartedAt = nowTs }
+        if let pausedAt {
+            pausedMs += max(0, nowTs.timeIntervalSince(pausedAt) * 1000)
+            self.pausedAt = nil
+        }
         beginRunning(nowTs)
         onChange?(getState())
         return getState()
@@ -141,6 +158,7 @@ public final class PomodoroTimer {
         remainingMs = max(0, computeRemainingMs(nowTs))
         endsAt = nil
         running = false
+        pausedAt = nowTs
         onChange?(getState())
         return getState()
     }
@@ -176,10 +194,7 @@ public final class PomodoroTimer {
         let skippedPhase = phase
         let remaining = computeRemainingMs(nowTs)
         let actualMs = max(0, totalMs - remaining)
-        emitPhaseComplete(PhaseCompleteEvent(
-            phase: skippedPhase, startedAt: phaseStartedAt ?? nowTs, endedAt: nowTs,
-            plannedMs: totalMs, actualMs: actualMs, task: task, completed: false,
-            pomodoroStartedAt: pomodoroStartedAt))
+        emitPhaseComplete(event(startedAt: phaseStartedAt ?? nowTs, endedAt: nowTs, actualMs: actualMs, completed: false))
 
         switch skippedPhase {
         case .focus:
@@ -289,6 +304,20 @@ public final class PomodoroTimer {
         endsAt = nil
         running = false
         phaseStartedAt = nil
+        pausedMs = 0
+        pausedAt = nil
+    }
+
+    // The current phase as a phaseComplete event.
+    private func event(startedAt: Date, endedAt: Date, actualMs: Double, completed: Bool) -> PhaseCompleteEvent {
+        let stillPaused = pausedAt.map { max(0, endedAt.timeIntervalSince($0) * 1000) } ?? 0
+        return PhaseCompleteEvent(
+            phase: phase, startedAt: startedAt, endedAt: endedAt,
+            plannedMs: totalMs, actualMs: actualMs, task: task, completed: completed,
+            pomodoroStartedAt: pomodoroStartedAt,
+            focusNumber: phase == .focus ? cycleIndex + 1 : cycleIndex,
+            focusCount: getSettings().longBreakEvery,
+            pausedMs: pausedMs + stillPaused)
     }
 
     private func finishFocus(_ nowTs: Date, countsForToday: Bool) {
@@ -347,17 +376,12 @@ public final class PomodoroTimer {
     private func completePhase(_ nowTs: Date) {
         let finishedPhase = phase
         let startedAt = phaseStartedAt ?? nowTs
-        let plannedMs = totalMs
-        let finishedTask = task
 
         running = false
         endsAt = nil
         remainingMs = 0
 
-        emitPhaseComplete(PhaseCompleteEvent(
-            phase: finishedPhase, startedAt: startedAt, endedAt: nowTs,
-            plannedMs: plannedMs, actualMs: plannedMs, task: finishedTask, completed: true,
-            pomodoroStartedAt: pomodoroStartedAt))
+        emitPhaseComplete(event(startedAt: startedAt, endedAt: nowTs, actualMs: totalMs, completed: true))
 
         let settings = getSettings()
         let nextPhase: Phase
