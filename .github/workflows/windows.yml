@@ -51,14 +51,10 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: Pomoppi-win
-          path: |
-            dist/Pomoppi-win.zip
-            dist/Pomoppi-Setup-*.exe
+          path: dist/Pomoppi-Setup-*.exe
 
       - name: Upload to release
         if: github.event_name == 'release'
-        # Only the installer goes on the release; the portable zip stays a
-        # workflow artifact for manual test runs.
         run: gh release upload ${{ github.event.release.tag_name }} dist/Pomoppi-Setup-*.exe --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

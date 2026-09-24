@@ -63,8 +63,8 @@ Publishing the release fires `release: published` on both
    `pomoppiVersion` — fails the whole run loudly if not, rather than
    shipping a mismatched artifact.
 2. Each platform builds and packages: `Scripts/make-pkg.js` (unsigned
-   `.pkg`) on macOS, `Scripts/make-windows-app.js --installer` (zip +
-   Inno Setup `.exe`) on Windows.
+   `.pkg`) on macOS, `Scripts/make-windows-app.js --installer` (Inno
+   Setup `.exe`) on Windows.
 3. Each workflow uploads its installer straight onto the GitHub release
    (`gh release upload ... --clobber`): the `.pkg` and the Setup `.exe`.
 
@@ -78,8 +78,6 @@ downloading the result hits Gatekeeper/SmartScreen friction — see
 - Check both workflow runs went green under the Actions tab.
 - Confirm the release page carries both expected assets:
   `Pomoppi-<version>_macOS.pkg` and `Pomoppi-Setup-<version>_Windows.exe`.
-  The portable `Pomoppi-win.zip` is deliberately not attached; it's only a
-  workflow artifact.
 - If this was a pre-release test run, delete or leave it as-is (it's
   invisible to `/releases/latest` either way) before publishing the real
   one.

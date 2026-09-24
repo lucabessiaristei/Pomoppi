@@ -73,10 +73,6 @@ Download `Pomoppi-Setup-<version>_Windows.exe` and run it.
 3. Click **Run anyway**. The installer runs normally from here (a
    per-user install under your user profile, no admin prompt needed).
 
-Alternatively, download `Pomoppi-win.zip` from the same release and run
-`Pomoppi.exe` directly with no install step — SmartScreen shows the same
-warning either way, since it's the executable itself that's unsigned,
-not the installer.
 
 ## The pets
 
