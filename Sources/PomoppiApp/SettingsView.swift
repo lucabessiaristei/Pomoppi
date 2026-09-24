@@ -111,15 +111,24 @@ extension SettingsViewModel {
 }
 
 private extension View {
+    // The bottom fade (see SettingsView's scenePadding) plus a matching
+    // extra content margin, so fully scrolled content ends above the fade
+    // instead of under it. The mask's trailing strip stays opaque so the
+    // scrollbar is never faded.
     func settingsForm() -> some View {
-        self
+        let fadeHeight: CGFloat = 32
+        return self
             .formStyle(.grouped)
+            .contentMargins(.bottom, fadeHeight, for: .scrollContent)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .mask {
-                VStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 32)
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: fadeHeight)
+                    }
+                    Color.black.frame(width: 16)
                 }
             }
     }
