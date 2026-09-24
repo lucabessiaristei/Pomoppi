@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import PomoppiCore
+import PomoppiStrings
 
 // Content of the SwiftUI `Settings` scene. `Tab(_:systemImage:)` only
 // becomes a preference toolbar of icons when it lives in that scene —
@@ -12,22 +13,22 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("General", systemImage: "macwindow", value: "general") {
+            Tab(L.t("tab.general"), systemImage: "macwindow", value: "general") {
                 GeneralTab(viewModel: viewModel)
             }
-            Tab("Rhythm", systemImage: "timer", value: "rhythm") {
+            Tab(L.t("tab.rhythm"), systemImage: "timer", value: "rhythm") {
                 RhythmTab(viewModel: viewModel)
             }
-            Tab("Appearance", systemImage: "paintpalette", value: "appearance") {
+            Tab(L.t("tab.appearance"), systemImage: "paintpalette", value: "appearance") {
                 AppearanceTab(viewModel: viewModel)
             }
-            Tab("Keys", systemImage: "keyboard", value: "keys") {
+            Tab(L.t("tab.keys"), systemImage: "keyboard", value: "keys") {
                 KeysTab(viewModel: viewModel)
             }
-            Tab("Sound", systemImage: "speaker.wave.2", value: "sound") {
+            Tab(L.t("tab.sound"), systemImage: "speaker.wave.2", value: "sound") {
                 SoundTab(viewModel: viewModel)
             }
-            Tab("Diary", systemImage: "book.closed", value: "diary") {
+            Tab(L.t("tab.diary"), systemImage: "book.closed", value: "diary") {
                 DiaryTab(viewModel: viewModel)
             }
         }
@@ -146,38 +147,38 @@ private struct RhythmTab: View {
         Form {
             Section {
                 Stepper(
-                    "Default focus length: \(Int(viewModel.settings.focusMinutes)) min",
+                    L.t("rhythm.focus.stepper", Int(viewModel.settings.focusMinutes)),
                     value: viewModel.binding(\.focusMinutes), in: 1...180, step: 1)
             } header: {
-                Text("Focus")
+                Text(L.t("rhythm.focus.header"))
             } footer: {
-                Text("Or click the clock on the widget.")
+                Text(L.t("rhythm.focus.footer"))
             }
             Section {
                 Stepper(
-                    "Short break: \(Int(viewModel.settings.shortBreakMinutes)) min",
+                    L.t("rhythm.breaks.shortStepper", Int(viewModel.settings.shortBreakMinutes)),
                     value: viewModel.binding(\.shortBreakMinutes), in: 1...180, step: 1)
                 Stepper(
-                    "Long break: \(Int(viewModel.settings.longBreakMinutes)) min",
+                    L.t("rhythm.breaks.longStepper", Int(viewModel.settings.longBreakMinutes)),
                     value: viewModel.binding(\.longBreakMinutes), in: 1...180, step: 1)
                 Stepper(
-                    "Long break every \(viewModel.settings.longBreakEvery) sessions",
+                    L.t("rhythm.breaks.everyStepper", viewModel.settings.longBreakEvery),
                     value: viewModel.binding(\.longBreakEvery), in: 2...10)
             } header: {
-                Text("Breaks")
+                Text(L.t("rhythm.breaks.header"))
             } footer: {
-                Text("Or click the dots on the widget.")
+                Text(L.t("rhythm.breaks.footer"))
             }
             Section {
-                Toggle("Start breaks automatically", isOn: viewModel.binding(\.autoStartBreaks))
-                Toggle("Start the next focus automatically", isOn: viewModel.binding(\.autoStartFocus))
-                Toggle("Ask what I’m working on before each focus", isOn: viewModel.binding(\.askForTaskName))
+                Toggle(L.t("rhythm.automation.autoStartBreaks"), isOn: viewModel.binding(\.autoStartBreaks))
+                Toggle(L.t("rhythm.automation.autoStartFocus"), isOn: viewModel.binding(\.autoStartFocus))
+                Toggle(L.t("rhythm.automation.askForTaskName"), isOn: viewModel.binding(\.askForTaskName))
             } header: {
-                Text("Automation")
+                Text(L.t("rhythm.automation.header"))
             } footer: {
                 Text(viewModel.settings.loggingEnabled
-                    ? "Always asks while session logging is on (Diary tab)."
-                    : "Leave the name blank to skip.")
+                    ? L.t("rhythm.askForTask.hint.loggingOn")
+                    : L.t("rhythm.askForTask.hint.loggingOff"))
             }
         }
         .settingsForm()
@@ -208,15 +209,15 @@ private struct AppearanceTab: View {
                     },
                     onSelect: { friend in viewModel.update { $0.friend = friend } })
             } header: {
-                Text("Roommate")
+                Text(L.t("appearance.roommate.header"))
             }
 
-            Section("Window edge") {
+            Section(L.t("appearance.windowEdge.header")) {
                 CardPickerGrid(
                     items: PomoppiSettings.frameStyles,
                     selected: viewModel.settings.frameStyle,
                     cardSize: CGSize(width: 55, height: 62),
-                    label: { $0.capitalized },
+                    label: { L.t("frameStyle.\($0)", fallback: $0.capitalized) },
                     image: { style in
                         PixelPreviews.frameEdgeCard(
                             frameStyle: style,
@@ -225,7 +226,7 @@ private struct AppearanceTab: View {
                     onSelect: { style in viewModel.update { $0.frameStyle = style } })
             }
 
-            Section("Background") {
+            Section(L.t("appearance.background.header")) {
                 CardPickerGrid(
                     items: PomoppiSettings.backgroundIDs,
                     selected: viewModel.settings.background,
@@ -234,7 +235,7 @@ private struct AppearanceTab: View {
                     // width (see PixelPreviews.backgroundPatternCard), so
                     // its aspect ratio is ~110:62 rather than ~55:62.
                     cardSize: CGSize(width: 74, height: 42),
-                    label: { $0.capitalized },
+                    label: { L.t("background.\($0)", fallback: $0.capitalized) },
                     image: { background in
                         PixelPreviews.backgroundPatternCard(
                             backgroundID: background, frameStyle: viewModel.settings.frameStyle,
@@ -243,20 +244,20 @@ private struct AppearanceTab: View {
                     onSelect: { background in viewModel.update { $0.background = background } })
             }
 
-            Section("Theme") {
+            Section(L.t("appearance.theme.header")) {
                 ThemePresetPicker(viewModel: viewModel)
-                ColorPicker("Ink", selection: viewModel.colorBinding(\.inkColor), supportsOpacity: false)
-                ColorPicker("Paper", selection: viewModel.colorBinding(\.paperColor), supportsOpacity: false)
+                ColorPicker(L.t("appearance.theme.ink"), selection: viewModel.colorBinding(\.inkColor), supportsOpacity: false)
+                ColorPicker(L.t("appearance.theme.paper"), selection: viewModel.colorBinding(\.paperColor), supportsOpacity: false)
             }
 
             Section {
-                Picker("Size", selection: viewModel.binding(\.scale)) {
+                Picker(L.t("appearance.size.label"), selection: viewModel.binding(\.scale)) {
                     ForEach([1, 2, 3, 4], id: \.self) { size in
                         Text("\(size)×").tag(size)
                     }
                 }
                 .pickerStyle(.segmented)
-                LabeledContent("Opacity") {
+                LabeledContent(L.t("appearance.size.opacity")) {
                     HStack(spacing: 8) {
                         Slider(value: viewModel.binding(\.opacity), in: 0.3...1.0, step: 0.1)
                         Text("\(Int((viewModel.settings.opacity * 100).rounded()))%")
@@ -266,7 +267,7 @@ private struct AppearanceTab: View {
                     }
                 }
             } header: {
-                Text("Size & transparency")
+                Text(L.t("appearance.size.header"))
             }
         }
         .settingsForm()
@@ -339,24 +340,24 @@ private struct CardPickerGrid<ID: Hashable>: View {
 }
 
 private struct ThemePreset {
-    let name: String
+    let id: String
     let ink: String
     let paper: String
 }
 
 private let themePresets: [ThemePreset] = [
-    ThemePreset(name: "B/W", ink: "#000000", paper: "#FFFFFF"),
-    ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
-    ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
-    ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
-    ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
-    ThemePreset(name: "Peach", ink: "#683525", paper: "#FFE1CF"),
-    ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
-    ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
-    ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
-    ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
-    ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
-    ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
+    ThemePreset(id: "bw", ink: "#000000", paper: "#FFFFFF"),
+    ThemePreset(id: "cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
+    ThemePreset(id: "sakura", ink: "#5D2A42", paper: "#FFD6EC"),
+    ThemePreset(id: "lavender", ink: "#372856", paper: "#E8DDFF"),
+    ThemePreset(id: "mint", ink: "#1F473E", paper: "#D5F2E6"),
+    ThemePreset(id: "peach", ink: "#683525", paper: "#FFE1CF"),
+    ThemePreset(id: "pine", ink: "#E0FFC2", paper: "#064734"),
+    ThemePreset(id: "midnight", ink: "#E2E8F0", paper: "#0F172A"),
+    ThemePreset(id: "oled", ink: "#FFFFFF", paper: "#000000"),
+    ThemePreset(id: "amber", ink: "#FFB000", paper: "#1A1100"),
+    ThemePreset(id: "cherry", ink: "#FFE0E6", paper: "#6B1022"),
+    ThemePreset(id: "lcdGreen", ink: "#276231", paper: "#80B391"),
 ]
 
 private struct ThemePresetPicker: View {
@@ -371,7 +372,7 @@ private struct ThemePresetPicker: View {
         // Same fix as CardPickerGrid: centre each item on its column so the
         // swatch aligns the same way regardless of preset-name width.
         LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
-            ForEach(themePresets, id: \.name) { preset in
+            ForEach(themePresets, id: \.id) { preset in
                 let isSelected = viewModel.settings.inkColor == preset.ink && viewModel.settings.paperColor == preset.paper
                 Button {
                     viewModel.update {
@@ -392,7 +393,7 @@ private struct ThemePresetPicker: View {
                                 .fill(Color(hex: preset.ink))
                                 .frame(width: 12, height: 12)
                         }
-                        Text(preset.name)
+                        Text(L.t("theme.preset.\(preset.id)"))
                             .font(.caption2)
                             .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                             .lineLimit(1)
@@ -415,66 +416,66 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
-            Section("Widget") {
-                Toggle("Keep the widget on top of other windows", isOn: viewModel.binding(\.alwaysOnTop))
-                Toggle("Pop to the front when a session ends", isOn: viewModel.binding(\.raiseOnEnd))
+            Section(L.t("general.widget.header")) {
+                Toggle(L.t("general.widget.alwaysOnTop"), isOn: viewModel.binding(\.alwaysOnTop))
+                Toggle(L.t("general.widget.raiseOnEnd"), isOn: viewModel.binding(\.raiseOnEnd))
             }
             Section {
-                Toggle("Swap the menu bar icon's left and right clicks", isOn: viewModel.binding(\.reverseTrayClick))
+                Toggle(L.t("general.trayIcon.reverseTrayClick"), isOn: viewModel.binding(\.reverseTrayClick))
             } header: {
-                Text("Menu bar icon")
+                Text(L.t("general.trayIcon.header"))
             } footer: {
                 Text(viewModel.settings.reverseTrayClick
-                    ? "Left-click opens the menu, right-click raises the widget."
-                    : "Left-click raises the widget, right-click opens the menu.")
+                    ? L.t("general.trayIcon.footer.reversed")
+                    : L.t("general.trayIcon.footer.normal"))
             }
             Section {
-                Toggle("Open Pomoppi when I log in", isOn: viewModel.binding(\.launchAtLogin))
-                Toggle("Start without showing the widget", isOn: viewModel.binding(\.startHidden))
+                Toggle(L.t("general.startup.launchAtLogin"), isOn: viewModel.binding(\.launchAtLogin))
+                Toggle(L.t("general.startup.startHidden"), isOn: viewModel.binding(\.startHidden))
             } header: {
-                Text("Startup")
+                Text(L.t("general.startup.header"))
             } footer: {
-                Text("“Start hidden” applies from the next launch.")
+                Text(L.t("general.startup.footer"))
             }
             Section {
-                Picker("Mode", selection: viewModel.binding(\.colorScheme)) {
-                    Text("Auto").tag("auto")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
+                Picker(L.t("general.colorScheme.mode"), selection: viewModel.binding(\.colorScheme)) {
+                    Text(L.t("general.colorScheme.auto")).tag("auto")
+                    Text(L.t("general.colorScheme.light")).tag("light")
+                    Text(L.t("general.colorScheme.dark")).tag("dark")
                 }
                 .pickerStyle(.segmented)
             } header: {
-                Text("Color scheme")
+                Text(L.t("general.colorScheme.header"))
             } footer: {
-                Text("Pomoppi's own windows only. Widget colors are in Appearance.")
+                Text(L.t("general.colorScheme.footer"))
             }
             Section {
-                Toggle("Automatically check for updates", isOn: viewModel.binding(\.checkForUpdates))
+                Toggle(L.t("general.updates.checkForUpdates"), isOn: viewModel.binding(\.checkForUpdates))
                 UpdateStatusRow(updateChecker: viewModel.updateChecker)
             } header: {
-                Text("Updates")
+                Text(L.t("general.updates.header"))
             }
             Section {
-                Button("Reset Pomoppi…", role: .destructive) {
+                Button(L.t("general.reset.button"), role: .destructive) {
                     showingResetConfirmation = true
                 }
             } header: {
-                Text("Reset")
+                Text(L.t("general.reset.header"))
             } footer: {
-                Text("Also erases your session history.")
+                Text(L.t("general.reset.footer"))
             }
         }
         .settingsForm()
         .confirmationDialog(
-            "Reset Pomoppi to defaults?",
+            L.t("general.reset.confirm.title"),
             isPresented: $showingResetConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Reset to Defaults", role: .destructive) {
+            Button(L.t("general.reset.confirm.button"), role: .destructive) {
                 viewModel.resetToDefaults()
             }
         } message: {
-            Text("This erases all settings and session history.")
+            Text(L.t("general.reset.confirm.message"))
         }
     }
 }
@@ -494,7 +495,7 @@ private struct UpdateStatusRow: View {
     }
 
     var body: some View {
-        LabeledContent("Pomoppi \(pomoppiVersion)") {
+        LabeledContent(L.t("updates.version", pomoppiVersion)) {
             actionView
         }
     }
@@ -510,27 +511,27 @@ private struct UpdateStatusRow: View {
             HStack(spacing: 8) {
                 ProgressView(value: Double(received), total: Double(max(total, 1)))
                     .frame(width: 110)
-                Text("\(Self.bytes(received)) of \(Self.bytes(total))")
+                Text(L.t("updates.downloading", Self.bytes(received), Self.bytes(total)))
                     .font(.body.monospacedDigit())
                     .foregroundStyle(.secondary)
-                Button("Cancel") { updateChecker.cancelUpdate() }
+                Button(L.t("common.cancel")) { updateChecker.cancelUpdate() }
                     .buttonStyle(.link)
             }
         case .verifying:
-            Text("Verifying…").foregroundStyle(.secondary)
+            Text(L.t("updates.verifying")).foregroundStyle(.secondary)
         case .installerOpened:
             HStack(spacing: 8) {
-                Text("Installer opened. Follow its steps.").foregroundStyle(.secondary)
-                Button("Open again") { updateChecker.reopenInstaller() }
+                Text(L.t("updates.installerOpened")).foregroundStyle(.secondary)
+                Button(L.t("updates.openAgain")) { updateChecker.reopenInstaller() }
                     .buttonStyle(.link)
             }
         case .failed(let failure):
             HStack(spacing: 8) {
-                Text("Update failed: \(failure.clause)").foregroundStyle(.secondary)
-                Button("Try again", action: requestUpdate)
+                Text(L.t("updates.failed", L.t("updates.failure.\(failure)", fallback: failure.clause))).foregroundStyle(.secondary)
+                Button(L.t("updates.tryAgain"), action: requestUpdate)
                     .buttonStyle(.link)
                 if case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult {
-                    Button("Release page") { NSWorkspace.shared.open(pageURL) }
+                    Button(L.t("updates.releasePage")) { NSWorkspace.shared.open(pageURL) }
                         .buttonStyle(.link)
                 }
             }
@@ -543,22 +544,22 @@ private struct UpdateStatusRow: View {
     private var checkView: some View {
         if case .updateAvailable(let tag, let pageURL, _) = updateChecker.latestResult, manualState != .checking {
             HStack(spacing: 8) {
-                Text("\(tag) available").foregroundStyle(.secondary)
-                Button("Update", action: requestUpdate)
-                Button("Release notes") { NSWorkspace.shared.open(pageURL) }
+                Text(L.t("updates.available", tag)).foregroundStyle(.secondary)
+                Button(L.t("updates.update"), action: requestUpdate)
+                Button(L.t("updates.releaseNotes")) { NSWorkspace.shared.open(pageURL) }
                     .buttonStyle(.link)
             }
         } else {
             switch manualState {
             case .checking:
-                Text("Checking…").foregroundStyle(.secondary)
+                Text(L.t("updates.checking")).foregroundStyle(.secondary)
             case .upToDate:
-                Text("Up to date").foregroundStyle(.secondary)
+                Text(L.t("updates.upToDate")).foregroundStyle(.secondary)
             case .failed:
-                Button("Couldn't check — try again", action: checkNow)
+                Button(L.t("updates.checkFailed"), action: checkNow)
                     .buttonStyle(.link)
             case .idle:
-                Button("Check for updates", action: checkNow)
+                Button(L.t("updates.checkNow"), action: checkNow)
                     .buttonStyle(.link)
             }
         }
@@ -570,10 +571,10 @@ private struct UpdateStatusRow: View {
         if updateChecker.isSessionActive() {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
-            alert.messageText = "A session is in progress"
-            alert.informativeText = "Pomoppi will close to finish updating, and the current session won't be recorded."
-            alert.addButton(withTitle: "Update Now")
-            alert.addButton(withTitle: "Cancel")
+            alert.messageText = L.t("updates.sessionActive.title")
+            alert.informativeText = L.t("updates.sessionActive.message")
+            alert.addButton(withTitle: L.t("updates.sessionActive.updateNow"))
+            alert.addButton(withTitle: L.t("common.cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
         updateChecker.startUpdate()
@@ -610,11 +611,11 @@ private struct SoundTab: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Play a chime when a session ends", isOn: viewModel.binding(\.soundEnabled))
-                LabeledContent("Chime") {
-                    Picker("Chime", selection: viewModel.binding(\.chime)) {
+                Toggle(L.t("sound.chime.enabled"), isOn: viewModel.binding(\.soundEnabled))
+                LabeledContent(L.t("sound.chime")) {
+                    Picker(L.t("sound.chime"), selection: viewModel.binding(\.chime)) {
                         ForEach(PomoppiSettings.chimeIDs, id: \.self) { id in
-                            Text(id.capitalized).tag(id)
+                            Text(L.t("chime.\(id)", fallback: id.capitalized)).tag(id)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -637,9 +638,9 @@ private struct SoundTab: View {
                 .disabled(!viewModel.settings.soundEnabled)
                 .opacity(viewModel.settings.soundEnabled ? 1 : 0.4)
             } header: {
-                Text("Chime")
+                Text(L.t("sound.chime"))
             } footer: {
-                Text("Click a chime to hear it.")
+                Text(L.t("sound.chime.footer"))
                     .opacity(viewModel.settings.soundEnabled ? 1 : 0.5)
             }
             Section {
@@ -647,9 +648,9 @@ private struct SoundTab: View {
                     ringLabel,
                     value: viewModel.binding(\.ringSeconds), in: 0...60, step: 5)
             } header: {
-                Text("Ring")
+                Text(L.t("sound.ring.header"))
             } footer: {
-                Text("Visual only, so it rings even with the chime off.")
+                Text(L.t("sound.ring.footer"))
             }
         }
         .settingsForm()
@@ -659,7 +660,7 @@ private struct SoundTab: View {
     // so this stays enabled regardless of soundEnabled.
     private var ringLabel: String {
         let seconds = Int(viewModel.settings.ringSeconds)
-        return seconds == 0 ? "Don't ring" : "Keep ringing for \(seconds) seconds"
+        return seconds == 0 ? L.t("sound.ring.dontRing") : L.t("sound.ring.keepRinging", seconds)
     }
 }
 
@@ -681,32 +682,32 @@ private struct DiaryTab: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Record every session", isOn: viewModel.binding(\.loggingEnabled))
-                LabeledContent("History size", value: Self.formattedSize(historySizeBytes))
-                Button("Erase History…", role: .destructive) {
+                Toggle(L.t("diary.history.record"), isOn: viewModel.binding(\.loggingEnabled))
+                LabeledContent(L.t("diary.history.size"), value: Self.formattedSize(historySizeBytes))
+                Button(L.t("diary.history.erase"), role: .destructive) {
                     showingEraseConfirmation = true
                 }
             } header: {
-                Text("Session history")
+                Text(L.t("diary.history.header"))
             } footer: {
-                Text("Stored only on this computer.")
+                Text(L.t("diary.history.footer"))
             }
-            Section("Export") {
-                LabeledContent("Sessions recorded", value: "\(sessionCount)")
-                Button("Export Diary…") { exportDiary() }
+            Section(L.t("diary.export.header")) {
+                LabeledContent(L.t("diary.export.sessionsRecorded"), value: "\(sessionCount)")
+                Button(L.t("diary.export.button")) { exportDiary() }
                 if let exportStatus {
                     Text(exportStatus).foregroundStyle(.secondary)
                 }
             }
-            Section("Sync to folder") {
-                LabeledContent("Diary folder") {
+            Section(L.t("diary.sync.header")) {
+                LabeledContent(L.t("diary.sync.folder")) {
                     Text(folderDisplayPath)
                         .foregroundStyle(viewModel.settings.diaryFolderPath.isEmpty ? .secondary : .primary)
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
-                Button("Choose…") { chooseFolder() }
-                Button("Sync Now") { syncNow() }
+                Button(L.t("diary.sync.choose")) { chooseFolder() }
+                Button(L.t("diary.sync.now")) { syncNow() }
                     .disabled(viewModel.settings.diaryFolderPath.isEmpty)
                 if let syncStatus {
                     Text(syncStatus).foregroundStyle(.secondary)
@@ -719,11 +720,11 @@ private struct DiaryTab: View {
             refreshCount()
         }
         .confirmationDialog(
-            "Erase all session history?",
+            L.t("diary.history.eraseConfirm.title"),
             isPresented: $showingEraseConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Erase History", role: .destructive) {
+            Button(L.t("diary.history.eraseConfirm.button"), role: .destructive) {
                 Task {
                     await viewModel.sessionLogger.eraseAll()
                     await refreshHistorySize()
@@ -731,7 +732,7 @@ private struct DiaryTab: View {
                 }
             }
         } message: {
-            Text("This can't be undone.")
+            Text(L.t("diary.history.eraseConfirm.message"))
         }
     }
 
@@ -744,7 +745,7 @@ private struct DiaryTab: View {
     }
 
     private var folderDisplayPath: String {
-        viewModel.settings.diaryFolderPath.isEmpty ? "Not set" : viewModel.settings.diaryFolderPath
+        viewModel.settings.diaryFolderPath.isEmpty ? L.t("diary.sync.notSet") : viewModel.settings.diaryFolderPath
     }
 
     private func refreshCount() {
@@ -759,9 +760,9 @@ private struct DiaryTab: View {
         let zipData = DiaryExporter.exportZip(sessions: viewModel.sessionLogger.allSessionsSync())
         do {
             try zipData.write(to: url, options: .atomic)
-            exportStatus = "Exported to \(url.lastPathComponent)."
+            exportStatus = L.t("diary.export.success", url.lastPathComponent)
         } catch {
-            exportStatus = "Export failed."
+            exportStatus = L.t("diary.export.failed")
         }
     }
 
@@ -780,9 +781,13 @@ private struct DiaryTab: View {
         let folderURL = URL(fileURLWithPath: viewModel.settings.diaryFolderPath)
         do {
             let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions)
-            syncStatus = written == 0 ? "Up to date." : "Added \(written) session\(written == 1 ? "" : "s")."
+            if written == 0 {
+                syncStatus = L.t("diary.sync.upToDate")
+            } else {
+                syncStatus = L.t(written == 1 ? "diary.sync.added.one" : "diary.sync.added.other", written)
+            }
         } catch {
-            syncStatus = "Sync failed."
+            syncStatus = L.t("diary.sync.failed")
         }
     }
 }
@@ -799,25 +804,25 @@ private struct KeysTab: View {
                     ShortcutRow(action: action, viewModel: viewModel)
                 }
             } header: {
-                Text("Global shortcuts")
+                Text(L.t("keys.shortcuts.header"))
             } footer: {
-                Text("Work from any app. Click one, then press a new combo that includes a modifier.")
+                Text(L.t("keys.shortcuts.footer"))
             }
             Section {
-                Button("Restore Default Shortcuts") {
+                Button(L.t("keys.shortcuts.restoreDefaults")) {
                     viewModel.update { $0.shortcuts = Shortcuts.defaults }
                 }
             }
             Section {
                 ForEach(widgetKeyBindings) { binding in
-                    LabeledContent(binding.action) {
+                    LabeledContent(L.t(binding.actionKey)) {
                         Text(binding.keys)
                             .font(.body.monospaced())
                             .foregroundStyle(.secondary)
                     }
                 }
             } header: {
-                Text("While the widget is focused")
+                Text(L.t("keys.widget.header"))
             }
         }
         .settingsForm()
@@ -827,19 +832,21 @@ private struct KeysTab: View {
 private struct WidgetKeyBinding: Identifiable {
     var id: String { keys }
     let keys: String
-    let action: String
+    // A localization key, not the English text itself — looked up with
+    // L.t() at render time in KeysTab's ForEach.
+    let actionKey: String
 }
 
 private let widgetKeyBindings: [WidgetKeyBinding] = [
-    WidgetKeyBinding(keys: "Space / Return", action: "Start / pause"),
-    WidgetKeyBinding(keys: "S", action: "Skip phase"),
-    WidgetKeyBinding(keys: "R", action: "Reset phase"),
-    WidgetKeyBinding(keys: "T", action: "Name what you’re working on"),
-    WidgetKeyBinding(keys: "O", action: "Keep on top"),
-    WidgetKeyBinding(keys: "P", action: "Save SVG snapshot"),
-    WidgetKeyBinding(keys: ", or ⌘,", action: "Open settings"),
-    WidgetKeyBinding(keys: "Esc", action: "Dismiss the ring, or hide the widget"),
-    WidgetKeyBinding(keys: "↑ / ↓", action: "Adjust focus length, while idle"),
+    WidgetKeyBinding(keys: "Space / Return", actionKey: "shortcut.startPause.label"),
+    WidgetKeyBinding(keys: "S", actionKey: "shortcut.skip.label"),
+    WidgetKeyBinding(keys: "R", actionKey: "shortcut.reset.label"),
+    WidgetKeyBinding(keys: "T", actionKey: "keys.widget.nameTask"),
+    WidgetKeyBinding(keys: "O", actionKey: "shortcut.toggleOnTop.label"),
+    WidgetKeyBinding(keys: "P", actionKey: "shortcut.snapshot.label"),
+    WidgetKeyBinding(keys: ", or ⌘,", actionKey: "shortcut.openSettings.label"),
+    WidgetKeyBinding(keys: "Esc", actionKey: "keys.widget.dismissRing"),
+    WidgetKeyBinding(keys: "↑ / ↓", actionKey: "keys.widget.adjustFocusLength"),
 ]
 
 private struct ShortcutRow: View {
@@ -848,18 +855,24 @@ private struct ShortcutRow: View {
     @State private var isRecording = false
     @State private var monitor: Any?
 
+    // Shortcuts.display's own "Not set" is Core's English; the shell owns the
+    // localized one.
+    private func shortcutDisplay(_ accel: String) -> String {
+        accel.isEmpty ? L.t("keys.notSet") : Shortcuts.display(accel)
+    }
+
     var body: some View {
         LabeledContent {
             Button(action: toggleRecording) {
-                Text(isRecording ? "Type shortcut" : Shortcuts.display(viewModel.settings.shortcuts[action.id] ?? ""))
+                Text(isRecording ? L.t("keys.typeShortcut") : shortcutDisplay(viewModel.settings.shortcuts[action.id] ?? ""))
                     .frame(minWidth: 120)
             }
             .buttonStyle(.bordered)
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text(action.label)
+                Text(L.t("shortcut.\(action.id).label"))
                 if !action.hint.isEmpty {
-                    Text(action.hint)
+                    Text(L.t("shortcut.\(action.id).hint"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -1,5 +1,6 @@
 import AppKit
 import PomoppiCore
+import PomoppiStrings
 
 // The one place "start" actually happens for a fresh (idle) session, used
 // by the widget's play button, the tray menu, and the startPause global
@@ -45,15 +46,15 @@ enum StartCoordinator {
     private static func promptForTaskName(mandatory: Bool) -> PromptResult {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "What are you working on?"
+        alert.messageText = L.t("prompt.task.title")
         alert.informativeText = mandatory
-            ? "Session logging is on, so this session needs a task name to log a useful line."
-            : "Optional — leave blank to skip."
-        alert.addButton(withTitle: "Start")
-        alert.addButton(withTitle: "Cancel")
+            ? L.t("prompt.task.hint.mandatory")
+            : L.t("prompt.task.hint.optional")
+        alert.addButton(withTitle: L.t("common.start"))
+        alert.addButton(withTitle: L.t("common.cancel"))
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.placeholderString = "Task or project name"
+        field.placeholderString = L.t("prompt.task.placeholder")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
 
