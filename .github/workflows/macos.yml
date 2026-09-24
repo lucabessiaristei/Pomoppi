@@ -29,7 +29,7 @@ jobs:
     # this ships to, so no universal-binary complexity is needed.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Verify tag matches Version.swift
         if: github.event_name == 'release'
@@ -49,7 +49,7 @@ jobs:
       - name: Build and package macOS pkg
         run: node Scripts/make-pkg.js
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Pomoppi-pkg
           path: dist/*.pkg
