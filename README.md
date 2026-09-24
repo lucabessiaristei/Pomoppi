@@ -10,9 +10,6 @@ productive**. It does your tasks in your place and suffers for it: Namidappi
 cries from the workload, Jankuppin eats its feelings. Inverse care. You get the
 finished pomodoros; it gets the consequences.
 
-Black on white, every pixel drawn on a canvas, and it logs each session into
-your Obsidian daily note.
-
 Black on white, predominantly white, every pixel drawn on a canvas. Floats
 above your other windows, gets out of the way, and jumps to the front with a
 little animation when a timer ends.
@@ -209,29 +206,17 @@ says so on that row rather than failing quietly.
 | <kbd>Esc</kbd> | dismiss the chime, or tuck the widget away |
 | <kbd>↑</kbd> / <kbd>↓</kbd> | focus length ±1 min, while it's idle |
 
-## Obsidian logging
+## Diary
 
-Completed pomodoros are appended to that day's daily note in your vault,
-under a `## Pomodoros` heading:
+Every completed or aborted session is recorded locally, to `sessions.json`
+next to `settings.json` — no vault, no daily notes, no heading to
+configure. Turn it off, or erase the whole history, under
+**Settings → Diary**.
 
-```markdown
-## Pomodoros
-- 09:15–09:40 (25m) — writing spec ✅
-- 10:00–10:25 (25m) — refactor auth ✅
-
-**Total focus: 50m across 2 pomodoros**
-```
-
-The note is created if it doesn't exist, the heading is added if missing, and
-the total line is recomputed on every write. Writes are atomic and serialised,
-so nothing is ever half-written. If logging fails, the timer carries on
-regardless — it never takes the app down.
-
-Point it at your vault under **Settings → Obsidian**, where you can also change
-the folder, the date format, the heading, and whether breaks get logged. The
-**Test log** button writes a sample entry so you can check the path is right.
-
-Default vault: `~/Documents/Opal`, and sessions land in its **`Pomodoro/`** folder rather than cluttering the root.
+The same tab can export that history to a `.zip` of one Markdown file per
+day (a `## Pomodoros` section, `- HH:MM–HH:MM (Nm) — task` lines) or sync
+it incrementally into a folder of your choosing — handy if that folder
+happens to be an Obsidian vault, though Pomoppi doesn't assume it is.
 
 ## Settings
 
@@ -240,17 +225,18 @@ Everything is editable in the settings window and saved as you type, to
 
 | Group | What's in it |
 |---|---|
-| Timer | focus / short break / long break lengths, long-break cadence, auto-start |
-| Obsidian | vault path, daily-note folder & format, heading, log breaks, log aborted |
-| Appearance | friend, always on top, raise on end, pixel scale (2/3/4), opacity, launch at login |
+| General | color scheme, widget always-on-top / raise on end, menu bar click swap, launch at login / start hidden, update checking, reset |
+| Rhythm | focus / short break / long break lengths, long-break cadence, auto-start breaks/focus, ask for a task name |
+| Appearance | friend, theme, window edge, background, pixel scale (1-4×), opacity |
 | Keys | the seven global shortcuts, plus a reference card for the in-widget keys |
-| Sound | chime on/off, how long the ring lasts |
+| Sound | chime pack, ring length |
+| Diary | session history (record every session, erase), export to `.zip`, sync to a folder |
 
 ## Layout
 
 ```
 Sources/PomoppiApp/       app lifecycle, window/tray wiring, global shortcuts, settings UI
-Sources/PomoppiCore/      wall-clock timer state machine, settings load/validate/persist, Obsidian logger
+Sources/PomoppiCore/      wall-clock timer state machine, settings load/validate/persist, session logger
 Sources/PomoppiRender/    the 1px drawing kit and widget layout/animation
 Sources/PomoppiSprites/   digits, icons, window edge, and the generated pet/background art
 Art/                      the Aseprite pixel-art pipeline (sources + importers), independent of the app itself

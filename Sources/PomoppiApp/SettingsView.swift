@@ -224,10 +224,16 @@ private struct RhythmTab: View {
             } footer: {
                 Text("Or click the dots on the widget.")
             }
-            Section("Automation") {
+            Section {
                 Toggle("Start breaks automatically", isOn: viewModel.binding(\.autoStartBreaks))
                 Toggle("Start the next focus automatically", isOn: viewModel.binding(\.autoStartFocus))
                 Toggle("Ask what I’m working on before each focus", isOn: viewModel.binding(\.askForTaskName))
+            } header: {
+                Text("Automation")
+            } footer: {
+                Text(viewModel.settings.loggingEnabled
+                    ? "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."
+                    : "Pomoppi asks before each focus session. Leave it blank to skip.")
             }
         }
         .settingsForm()
@@ -497,10 +503,14 @@ private struct GeneralTab: View {
             } footer: {
                 Text("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.")
             }
-            Section("Reset") {
+            Section {
                 Button("Reset Pomoppi…", role: .destructive) {
                     showingResetConfirmation = true
                 }
+            } header: {
+                Text("Reset")
+            } footer: {
+                Text("Erases every setting and your whole session history, and puts Pomoppi back to how it shipped.")
             }
         }
         .settingsForm()
@@ -549,6 +559,8 @@ private struct SoundTab: View {
                 Stepper(
                     ringLabel,
                     value: viewModel.binding(\.ringSeconds), in: 0...60, step: 5)
+            } footer: {
+                Text("Selecting a chime plays it.")
             }
         }
         .settingsForm()
@@ -565,13 +577,13 @@ private struct SoundTab: View {
 // MARK: - Diary
 
 // Merged Log into Diary (2026-09-20 redesign, SPEC.md §8/§8b): one tab,
-// three sections top to bottom — Logging (moved verbatim from the old Log
-// tab), Export (now a `.zip` of per-day files, the same shape Sync
+// three sections top to bottom — Session history (moved verbatim from the
+// old Log tab), Export (now a `.zip` of per-day files, the same shape Sync
 // writes), Sync to folder (idempotent, no cursor — Erase below no longer
 // touches one either).
 private struct DiaryTab: View {
     @ObservedObject var viewModel: SettingsViewModel
-    @State private var cacheSizeBytes: Int64 = 0
+    @State private var historySizeBytes: Int64 = 0
     @State private var showingEraseConfirmation = false
     @State private var sessionCount = 0
     @State private var exportStatus: String?
@@ -579,15 +591,19 @@ private struct DiaryTab: View {
 
     var body: some View {
         Form {
-            Section("Logging") {
-                Toggle("Log sessions", isOn: viewModel.binding(\.loggingEnabled))
-                LabeledContent("Cache size", value: Self.formattedSize(cacheSizeBytes))
-                Button("Erase Cached Sessions…", role: .destructive) {
+            Section {
+                Toggle("Record every session", isOn: viewModel.binding(\.loggingEnabled))
+                LabeledContent("History size", value: Self.formattedSize(historySizeBytes))
+                Button("Erase History…", role: .destructive) {
                     showingEraseConfirmation = true
                 }
+            } header: {
+                Text("Session history")
+            } footer: {
+                Text("Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone.")
             }
             Section("Export") {
-                LabeledContent("Sessions logged", value: "\(sessionCount)")
+                LabeledContent("Sessions recorded", value: "\(sessionCount)")
                 Button("Export Diary…") { exportDiary() }
                 if let exportStatus {
                     Text(exportStatus).foregroundStyle(.secondary)
@@ -610,18 +626,18 @@ private struct DiaryTab: View {
         }
         .settingsForm()
         .task {
-            await refreshCacheSize()
+            await refreshHistorySize()
             refreshCount()
         }
         .confirmationDialog(
-            "Erase all cached session history?",
+            "Erase all session history?",
             isPresented: $showingEraseConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Erase Cached Sessions", role: .destructive) {
+            Button("Erase History", role: .destructive) {
                 Task {
                     await viewModel.sessionLogger.eraseAll()
-                    await refreshCacheSize()
+                    await refreshHistorySize()
                     refreshCount()
                 }
             }
@@ -630,8 +646,8 @@ private struct DiaryTab: View {
         }
     }
 
-    private func refreshCacheSize() async {
-        cacheSizeBytes = viewModel.sessionLogger.fileSizeBytes()
+    private func refreshHistorySize() async {
+        historySizeBytes = viewModel.sessionLogger.fileSizeBytes()
     }
 
     private static func formattedSize(_ bytes: Int64) -> String {

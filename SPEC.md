@@ -55,7 +55,7 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: Rhythm/Appearance/Window/Keys/Sound/Diary | `SysTabControl32` in a fixed-size (560x480), non-resizable titled window, same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Rhythm/Appearance/Keys/Sound/Diary (`SETTINGS_PLAN.md` S2) | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window, minimum 560×580 (grew from a fixed 560×480 across `SETTINGS_PLAN.md`'s S2/S4, `clientHeight` now 552 plus a 28px footer), same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
@@ -782,20 +782,21 @@ and go through an actor on both platforms, so two phases completing close
 together can never interleave a read-modify-write of the same file — see
 `SessionLogger`'s own comments for the one deliberate exception (a
 synchronous, non-actor-isolated `eraseAllSync()`, used only by the
-Diary tab's "Erase Cached Sessions" button after its own confirmation
+Diary tab's "Erase History…" button after its own confirmation
 dialog, an accepted simplification for a rare, user-initiated action, not
 a hot path).
 
-The Diary tab's Logging section (§7's settings-window-layout subsection;
-this used to be its own "Log" tab — renamed from "Obsidian," then folded
-into Diary entirely in the 2026-09-20 redesign, §8b) holds: the
-`loggingEnabled` toggle, a live cache-size readout, and that Erase button.
+The Diary tab's Session history section (§7's settings-window-layout
+subsection; this used to be its own "Log" tab — renamed from "Obsidian,"
+then folded into Diary entirely in the 2026-09-20 redesign, §8b) holds:
+the `loggingEnabled` toggle, a live history-size readout, and that Erase
+button.
 
 **Reinstall/upgrade semantics.** `sessions.json` and `settings.json` both
 live in the per-user storage dir (`AppDelegate.storageDir()` /
 Windows' `storageDir()`), not inside the app bundle — an upgrade that just
 replaces the app leaves both untouched. A reinstall that wipes that
-directory, or the Diary tab's own "Erase Cached Sessions," starts the log
+directory, or the Diary tab's own "Erase History…," starts the log
 empty; the diary folder (§8b) keeps whatever `.md` files it already has,
 and the next sync simply continues from there — there's nothing to
 double-append (sync diffs each day's file by content, not a cursor) and
@@ -834,10 +835,10 @@ the two shapes can't drift apart: Export bundles every day's file into a
 single `.zip` (root of the archive, no wrapper folder); Sync writes those
 files straight into a user-chosen folder.
 
-Three sections in the merged Diary settings tab, top to bottom: Logging
-(moved from the old Log tab, §8), Export, Sync to folder.
+Three sections in the merged Diary settings tab, top to bottom: Session
+history (moved from the old Log tab, §8), Export, Sync to folder.
 
-**Export** — "Sessions logged: N" plus an "Export Diary…" button (save
+**Export** — "Sessions recorded: N" plus an "Export Diary…" button (save
 dialog filtered to `.zip`: `NSSavePanel` on macOS, `GetSaveFileNameW` on
 Windows; default name `Pomoppi Diary.zip`). `DiaryExporter.exportZip(sessions:)`
 (`PomoppiCore`) builds the zip via `ZipWriter` (stored/uncompressed

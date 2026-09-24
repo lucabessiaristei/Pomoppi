@@ -73,7 +73,7 @@ public actor SessionLogger {
         return writeFile(file)
     }
 
-    // The settings window's "Erase cached sessions" button (with its own
+    // The settings window's "Erase History" button (with its own
     // confirmation dialog — this actor doesn't confirm anything, it just
     // does what it's told).
     @discardableResult
@@ -81,7 +81,7 @@ public actor SessionLogger {
         writeFile(SessionLogFile(sessions: []))
     }
 
-    // The settings window's "current cache weight" display. Deliberately
+    // The settings window's "History size" display. Deliberately
     // `nonisolated` and synchronous, not routed through the actor: it's a
     // plain read-only filesystem stat with no shared mutable state to
     // protect, and every UI caller on both platforms needs a same-thread,
@@ -112,7 +112,7 @@ public actor SessionLogger {
         try? "{\"sessions\":[]}".write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
-    // The Diary tab's "Sessions logged" count and the Export/Sync actions
+    // The Diary tab's "Sessions recorded" count and the Export/Sync actions
     // themselves all just need a snapshot of what's there right now, then
     // go write somewhere else entirely (a user-chosen export file, or an
     // Obsidian day-note) — none of that needs to serialize against

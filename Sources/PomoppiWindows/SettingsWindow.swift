@@ -370,14 +370,14 @@ final class SettingsWindow {
     private var opacityTrackbar: HWND?
     private var opacityValueLabel: HWND?
 
-    // The Diary tab's Logging section's cache-size readout — refreshed
-    // after Erase Cached Sessions completes, same "cache the label,
+    // The Diary tab's Session history section's history-size readout —
+    // refreshed after Erase History completes, same "cache the label,
     // update its text in place" pattern as opacityValueLabel above. (Log
     // was its own tab until the 2026-09-20 redesign folded it into Diary.)
-    private var logCacheSizeLabel: HWND?
+    private var sessionHistorySizeLabel: HWND?
 
     // The Diary tab's own other live-updated labels/button, same pattern
-    // as logCacheSizeLabel above. Two status labels rather than one —
+    // as sessionHistorySizeLabel above. Two status labels rather than one —
     // Export and Sync each report their own last outcome independently,
     // mirroring macOS DiaryTab's separate exportStatus/syncStatus @State.
     private var diarySessionCountLabel: HWND?
@@ -1394,7 +1394,7 @@ final class SettingsWindow {
             : "Pomoppi asks before each focus session. Leave it blank to skip."
     }
 
-    // Called from the Diary tab's own "Log sessions" checkbox
+    // Called from the Diary tab's own "Record every session" checkbox
     // (SETTINGS_PLAN.md S4) — it's what overrides askForTaskName, so its
     // toggle is the other control this live hint has to react to, across
     // pages, the same "controls bake their text in at creation" gap
@@ -2724,7 +2724,7 @@ final class SettingsWindow {
         chimeOptions = []
         opacityTrackbar = nil
         opacityValueLabel = nil
-        logCacheSizeLabel = nil
+        sessionHistorySizeLabel = nil
         diarySessionCountLabel = nil
         diaryExportStatusLabel = nil
         diaryFolderLabel = nil
@@ -2865,9 +2865,9 @@ final class SettingsWindow {
     // -- Diary tab (logging + export + sync) -----------------------------------
 
     // Mirrors macOS's merged DiaryTab (SettingsView.swift, SPEC.md §8/§8b),
-    // three sections top to bottom: Logging (moved verbatim from the old
-    // Log tab — enable toggle, live cache-size readout, "Erase Cached
-    // Sessions" with a real confirmation), Export (now a `.zip` of
+    // three sections top to bottom: Session history (moved verbatim from
+    // the old Log tab — enable toggle, live history-size readout, "Erase
+    // History" with a real confirmation), Export (now a `.zip` of
     // per-day files, DiaryExporter.exportZip), Sync to folder (idempotent,
     // no cursor, DiaryExporter.syncToFolder). All three read
     // `sessionLogger.allSessionsSync()` directly; none of this ever
@@ -2877,11 +2877,11 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        addLabel("Logging", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        addLabel("Session history", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += 20
 
         addCheckbox(
-            "Log sessions", in: page, checked: settings.loggingEnabled,
+            "Record every session", in: page, checked: settings.loggingEnabled,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.loggingEnabled = checked }
@@ -2889,10 +2889,10 @@ final class SettingsWindow {
         }
         y += Self.rowHeight
 
-        logCacheSizeLabel = addLabel(Self.formatCacheSize(sessionLogger.fileSizeBytes()), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += Self.rowHeight
 
-        addButton("Erase Cached Sessions…", in: page, x: Self.rowMargin, y: y, width: 180, height: 24) { [weak self] in
+        addButton("Erase History…", in: page, x: Self.rowMargin, y: y, width: 180, height: 24) { [weak self] in
             self?.confirmEraseSessionLog()
         }
         y += 24
@@ -2947,8 +2947,8 @@ final class SettingsWindow {
     // tab. IDYES is the only outcome that erases anything; Cancel/No/the
     // window's own close box are all treated as "do nothing."
     private func confirmEraseSessionLog() {
-        let text = Array("Erase all cached session history? This can't be undone.".utf16) + [0]
-        let title = Array("Erase Cached Sessions".utf16) + [0]
+        let text = Array("Erase all session history? This can't be undone.".utf16) + [0]
+        let title = Array("Erase History".utf16) + [0]
         let result = text.withUnsafeBufferPointer { textPtr in
             title.withUnsafeBufferPointer { titlePtr in
                 MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
@@ -2956,31 +2956,31 @@ final class SettingsWindow {
         }
         guard result == IDYES else { return }
         sessionLogger.eraseAllSync()
-        if let label = logCacheSizeLabel {
-            setWindowText(label, Self.formatCacheSize(sessionLogger.fileSizeBytes()))
+        if let label = sessionHistorySizeLabel {
+            setWindowText(label, Self.formatHistorySize(sessionLogger.fileSizeBytes()))
         }
         if let diarySessionCountLabel {
             setWindowText(diarySessionCountLabel, Self.sessionCountText(sessionLogger.allSessionsSync().count))
         }
     }
 
-    private static func formatCacheSize(_ bytes: Int64) -> String {
+    private static func formatHistorySize(_ bytes: Int64) -> String {
         // A handful of sessions is only a few hundred bytes — rounding
         // straight to KB read as "0 KB" for anything real yet non-empty,
         // which looks like the erase didn't work. Bytes below 1 KB, then
         // KB, then MB.
         if bytes < 1024 {
-            return "Cache size: \(bytes) bytes"
+            return "History size: \(bytes) bytes"
         }
         let kb = Double(bytes) / 1024
         if kb < 1024 {
-            return "Cache size: \(Int(kb.rounded())) KB"
+            return "History size: \(Int(kb.rounded())) KB"
         }
-        return "Cache size: \(String(format: "%.1f", kb / 1024)) MB"
+        return "History size: \(String(format: "%.1f", kb / 1024)) MB"
     }
 
     private static func sessionCountText(_ count: Int) -> String {
-        "Sessions logged: \(count)"
+        "Sessions recorded: \(count)"
     }
 
     private static func folderDisplayText(_ path: String) -> String {
@@ -3320,7 +3320,7 @@ final class SettingsWindow {
     // every hint regardless of its own text). `lastHintHeight` is what the
     // height came out to, for the call site's own y += bookkeeping right
     // after — the same "cache it on self, read it back" shape
-    // opacityValueLabel/logCacheSizeLabel already use for a value a later
+    // opacityValueLabel/sessionHistorySizeLabel already use for a value a later
     // step needs, rather than turning every add* call site here into a
     // tuple destructure.
     @discardableResult
@@ -3783,8 +3783,8 @@ final class SettingsWindow {
             Self.setControlClassicTheme(checkbox.hwnd, classic: isDarkMode)
         }
         // Plain push buttons (Keys tab's recorder rows + Reset to
-        // Defaults, Log's Erase Cached Sessions, Diary's Export/Choose/
-        // Sync Now) — "DarkMode_Explorer" is documented to also restyle
+        // Defaults, Diary's Erase History/Export/Choose/Sync Now) —
+        // "DarkMode_Explorer" is documented to also restyle
         // BS_PUSHBUTTON with a dark face and light text (this is what
         // Notepad++ uses), unlike the tab strip/trackbar's own confirmed
         // no-op with the same sub-app name (see setControlDarkTheme's own
