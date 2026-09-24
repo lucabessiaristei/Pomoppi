@@ -1,6 +1,9 @@
 # Pomoppi in-app update — plan and status
 
-**Status as of 2026-09-24: S6a, S6b and S6d done.** S6a: `ReleaseAsset`/
+**Status as of 2026-09-24: S6a–S6f done, shipping as v0.3.5.** Remaining:
+the relaunch check from a local build set to 0.3.4 once v0.3.5 is
+published (see the first-test note below); then this file can go.
+Earlier status, kept for the record: **S6a, S6b and S6d done.** S6a: `ReleaseAsset`/
 `UpdatePlatform` in `UpdateChecker.swift`, `SHA256.swift`,
 `UpdateInstallState.swift`, tests; green on the Mac and in the VM. S6b and
 S6d: both installers relaunch Pomoppi after updating over a running copy,
