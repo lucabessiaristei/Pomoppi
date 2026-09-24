@@ -386,6 +386,21 @@ final class SettingsWindow {
     private var diarySyncButton: HWND?
     private var diarySyncStatusLabel: HWND?
 
+    // Hint footers created via addHint (SETTINGS_PLAN.md's S4) —
+    // handleCtlColor looks a painted STATIC up here to decide whether it
+    // gets the dimmed hint text color instead of the ordinary one, in
+    // both themes. Most hints are static text baked in at creation, same
+    // as everything else on this window; these two are the live
+    // exceptions (SETTINGS_PLAN.md S4), re-rendered from the *other*
+    // control's own change handler rather than their own.
+    private var hintLabels: Set<HWND> = []
+    private var trayClickHintLabel: HWND?
+    private var askForTaskHintLabel: HWND?
+    // What addHint's own last call measured its height at — read back by
+    // the call site immediately after for its own y += bookkeeping (see
+    // addHint's comment for why this beats a tuple return here).
+    private var lastHintHeight: Int32 = 18
+
     // The footer strip under the tab control, visible on every tab
     // (release/update plan, phase R6b) — mirrors macOS's UpdateFooter.
     // Direct children of `hwnd` itself, not any one page (see createFooter's
@@ -520,11 +535,17 @@ final class SettingsWindow {
     // Appearance would make some controls on other tabs unreachable.
     private static let clientWidth: Int32 = 560
     // The footer strip (release/update plan, phase R6b) is additional room
-    // below the tab control, not a bite taken out of the original 480 —
+    // below the tab control, not a bite taken out of the original budget —
     // every tab's own content keeps exactly the vertical space it was
-    // already proven to fit in.
+    // already proven to fit in. The base grew from 480 to 552 in
+    // SETTINGS_PLAN.md's S4: the Keys tab's own two new hints (after
+    // "Global shortcuts" and after "While the widget is focused") pushed
+    // its always-visible, never-scrolling content past the old 480 —
+    // confirmed live, the second hint clipped clean off the bottom of the
+    // page under the old budget. General/Rhythm/Sound/Diary all still fit
+    // with room to spare at the new height; only Keys was actually tight.
     private static let footerHeight: Int32 = 28
-    private static let clientHeight: Int32 = 480 + footerHeight
+    private static let clientHeight: Int32 = 552 + footerHeight
 
     // WS_THICKFRAME (aka WS_SIZEBOX) is what makes the window user-
     // resizable — shared between window creation and WM_GETMINMAXINFO's
@@ -1003,9 +1024,9 @@ final class SettingsWindow {
         var paint = PAINTSTRUCT()
         guard let hdc = BeginPaint(hwnd, &paint) else { return }
         defer { EndPaint(hwnd, &paint) }
-        guard let backgroundBrush = Self.darkBackgroundBrush,
+        guard let backgroundBrush = WindowsTheme.darkBackgroundBrush,
               let elevatedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
-              let selectedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkBackgroundHex)),
+              let selectedBrush = CreateSolidBrush(Self.colorref(hex: WindowsTheme.darkBackgroundHex)),
               let unselectedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkScrollTrackHex)) else { return }
         defer {
             DeleteObject(elevatedBrush)
@@ -1029,7 +1050,7 @@ final class SettingsWindow {
             previousFont = SelectObject(hdc, font)
         }
         SetBkMode(hdc, Int32(TRANSPARENT))
-        SetTextColor(hdc, Self.colorref(hex: Self.darkTextHex))
+        SetTextColor(hdc, Self.colorref(hex: WindowsTheme.darkTextHex))
 
         let count = Int(SendMessageW(hwnd, UINT(TCM_GETITEMCOUNT), 0, 0))
         let selectedIndex = Int(SendMessageW(hwnd, UINT(TCM_GETCURSEL), 0, 0))
@@ -1119,7 +1140,7 @@ final class SettingsWindow {
         GetClientRect(hwnd, &clientRect)
         guard let trackBrush = CreateSolidBrush(Self.colorref(hex: Self.darkScrollTrackHex)),
               let elevatedBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
-              let arrowBrush = CreateSolidBrush(Self.colorref(hex: Self.darkTextHex)) else { return }
+              let arrowBrush = CreateSolidBrush(Self.colorref(hex: WindowsTheme.darkTextHex)) else { return }
         defer {
             DeleteObject(trackBrush)
             DeleteObject(elevatedBrush)
@@ -1186,7 +1207,7 @@ final class SettingsWindow {
         guard width > 4, height > 4, let hdc = GetWindowDC(hwnd) else { return 0 }
         defer { ReleaseDC(hwnd, hdc) }
         guard let outerBrush = CreateSolidBrush(Self.colorref(hex: Self.darkElevatedHex)),
-              let innerBrush = CreateSolidBrush(Self.colorref(hex: Self.darkBackgroundHex)) else { return 0 }
+              let innerBrush = CreateSolidBrush(Self.colorref(hex: WindowsTheme.darkBackgroundHex)) else { return 0 }
         defer {
             DeleteObject(outerBrush)
             DeleteObject(innerBrush)
@@ -1305,6 +1326,8 @@ final class SettingsWindow {
             settingsStore.update { $0.focusMinutes = Double(newValue) }
         }
         y += Self.rowHeight
+        addHint("Or click the clock on the widget.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += lastHintHeight + Self.groupGap
 
         addStepper(
             "Short break length (minutes)", in: page, value: Int32(settings.shortBreakMinutes),
@@ -1328,7 +1351,9 @@ final class SettingsWindow {
         ) { [settingsStore] newValue in
             settingsStore.update { $0.longBreakEvery = Int(newValue) }
         }
-        y += Self.rowHeight + Self.groupGap
+        y += Self.rowHeight
+        addHint("Or click the dots on the widget.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += lastHintHeight + Self.groupGap
 
         addCheckbox(
             "Start breaks automatically", in: page, checked: settings.autoStartBreaks,
@@ -1352,6 +1377,31 @@ final class SettingsWindow {
         ) { [settingsStore] checked in
             settingsStore.update { $0.askForTaskName = checked }
         }
+        y += Self.rowHeight
+        askForTaskHintLabel = addHint(Self.askForTaskHintText(loggingEnabled: settings.loggingEnabled), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+    }
+
+    // The askForTaskName hint's own two variants, keyed only on
+    // loggingEnabled — logging on makes the prompt mandatory regardless of
+    // this setting's own value (SPEC.md §5/§7's target tab map), so the
+    // hint describes that override rather than the setting's own current
+    // checked state. Shared by buildRhythmTab's initial paint and
+    // refreshAskForTaskHint's live update, same "one switch, not two
+    // drifting copies" shape as trayClickHintText above.
+    private static func askForTaskHintText(loggingEnabled: Bool) -> String {
+        loggingEnabled
+            ? "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."
+            : "Pomoppi asks before each focus session. Leave it blank to skip."
+    }
+
+    // Called from the Diary tab's own "Log sessions" checkbox
+    // (SETTINGS_PLAN.md S4) — it's what overrides askForTaskName, so its
+    // toggle is the other control this live hint has to react to, across
+    // pages, the same "controls bake their text in at creation" gap
+    // refreshTrayClickHint above exists for.
+    private func refreshAskForTaskHint(loggingEnabled: Bool) {
+        guard let askForTaskHintLabel else { return }
+        setWindowText(askForTaskHintLabel, Self.askForTaskHintText(loggingEnabled: loggingEnabled))
     }
 
     // -- Appearance tab content -----------------------------------------------
@@ -1379,7 +1429,8 @@ final class SettingsWindow {
             // real pixel art. Confirmed live: even after fixing draw(into:)
             // itself (PixelCanvas+GDI.swift) to resample cleanly, cards
             // stayed visibly uneven until the ratio became a true integer.
-            cardWidth: 38, cardHeight: 38
+            cardWidth: 38, cardHeight: 38,
+            leftAlignLabel: true
         ) { [settingsStore] friend in
             settingsStore.update { $0.friend = friend }
         }
@@ -1428,6 +1479,8 @@ final class SettingsWindow {
         y += 20
         y += addScalePicker(in: page, x: Self.rowMargin, y: y)
         y += addOpacitySlider(in: page, x: Self.rowMargin, y: y)
+        addHint("1× is very small — 104×128 physical pixels.", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
+        y += lastHintHeight
         y += Self.rowMargin
 
         appearanceContentHeight = y
@@ -1446,6 +1499,7 @@ final class SettingsWindow {
         kind: PickerKind, items: [String], in page: HWND,
         x: Int32, y: Int32, availableWidth: Int32,
         cardWidth: Int32, cardHeight: Int32,
+        leftAlignLabel: Bool = false,
         onSelect: @escaping (String) -> Void
     ) -> Int32 {
         let gap: Int32 = 10
@@ -1468,13 +1522,16 @@ final class SettingsWindow {
             let col = Int32(index) % columns
             let row = Int32(index) / columns
             // The card itself keeps its own position/size exactly as
-            // before — only the label below it grows, centered on the
-            // card's horizontal center, to absorb the extra width.
+            // before — only the label below it grows to absorb the extra
+            // width, either centered on the card's horizontal center (the
+            // default) or, for grids like the roommate one that want the
+            // picture and name sharing one left edge, left-aligned flush
+            // with the card's own left edge instead.
             let cardX = x + col * cellWidth
             let cardY = y + row * rowHeight
             addPickerCard(kind: kind, itemID: item, in: page, x: cardX, y: cardY, width: cardWidth, height: cardHeight, onSelect: onSelect)
-            let labelX = cardX - (cellContentWidth - cardWidth) / 2
-            addLabel(displayName(item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: true, trackForScroll: true)
+            let labelX = leftAlignLabel ? cardX : cardX - (cellContentWidth - cardWidth) / 2
+            addLabel(displayName(item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: !leftAlignLabel, trackForScroll: true)
         }
 
         let rowCount = (Int32(items.count) + columns - 1) / columns
@@ -1621,7 +1678,7 @@ final class SettingsWindow {
 
         let hdc = drawItem.hDC
         var rect = drawItem.rcItem
-        if let faceBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE)) {
+        if let faceBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: WindowsTheme.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE)) {
             FillRect(hdc, &rect, faceBrush)
             DeleteObject(faceBrush)
         }
@@ -2049,7 +2106,7 @@ final class SettingsWindow {
         // changes value under dark mode (see drawSelectionBorder's own
         // comment) — only the unselected fill/text below need an explicit
         // override.
-        let backgroundColor = isSelected ? GetSysColor(COLOR_HIGHLIGHT) : (isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE))
+        let backgroundColor = isSelected ? GetSysColor(COLOR_HIGHLIGHT) : (isDarkMode ? Self.colorref(hex: WindowsTheme.darkBackgroundHex) : GetSysColor(COLOR_BTNFACE))
         if let backgroundBrush = CreateSolidBrush(backgroundColor) {
             FillRect(hdc, &rect, backgroundBrush)
             DeleteObject(backgroundBrush)
@@ -2057,7 +2114,7 @@ final class SettingsWindow {
 
         let textUTF16 = Array(text.utf16) + [0]
         SetBkMode(hdc, Int32(TRANSPARENT))
-        SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : (isDarkMode ? Self.colorref(hex: Self.darkTextHex) : GetSysColor(COLOR_BTNTEXT)))
+        SetTextColor(hdc, isSelected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : (isDarkMode ? Self.colorref(hex: WindowsTheme.darkTextHex) : GetSysColor(COLOR_BTNTEXT)))
         var textRect = rect
         _ = textUTF16.withUnsafeBufferPointer { ptr in
             DrawTextW(hdc, ptr.baseAddress, -1, &textRect, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE))
@@ -2135,7 +2192,7 @@ final class SettingsWindow {
             // the CDDS_ITEMPREPAINT fills below cover the control's own
             // full rect.
             var rect = draw.pointee.rc
-            if let brush = Self.darkBackgroundBrush { FillRect(draw.pointee.hdc, &rect, brush) }
+            if let brush = WindowsTheme.darkBackgroundBrush { FillRect(draw.pointee.hdc, &rect, brush) }
             return LRESULT(CDRF_NOTIFYITEMDRAW)
         }
 
@@ -2489,7 +2546,7 @@ final class SettingsWindow {
         let lineRight = lineLeft + lineWidth
         let centerY = (thumbRect.top + thumbRect.bottom) / 2
         let spacing: Int32 = 3
-        guard let gripBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkBackgroundHex) : GetSysColor(COLOR_BTNSHADOW)) else { return }
+        guard let gripBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: WindowsTheme.darkBackgroundHex) : GetSysColor(COLOR_BTNSHADOW)) else { return }
         for offset: Int32 in [-spacing, 0, spacing] {
             var lineRect = RECT(left: lineLeft, top: centerY + offset, right: lineRight, bottom: centerY + offset + 1)
             FillRect(hdc, &lineRect, gripBrush)
@@ -2509,7 +2566,11 @@ final class SettingsWindow {
         addLabel("Color scheme", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += 20
         y += addColorSchemePicker(in: page, x: Self.rowMargin, y: y)
-        y += Self.groupGap
+        addHint(
+            "Applies to Pomoppi's own windows. The widget's colors are under Appearance.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += lastHintHeight + Self.groupGap
 
         addCheckbox(
             "Keep the widget on top of other windows", in: page, checked: settings.alwaysOnTop,
@@ -2533,10 +2594,13 @@ final class SettingsWindow {
         addCheckbox(
             "Swap the tray icon's left and right clicks", in: page, checked: settings.reverseTrayClick,
             x: Self.rowMargin, y: y, width: rowWidth
-        ) { [settingsStore] checked in
+        ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.reverseTrayClick = checked }
+            self?.refreshTrayClickHint(reversed: checked)
         }
-        y += Self.rowHeight + Self.groupGap
+        y += Self.rowHeight
+        trayClickHintLabel = addHint(Self.trayClickHintText(reversed: settings.reverseTrayClick), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += lastHintHeight + Self.groupGap
 
         addCheckbox(
             "Open Pomoppi when I log in", in: page, checked: settings.launchAtLogin,
@@ -2552,7 +2616,12 @@ final class SettingsWindow {
         ) { [settingsStore] checked in
             settingsStore.update { $0.startHidden = checked }
         }
-        y += Self.rowHeight + Self.groupGap
+        y += Self.rowHeight
+        addHint(
+            "Launch at login only registers when Pomoppi is running as an installed app. \u{201C}Start hidden\u{201D} applies the next time Pomoppi launches.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += lastHintHeight + Self.groupGap
 
         addLabel("Updates", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += 20
@@ -2564,10 +2633,38 @@ final class SettingsWindow {
             settingsStore.update { $0.checkForUpdates = checked }
         }
         y += Self.rowHeight
+        addHint("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += lastHintHeight + Self.groupGap
 
         addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 160, height: 24) { [weak self] in
             self?.confirmResetToDefaults()
         }
+        y += 24
+        addHint(
+            "Erases every setting and your whole session history, and puts Pomoppi back to how it shipped.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+    }
+
+    // The tray-icon hint's own two variants — kept as a pure function so
+    // both buildGeneralTab (initial paint) and refreshTrayClickHint (the
+    // checkbox's own live update) build the exact same string off the
+    // exact same switch, rather than two copies of the same two literals
+    // drifting apart.
+    private static func trayClickHintText(reversed: Bool) -> String {
+        reversed
+            ? "Left-click opens the menu, right-click raises the widget."
+            : "Left-click raises the widget, right-click opens the menu."
+    }
+
+    // reverseTrayClick's own checkbox calls this directly on toggle
+    // (SETTINGS_PLAN.md S4) — already live on macOS for free (Form's
+    // footer: reads straight off @Published state); Windows' controls
+    // bake their text in at creation, so this is the explicit repaint
+    // macOS doesn't need.
+    private func refreshTrayClickHint(reversed: Bool) {
+        guard let trayClickHintLabel else { return }
+        setWindowText(trayClickHintLabel, Self.trayClickHintText(reversed: reversed))
     }
 
     // MessageBoxW-based confirmation, same shape as confirmEraseSessionLog
@@ -2633,6 +2730,10 @@ final class SettingsWindow {
         diaryFolderLabel = nil
         diarySyncButton = nil
         diarySyncStatusLabel = nil
+        hintLabels = []
+        trayClickHintLabel = nil
+        askForTaskHintLabel = nil
+        lastHintHeight = 18
         footerVersionLabel = nil
         footerActionButton = nil
         appearancePage = nil
@@ -2682,6 +2783,8 @@ final class SettingsWindow {
         addLabel("Chime", in: page, x: Self.rowMargin, y: chimeY + 3, width: chimeLabelWidth)
         let chimePickerX = Self.rowMargin + chimeLabelWidth + 8
         addChimePicker(in: page, x: chimePickerX, y: chimeY, width: chimePickerWidth)
+
+        addHint("Selecting a chime plays it.", in: page, x: Self.rowMargin, y: stepperY + Self.rowHeight, width: rowWidth)
     }
 
     // Mirrors macOS's KeysTab/ShortcutRow (SettingsView.swift): one row per
@@ -2713,7 +2816,11 @@ final class SettingsWindow {
             shortcutRecorders.append(ShortcutRecorderControl(buttonHwnd: button, actionID: action.id))
             y += Self.rowHeight
         }
-        y += Self.groupGap
+        addHint(
+            "These fire even while Pomoppi isn’t the frontmost app. A shortcut needs a modifier; two actions can’t share the same combo.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += lastHintHeight + Self.groupGap
 
         // Wider than the shortcut recorder buttons above: "Restore Default
         // Shortcuts" doesn't fit their fixed 140px, so this one sizes to
@@ -2733,6 +2840,7 @@ final class SettingsWindow {
             addLabel(binding.action, in: page, x: Self.rowMargin + 148, y: y, width: rowWidth - 148)
             y += 20
         }
+        addHint("Fixed keys. They only fire while the widget window itself has focus.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
     }
 
     private struct WidgetKeyBinding {
@@ -2775,8 +2883,9 @@ final class SettingsWindow {
         addCheckbox(
             "Log sessions", in: page, checked: settings.loggingEnabled,
             x: Self.rowMargin, y: y, width: rowWidth
-        ) { [settingsStore] checked in
+        ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.loggingEnabled = checked }
+            self?.refreshAskForTaskHint(loggingEnabled: checked)
         }
         y += Self.rowHeight
 
@@ -2786,7 +2895,12 @@ final class SettingsWindow {
         addButton("Erase Cached Sessions…", in: page, x: Self.rowMargin, y: y, width: 180, height: 24) { [weak self] in
             self?.confirmEraseSessionLog()
         }
-        y += 24 + Self.groupGap
+        y += 24
+        addHint(
+            "Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += lastHintHeight + Self.groupGap
 
         addLabel("Export", in: page, x: Self.rowMargin, y: y, width: rowWidth)
         y += 20
@@ -3191,6 +3305,84 @@ final class SettingsWindow {
         return label
     }
 
+    // Windows' counterpart to macOS Form's `footer:` (SPEC.md §7's
+    // hint-footer rule: every hint is a footer under its control, never a
+    // disclosure, never a tooltip) — SETTINGS_PLAN.md's S4. Built on
+    // addLabel above (SS_NOPREFIX and optional scroll-tracking both come
+    // free), swaps in the smaller hintFont, and registers into hintLabels
+    // so handleCtlColor knows to paint this one dimmer than an ordinary
+    // label, in both themes. Height is measured, not guessed: some hints
+    // in the target tab map (SETTINGS_PLAN.md) wrap to two lines at this
+    // window's row width and some don't, and this window's non-Appearance
+    // pages have no scroll to fall back on if a fixed guess undershoots —
+    // confirmed live (the General tab's Reset hint clipped clean off the
+    // bottom of the page under a first pass that used one flat height for
+    // every hint regardless of its own text). `lastHintHeight` is what the
+    // height came out to, for the call site's own y += bookkeeping right
+    // after — the same "cache it on self, read it back" shape
+    // opacityValueLabel/logCacheSizeLabel already use for a value a later
+    // step needs, rather than turning every add* call site here into a
+    // tuple destructure.
+    @discardableResult
+    private func addHint(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, trackForScroll: Bool = false) -> HWND {
+        let height = Self.measuredHintHeight(text, width: width)
+        lastHintHeight = height
+        let label = addLabel(text, in: page, x: x, y: y, width: width, height: height, trackForScroll: trackForScroll)
+        if let hintFont = Self.hintFont {
+            SendMessageW(label, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: hintFont)), LPARAM(1))
+        }
+        hintLabels.insert(label)
+        return label
+    }
+
+    // hintFont's own single-line text extent tells us both how many lines
+    // a STATIC's automatic word-wrap needs at `width` (ceil of total width
+    // over available width — an underestimate in principle, since
+    // wrapping only breaks at word boundaries and can't pack a line as
+    // tightly as a raw width ratio assumes, so the divisor below is
+    // `width` shrunk by a fixed margin rather than `width` itself, a
+    // deliberate safety margin against that) and the line's own height
+    // (size.cy from the same call, rather than a second GetTextMetrics
+    // round trip). Capped at 3 lines — nothing in the target tab map
+    // needs a fourth, and an unbounded guess is a worse failure mode
+    // (pushing everything below it off the page) than a bounded one.
+    private static func measuredHintHeight(_ text: String, width: Int32) -> Int32 {
+        guard let hdc = GetDC(nil) else { return 18 }
+        defer { ReleaseDC(nil, hdc) }
+        let previousFont = hintFont.map { SelectObject(hdc, $0) }
+        defer { if let previousFont { SelectObject(hdc, previousFont) } }
+        var size = SIZE()
+        let wide = Array(text.utf16)
+        wide.withUnsafeBufferPointer { ptr in
+            _ = GetTextExtentPoint32W(hdc, ptr.baseAddress, Int32(ptr.count), &size)
+        }
+        guard size.cy > 0 else { return 18 }
+        let wrapWidth = max(width - 24, 1)
+        let lineCount = min(3, max(1, Int32((Double(size.cx) / Double(wrapWidth)).rounded(.up))))
+        return lineCount * size.cy + 4
+    }
+
+    // One point smaller than DEFAULT_GUI_FONT, same face/weight/charset —
+    // GetObjectW reads the stock font's own LOGFONTW back out,
+    // CreateFontIndirectW rebuilds it with lfHeight nudged toward zero (a
+    // smaller magnitude — GDI's own convention is a negative lfHeight,
+    // character height in device units, not a cell height) rather than
+    // guessing a fresh point size from scratch. Built once and kept for
+    // the process's lifetime, same "paint-local vs. process-lifetime"
+    // split WindowsTheme.darkBackgroundBrush already uses for a
+    // CTLCOLOR-adjacent GDI object — a font handed to WM_SETFONT has to
+    // stay valid for as long as the control keeps using it, not just for
+    // one call.
+    private static let hintFont: HFONT? = {
+        guard let stockFont = GetStockObject(DEFAULT_GUI_FONT), let hdc = GetDC(nil) else { return nil }
+        defer { ReleaseDC(nil, hdc) }
+        var logFont = LOGFONTW()
+        guard GetObjectW(stockFont, Int32(MemoryLayout<LOGFONTW>.size), &logFont) != 0 else { return nil }
+        let onePointInPixels = max(1, Int32((Double(GetDeviceCaps(hdc, LOGPIXELSY)) / 72.0).rounded()))
+        logFont.lfHeight += logFont.lfHeight < 0 ? onePointInPixels : -onePointInPixels
+        return CreateFontIndirectW(&logFont)
+    }()
+
     // BS_AUTOCHECKBOX toggles its own visual check state on click and fires
     // BN_CLICKED via WM_COMMAND (handleCommand below) — the button's own
     // text is the control's label, no separate STATIC needed.
@@ -3388,10 +3580,10 @@ final class SettingsWindow {
     // non-manifested Win32 window — confirmed live, same finding design
     // review already
     // had for COLOR_BTNFACE specifically — so this pair of hardcoded
-    // overrides is the one thing every dark-aware owner-drawn surface
-    // below actually needs.
-    private static let darkBackgroundHex = "#202020"
-    private static let darkTextHex = "#F0F0F0"
+    // overrides (WindowsTheme.darkBackgroundHex/darkTextHex, extracted in
+    // SETTINGS_PLAN.md's T2 so TaskPromptDialog.swift can share them) is
+    // the one thing every dark-aware owner-drawn surface below actually
+    // needs.
     // A little lighter than darkBackgroundHex — only used for the scroll
     // rail's thumb, which needs to read as "sitting above" its own track
     // rather than blending into it the way the flat background color would.
@@ -3408,46 +3600,24 @@ final class SettingsWindow {
     // does against COLOR_BTNFACE in light mode.
     private static let darkBevelShadowHex = "#0F0F0F"
 
-    // Reused for both WM_ERASEBKGND's page fill and WM_CTLCOLORSTATIC/
-    // WM_CTLCOLORBTN's returned brush (same color either way) — created
-    // once and kept for the process's lifetime rather than this file's
-    // usual create-then-delete-immediately pattern for a paint-local GDI
-    // object, since a brush handed back from a CTLCOLOR handler has to
-    // stay valid for Windows to actually paint with it after this call
-    // returns.
-    private static let darkBackgroundBrush: HBRUSH? = CreateSolidBrush(colorref(hex: darkBackgroundHex))
+    // A hint's own text color (addHint/handleCtlColor, SETTINGS_PLAN.md's
+    // S4) — dimmer than the ordinary darkTextHex/COLOR_BTNTEXT pair in
+    // both themes, the same "secondary" reading macOS's Form `footer:`
+    // gets for free from the system. Picked against darkBackgroundHex/
+    // COLOR_BTNFACE respectively for contrast that still passes as
+    // legible-but-quieter, not a literal token from either platform's own
+    // secondary-label color.
+    private static let hintTextLightHex = "#6E6E6E"
+    private static let hintTextDarkHex = "#A0A0A0"
 
     // The one place isDarkMode gets computed — both call sites below
     // (init and handleSettingChange) assign its result themselves rather
     // than being handed it, matching this file's existing "detect, then
-    // applyTheme() separately" split. "auto" (the default, and the only
-    // value that existed before this setting) defers to
-    // systemPrefersDarkTheme() just below exactly as before; "light"/
-    // "dark" override it outright, regardless of what the OS is doing.
+    // applyTheme() separately" split. Delegates to WindowsTheme.resolveDarkMode
+    // (extracted in SETTINGS_PLAN.md's T2), which TaskPromptDialog.swift now
+    // calls the same way.
     private func resolveDarkMode() -> Bool {
-        switch settingsStore.get().colorScheme {
-        case "light": return false
-        case "dark": return true
-        default: return Self.systemPrefersDarkTheme()
-        }
-    }
-
-    // Same registry key TrayController.systemPrefersLightTaskbar() reads,
-    // but a different value in it: AppsUseLightTheme governs app chrome
-    // (this window), SystemUsesLightTheme governs the taskbar/tray —
-    // TrayController already owns that one for its own tray-icon tinting.
-    // Defaults to light (not dark) if the key/value is missing, the same
-    // "clamp rather than fail" stance that one takes on a missing value.
-    private static func systemPrefersDarkTheme() -> Bool {
-        var value: DWORD = 0
-        var size = DWORD(MemoryLayout<DWORD>.size)
-        let status = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize".withCString(encodedAs: UTF16.self) { subKey in
-            "AppsUseLightTheme".withCString(encodedAs: UTF16.self) { valueName in
-                RegGetValueW(HKEY_CURRENT_USER, subKey, valueName, DWORD(RRF_RT_REG_DWORD), nil, &value, &size)
-            }
-        }
-        guard status == ERROR_SUCCESS else { return false }
-        return value == 0
+        WindowsTheme.resolveDarkMode(colorScheme: settingsStore.get().colorScheme)
     }
 
     // SetWindowTheme (uxtheme.dll) isn't one of the dozen libraries a plain
@@ -3680,7 +3850,7 @@ final class SettingsWindow {
         let target = WindowFromDC(hdc) ?? hwnd
         var rect = RECT()
         GetClientRect(target, &rect)
-        if let brush = Self.darkBackgroundBrush {
+        if let brush = WindowsTheme.darkBackgroundBrush {
             FillRect(hdc, &rect, brush)
         }
         return 1
@@ -3691,18 +3861,43 @@ final class SettingsWindow {
     // text color (it does darken the edit's background — see
     // setControlDarkTheme's own comment) — this is what does, forwarded
     // here from every page's own children the same way as
-    // handleEraseBackground above. Light mode falls through to
-    // DefWindowProcW unchanged, the same stock COLOR_BTNFACE-ish brush and
-    // default text color these controls always painted with.
+    // handleEraseBackground above. Runs in both themes now (SETTINGS_PLAN.md's
+    // S4) — a hint label (addHint, tracked in hintLabels) needs its own
+    // dimmed text color in light mode too, not just dark; every other
+    // control still falls through to DefWindowProcW unchanged in light
+    // mode, exactly as before.
     private func handleCtlColor(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
-        // Int(bitPattern:) rather than a bare Int(wParam) — see
+        // Int(bitPattern:) rather than a bare Int(wParam)/Int(lParam) — see
         // handleEraseBackground's own comment for why the range-checked
-        // conversion traps live for a real HDC value here.
-        guard isDarkMode, let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))), let brush = Self.darkBackgroundBrush else {
+        // conversion traps live for a real HDC/HWND value here.
+        guard let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))) else {
             return DefWindowProcW(hwnd, message, wParam, lParam)
         }
-        SetTextColor(hdc, Self.colorref(hex: Self.darkTextHex))
-        SetBkColor(hdc, Self.colorref(hex: Self.darkBackgroundHex))
+        let controlHwnd = HWND(bitPattern: Int(bitPattern: UInt(lParam)))
+        if let controlHwnd, hintLabels.contains(controlHwnd) {
+            // Both themes, always: a hint is always dimmer than an
+            // ordinary control's text. Background still matches whatever
+            // the page is already painted with in that theme —
+            // WindowsTheme's dark brush, or the same (HBRUSH)(COLOR_BTNFACE+1)
+            // cast the page class's own hbrBackground paints with
+            // (registerClassesIfNeeded) — so a hint reads as sitting on
+            // the page, not as its own separate patch.
+            SetTextColor(hdc, Self.colorref(hex: isDarkMode ? Self.hintTextDarkHex : Self.hintTextLightHex))
+            if isDarkMode, let brush = WindowsTheme.darkBackgroundBrush {
+                SetBkColor(hdc, WindowsTheme.colorref(hex: WindowsTheme.darkBackgroundHex))
+                return LRESULT(Int(bitPattern: brush))
+            }
+            guard let brush = HBRUSH(bitPattern: Int(COLOR_BTNFACE + 1)) else {
+                return DefWindowProcW(hwnd, message, wParam, lParam)
+            }
+            SetBkColor(hdc, GetSysColor(COLOR_BTNFACE))
+            return LRESULT(Int(bitPattern: brush))
+        }
+        guard isDarkMode, let brush = WindowsTheme.darkBackgroundBrush else {
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+        }
+        SetTextColor(hdc, WindowsTheme.colorref(hex: WindowsTheme.darkTextHex))
+        SetBkColor(hdc, WindowsTheme.colorref(hex: WindowsTheme.darkBackgroundHex))
         return LRESULT(Int(bitPattern: brush))
     }
 
