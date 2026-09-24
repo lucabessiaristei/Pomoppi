@@ -31,7 +31,10 @@ struct SettingsView: View {
                 DiaryTab(viewModel: viewModel)
             }
         }
-        .scenePadding()
+        // No bottom padding: each tab's Form scrolls right to the window's
+        // bottom edge, where settingsForm() fades it out, so cut-off content
+        // reads as "scroll for more" instead of ending on a blank strip.
+        .scenePadding(edges: [.horizontal, .top])
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
         .preferredColorScheme(Self.preferredColorScheme(for: viewModel.settings.colorScheme, systemIsDark: systemAppearance.isDark))
         .onAppear(perform: disableSettingsRestoration)
@@ -112,6 +115,13 @@ private extension View {
         self
             .formStyle(.grouped)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 32)
+                }
+            }
     }
 }
 
@@ -323,12 +333,13 @@ private struct ThemePreset {
 }
 
 private let themePresets: [ThemePreset] = [
-    ThemePreset(name: "Classic", ink: "#000000", paper: "#FFFFFF"),
+    ThemePreset(name: "B/W", ink: "#000000", paper: "#FFFFFF"),
     ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
     ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
     ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
     ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
     ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
+    ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
     ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
     ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
     ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
@@ -339,7 +350,8 @@ private let themePresets: [ThemePreset] = [
 private struct ThemePresetPicker: View {
     @ObservedObject var viewModel: SettingsViewModel
 
-    private let columns = [GridItem(.adaptive(minimum: 56), spacing: 10)]
+    // Two even rows of 6, same as Windows' themePresetColumns.
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 6)
 
     var body: some View {
         // Same fix as CardPickerGrid: centre each item on its column so the

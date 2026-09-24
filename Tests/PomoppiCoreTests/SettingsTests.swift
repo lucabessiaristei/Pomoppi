@@ -6,6 +6,15 @@ final class SettingsTests: XCTestCase {
         FileManager.default.temporaryDirectory.appendingPathComponent("PomoppiSettingsTests-\(UUID().uuidString)")
     }
 
+    // A fresh install opens on the "LCD Green" theme preset on both platforms.
+    func testFreshInstallDefaultsToLCDGreenTheme() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let settings = SettingsStore(storageDir: dir).get()
+        XCTAssertEqual(settings.inkColor, "#276231")
+        XCTAssertEqual(settings.paperColor, "#80B391")
+    }
+
     func testOnChangeFiresAfterUpdateWithTheNewValue() {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
