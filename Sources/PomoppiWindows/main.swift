@@ -3,6 +3,7 @@
 // -> PomodoroTimer -> SessionLogger -> WidgetWindow -> settingsStore.onChange
 // -> show/hide based on startHidden -> the message loop.
 import PomoppiCore
+import PomoppiStrings
 import WinSDK
 
 // -- single-instance guard ---------------------------------------------
@@ -31,6 +32,8 @@ if GetLastError() == ERROR_ALREADY_EXISTS {
 }
 
 let settingsStore = SettingsStore(storageDir: storageDir())
+L.configure(systemLanguages: userInterfaceLanguages())
+L.apply(setting: settingsStore.get().language)
 let sessionLogger = SessionLogger(getSettings: { settingsStore.get() }, storageDir: storageDir())
 let chimePlayer = ChimePlayer()
 
@@ -96,6 +99,16 @@ let shortcutHandlers: [String: () -> Void] = [
 // actually changed — same "don't needlessly churn a system-wide resource"
 // discipline as AppDelegate.registerGlobalShortcuts on macOS.
 var appliedShortcutsKey: String?
+// The Windows display language ("it-IT"), not the regional format:
+// GetUserDefaultLocaleName would pick Italian strings for someone who runs an
+// English Windows with Italian date formats.
+func userInterfaceLanguages() -> [String] {
+    var buffer = [WCHAR](repeating: 0, count: Int(LOCALE_NAME_MAX_LENGTH))
+    let length = LCIDToLocaleName(LCID(GetUserDefaultUILanguage()), &buffer, Int32(buffer.count), 0)
+    guard length > 1 else { return [] }
+    return [String(decoding: buffer.prefix(Int(length) - 1), as: UTF16.self)]
+}
+
 func registerGlobalShortcuts() {
     let bindings = settingsStore.get().shortcuts
     let key = Shortcuts.actionIDs.map { "\($0)=\(bindings[$0] ?? "")" }.joined(separator: "|")
@@ -150,6 +163,7 @@ func applyUpdateCheckingIfNeeded(_ settings: PomoppiSettings) {
 // re-reading every frame (always-on-top, size-on-scale-change) need this —
 // everything else it draws already re-reads settings on every tick.
 settingsStore.onChange = { settings in
+    L.apply(setting: settings.language)
     widgetWindow.applyExternalSettingsChange(settings)
     registerGlobalShortcuts()
     applyLoginItemIfNeeded(settings)

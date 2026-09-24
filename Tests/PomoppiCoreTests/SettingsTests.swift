@@ -124,6 +124,25 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(store.get().colorScheme, PomoppiSettings.defaults.colorScheme)
     }
 
+    func testLanguageDefaultsToSystemRoundTripsAndRejectsUnknownValues() throws {
+        XCTAssertEqual(PomoppiSettings.defaults.language, "system")
+
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "{}".write(to: dir.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+
+        let store = SettingsStore(storageDir: dir)
+        XCTAssertEqual(store.get().language, "system")
+
+        let id = PomoppiSettings.languageIDs[0]
+        store.update { $0.language = id }
+        XCTAssertEqual(SettingsStore(storageDir: dir).get().language, id)
+
+        store.update { $0.language = "klingon" }
+        XCTAssertEqual(store.get().language, "system")
+    }
+
     func testChimeDefaultsToClassicAndFallsBackWhenMissingOrInvalid() throws {
         XCTAssertEqual(PomoppiSettings.defaults.chime, "classic")
 

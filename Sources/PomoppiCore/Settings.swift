@@ -63,6 +63,10 @@ public struct PomoppiSettings: Codable, Equatable {
     // deliberate, not an oversight.
     public var checkForUpdates: Bool
 
+    // "system" (follow the OS language) or one of languageIDs
+    // (LOCALIZATION_PLAN.md L1). Anything else clamps back to "system".
+    public var language: String
+
     public var soundEnabled: Bool
     // Which pack in PomoppiSprites.GeneratedSounds.chimeIDs to play (SPEC.md
     // §4): "classic" (square-wave blips, the Electron-era design), "chord"
@@ -120,7 +124,8 @@ public struct PomoppiSettings: Codable, Equatable {
         diaryFolderPath: String = "",
         colorScheme: String = "auto",
         chime: String = "classic",
-        checkForUpdates: Bool = true
+        checkForUpdates: Bool = true,
+        language: String = "system"
     ) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -144,6 +149,7 @@ public struct PomoppiSettings: Codable, Equatable {
         self.launchAtLogin = launchAtLogin
         self.startHidden = startHidden
         self.checkForUpdates = checkForUpdates
+        self.language = language
         self.soundEnabled = soundEnabled
         self.chime = chime
         self.ringSeconds = ringSeconds
@@ -158,7 +164,7 @@ public struct PomoppiSettings: Codable, Equatable {
         case loggingEnabled, diaryFolderPath
         case friend, frameStyle, background, inkColor, paperColor, colorScheme
         case alwaysOnTop, raiseOnEnd, reverseTrayClick, scale, opacity, launchAtLogin, startHidden
-        case checkForUpdates
+        case checkForUpdates, language
         case soundEnabled, chime, ringSeconds, askForTaskName, shortcuts
     }
 
@@ -214,6 +220,7 @@ public struct PomoppiSettings: Codable, Equatable {
         launchAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? d.launchAtLogin
         startHidden = (try? c.decodeIfPresent(Bool.self, forKey: .startHidden)) ?? d.startHidden
         checkForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? d.checkForUpdates
+        language = (try? c.decodeIfPresent(String.self, forKey: .language)) ?? d.language
 
         soundEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .soundEnabled)) ?? d.soundEnabled
         chime = (try? c.decodeIfPresent(String.self, forKey: .chime)) ?? d.chime
@@ -250,6 +257,7 @@ public struct PomoppiSettings: Codable, Equatable {
         background = PomoppiSettings.backgroundIDs.contains(background) ? background : PomoppiSettings.defaults.background
         colorScheme = PomoppiSettings.colorSchemeIDs.contains(colorScheme) ? colorScheme : PomoppiSettings.defaults.colorScheme
         chime = PomoppiSettings.chimeIDs.contains(chime) ? chime : PomoppiSettings.defaults.chime
+        language = language == "system" || PomoppiSettings.languageIDs.contains(language) ? language : "system"
 
         inkColor = Self.normalizeColor(inkColor) ?? PomoppiSettings.defaults.inkColor
         paperColor = Self.normalizeColor(paperColor) ?? PomoppiSettings.defaults.paperColor
