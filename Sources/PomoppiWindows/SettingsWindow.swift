@@ -944,7 +944,7 @@ final class SettingsWindow {
     // The General tab's Updates section own version/check-for-updates row —
     // mirrors macOS's UpdateStatusRow. Version on the left; on the right a
     // primary button and, when a state has a second action, a secondary one
-    // to its left (hidden otherwise). The in-app update (UPDATE_PLAN.md S6e)
+    // to its left (hidden otherwise). The in-app update (SPEC.md §15)
     // shows its progress as the primary button's own label: no progress
     // bar control, and if FoundationNetworking never reports progress it
     // just reads "Downloading…".

@@ -1,5 +1,5 @@
 // UpdateInstaller.swift — the macOS side of the in-app update
-// (UPDATE_PLAN.md S6c): download the release's .pkg, verify it, strip any
+// (SPEC.md §15): download the release's .pkg, verify it, strip any
 // quarantine marker, and hand it to Installer.app. Installer.app shows its
 // own UI and password prompt; the pkg's postinstall kills and relaunches
 // Pomoppi. If the user cancels the installer, nothing has changed.

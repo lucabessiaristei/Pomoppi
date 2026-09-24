@@ -85,7 +85,7 @@ final class AppUpdateChecker {
 
     private(set) var latestResult: UpdateChecker.CheckResult?
     var onUpdate: (() -> Void)?
-    // The in-app update's progress (UPDATE_PLAN.md S6e). Lives here, not on
+    // The in-app update's progress (SPEC.md §15). Lives here, not on
     // the settings window, which is destroyed on close.
     private(set) var installState: UpdateInstallState = .idle
     // Set by main.swift: whether a focus or break is under way, so the

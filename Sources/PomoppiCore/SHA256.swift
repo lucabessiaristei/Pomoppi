@@ -1,6 +1,6 @@
 // SHA256.swift — a from-scratch, pure-Swift SHA-256 (FIPS 180-4). Neither
 // CryptoKit nor CommonCrypto exists on Windows Swift, and the in-app
-// updater (UPDATE_PLAN.md) needs to verify a downloaded installer's
+// updater (SPEC.md §15) needs to verify a downloaded installer's
 // checksum on both platforms, so this hand-rolls the algorithm instead —
 // streaming, 64-byte blocks processed directly (no per-byte array
 // reallocation), wrapping arithmetic throughout. Foundation only, for

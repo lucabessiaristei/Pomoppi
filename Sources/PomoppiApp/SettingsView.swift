@@ -499,7 +499,7 @@ private struct UpdateStatusRow: View {
         }
     }
 
-    // The in-app update (UPDATE_PLAN.md S6c) takes over the row while it
+    // The in-app update (SPEC.md §15) takes over the row while it
     // runs; otherwise an update found in the background takes priority over
     // the manual-check state machine, except mid-check (so a click doesn't
     // flash straight past "Checking…").
