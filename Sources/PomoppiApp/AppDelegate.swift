@@ -3,6 +3,7 @@ import Combine
 import Foundation
 import PomoppiCore
 import PomoppiRender
+import PomoppiStrings
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
@@ -38,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
 
         settingsStore = SettingsStore(storageDir: Self.storageDir())
+        L.configure(systemLanguages: Locale.preferredLanguages)
+        L.apply(setting: settingsStore.get().language)
         timer = PomodoroTimer(settingsGetter: { [unowned self] in self.timerSettingsSnapshot() })
         sessionLogger = SessionLogger(getSettings: { [unowned self] in self.settingsStore.get() }, storageDir: Self.storageDir())
         chimePlayer = ChimePlayer()
@@ -78,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // hotkey table, and the login-item registration are each owned by
         // exactly one thing that applies them once rather than continuously.
         settingsStore.onChange = { [unowned self] settings in
+            L.apply(setting: settings.language)
             self.widgetWindow.applyExternalSettingsChange(settings)
             self.registerGlobalShortcuts()
             self.applyLoginItemIfNeeded(settings)
