@@ -14,7 +14,7 @@
   "general.trayIcon.reverseTrayClick": "Inverser les clics gauche et droit de l'icône de menu",
   "general.trayIcon.footer.reversed": "Clic gauche ouvre le menu, clic droit affiche le widget",
   "general.trayIcon.footer.normal": "Clic gauche affiche le widget, clic droit ouvre le menu",
-  "general.trayIcon.header.windows": "Icône de la barre d'état",
+  "general.trayIcon.header.windows": "Icône de la zone de notification",
   "general.trayIcon.reverseTrayClick.windows": "Inverser les clics gauche et droit de l'icône",
   "general.startup.header": "Démarrage",
   "general.startup.launchAtLogin": "Ouvrir Pomoppi à la connexion",
