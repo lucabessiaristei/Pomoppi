@@ -55,7 +55,7 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Rhythm/Appearance/Keys/Sound/Diary (`SETTINGS_PLAN.md` S2) | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window, minimum 560×580 (grew from a fixed 560×480 across `SETTINGS_PLAN.md`'s S2/S4, `clientHeight` now 552 plus a 28px footer), same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Rhythm/Appearance/Keys/Sound/Diary (`SETTINGS_PLAN.md` S2) | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers and one shared label/control column standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
@@ -666,22 +666,23 @@ that carries this shape into code.
 
 | Tab | Section | Controls | Hint footer |
 |---|---|---|---|
-| **General** | Color scheme | Auto / Light / Dark (segmented) | "Applies to Pomoppi's own windows. The widget's colors are under Appearance." |
-| | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
-| | Widget | Keep the widget on top of other windows; Pop to the front when a session ends | — |
+| **General** | Widget | Keep the widget on top of other windows; Pop to the front when a session ends | — |
 | | Menu bar icon *(Windows: Tray icon)* | Swap the menu bar icon's left and right clicks | live: "Left-click raises the widget, right-click opens the menu." / swapped |
 | | Startup | Open Pomoppi when I log in; Start without showing the widget | "Launch at login only registers when Pomoppi is running as an installed app. “Start hidden” applies the next time Pomoppi launches." |
-| | Updates | Automatically check for updates | "Checks lucabessiaristei/Pomoppi on GitHub roughly once a day." |
+| | Color scheme | Auto / Light / Dark (segmented) | "Applies to Pomoppi's own windows. The widget's colors are under Appearance." |
+| | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
+| | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | "Checks lucabessiaristei/Pomoppi on GitHub roughly once a day." |
 | | Reset | **Reset Pomoppi…** | "Erases every setting and your whole session history, and puts Pomoppi back to how it shipped." |
 | **Rhythm** | Focus | Default focus length | "Or click the clock on the widget." |
 | | Breaks | Short break; Long break; Long break every N sessions | "Or click the dots on the widget." |
 | | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Session logging is on, so Pomoppi always asks — this setting only applies while logging is off."; logging off → "Pomoppi asks before each focus session. Leave it blank to skip." |
-| **Appearance** | Roommate / Theme / Window edge / Background | unchanged | — |
+| **Appearance** | Roommate / Window edge / Background / Theme | card pickers; theme presets + Ink / Paper | — |
 | | Size & transparency | unchanged | "1× is very small — 104×128 physical pixels." |
 | **Keys** | Global shortcuts | one recorder row per action | "These fire even while Pomoppi isn't the frontmost app. A shortcut needs a modifier; two actions can't share the same combo." |
 | | | **Restore Default Shortcuts** | — |
 | | While the widget is focused | static key list | "Fixed keys. They only fire while the widget window itself has focus." |
-| **Sound** | *(unnamed)* | Play a chime when a session ends; Chime picker; ring length | "Selecting a chime plays it." |
+| **Sound** | Chime | Play a chime when a session ends; Chime picker | "Selecting a chime plays it." |
+| | Ring | ring length | "How long the widget keeps ringing when a session ends, with or without the chime." |
 | **Diary** | Session history | Record every session; History size; **Erase History…** | "Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone." |
 | | Export | Sessions recorded; Export Diary… | — |
 | | Sync to folder | Diary folder; Choose…; Sync Now | — |
