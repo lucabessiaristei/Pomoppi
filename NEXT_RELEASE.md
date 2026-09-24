@@ -31,8 +31,9 @@ one.
   short summary per pomodoro into `YYYY/MM/YYYY-MM-DD.md`. Both are
   localized. Old flat `YYYY-MM-DD.md` files from earlier syncs are left
   alone and can be deleted by hand. Sessions logged before this release carry no
-  pomodoro id and are left out of Export's readable formats and Sync (the
-  JSON export still has them).
+  pomodoro id: on first launch they're moved out of the log into
+  `sessions-legacy.json` (same folder as `settings.json`), so Diary, Export
+  and Sync start clean.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 

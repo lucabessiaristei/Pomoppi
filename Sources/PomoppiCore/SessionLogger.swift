@@ -111,6 +111,27 @@ public actor SessionLogger {
         return writeFile(file)
     }
 
+    // One-time cleanup for logs written before pomodoroStart existed
+    // (SPEC.md §8): those entries can't be placed in a pomodoro, so they're
+    // moved out of sessions.json into sessions-legacy.json next to it
+    // (appended if it already exists) rather than guessed at. Called at
+    // launch on both platforms; a no-op once the log is clean. Returns how
+    // many entries were moved.
+    @discardableResult
+    public func moveLegacyEntriesOut() async -> Int {
+        guard var file = readFile() else { return 0 }
+        let legacy = file.sessions.filter { $0.pomodoroStart == nil }
+        guard !legacy.isEmpty else { return 0 }
+
+        let legacyURL = fileURL.deletingLastPathComponent().appendingPathComponent("sessions-legacy.json")
+        var archive = readFile(at: legacyURL) ?? SessionLogFile(sessions: [])
+        archive.sessions.append(contentsOf: legacy)
+        guard writeFile(archive, to: legacyURL) else { return 0 }
+
+        file.sessions.removeAll { $0.pomodoroStart == nil }
+        return writeFile(file) ? legacy.count : 0
+    }
+
     // reset() threw this pomodoro away (SPEC.md §5, §8): remove its entries
     // and ignore any of its appends still in flight.
     @discardableResult
@@ -176,7 +197,11 @@ public actor SessionLogger {
     }
 
     private nonisolated func readFile() -> SessionLogFile? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        readFile(at: fileURL)
+    }
+
+    private nonisolated func readFile(at url: URL) -> SessionLogFile? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(SessionLogFile.self, from: data)
@@ -187,6 +212,10 @@ public actor SessionLogger {
     // FileManager.replaceItemAt isn't implemented in swift-corelibs-
     // foundation on Windows.
     private func writeFile(_ file: SessionLogFile) -> Bool {
+        writeFile(file, to: fileURL)
+    }
+
+    private func writeFile(_ file: SessionLogFile, to fileURL: URL) -> Bool {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
