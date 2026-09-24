@@ -34,7 +34,7 @@ struct SettingsView: View {
         // No bottom padding: each tab's Form scrolls right to the window's
         // bottom edge, where settingsForm() fades it out, so cut-off content
         // reads as "scroll for more" instead of ending on a blank strip.
-        .scenePadding(edges: [.horizontal, .top])
+        .scenePadding(.automatic, edges: [.horizontal, .top])
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
         .preferredColorScheme(Self.preferredColorScheme(for: viewModel.settings.colorScheme, systemIsDark: systemAppearance.isDark))
         .onAppear(perform: disableSettingsRestoration)
