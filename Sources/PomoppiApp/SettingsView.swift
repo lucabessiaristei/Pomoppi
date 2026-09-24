@@ -120,6 +120,9 @@ private extension View {
         return self
             .formStyle(.grouped)
             .contentMargins(.bottom, fadeHeight, for: .scrollContent)
+            // Keeps the scroller off the window's bottom edge now that the
+            // scene has no bottom padding.
+            .contentMargins(.bottom, 8, for: .scrollIndicators)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .mask {
                 HStack(spacing: 0) {
