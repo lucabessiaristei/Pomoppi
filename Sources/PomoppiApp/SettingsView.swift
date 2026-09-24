@@ -246,6 +246,7 @@ private struct AppearanceTab: View {
                     items: PomoppiSettings.friendIDs,
                     selected: viewModel.settings.friend,
                     cardSize: CGSize(width: 48, height: 48),
+                    alignment: .leading,
                     label: { $0.capitalized },
                     image: { friend in
                         // Filled with paper first: friend art is line art
@@ -328,6 +329,18 @@ private struct CardPickerGrid<ID: Hashable>: View {
     let items: [ID]
     let selected: ID
     var cardSize: CGSize = CGSize(width: 55, height: 62)
+    // Applies to both the grid's own column alignment and each button's
+    // inner VStack — the two must move together. `.center` (the default):
+    // each button's VStack is only as wide as its widest child, and the
+    // label text below often outgrows the fixed-size image above it by a
+    // different amount per item, so centering both the grid column and the
+    // VStack keeps every image on the same axis regardless of label width.
+    // `.leading` pins both the grid column and the VStack's children to the
+    // same edge instead, so image and label share one left edge per item —
+    // mixing the two (grid `.leading` with VStack `.center`, or vice versa)
+    // is what causes the zigzag, since the image would then be centred
+    // inside a variable-width, edge-anchored button.
+    var alignment: HorizontalAlignment = .center
     let label: (ID) -> String
     let image: (ID) -> NSImage?
     let onSelect: (ID) -> Void
@@ -337,21 +350,13 @@ private struct CardPickerGrid<ID: Hashable>: View {
     }
 
     var body: some View {
-        // `.center`, not `.leading`: each button's own VStack is only as
-        // wide as its widest child, and the label text below often outgrows
-        // the fixed-size image above it by a different amount per item — a
-        // leading-aligned grid then anchors each *button* to the column's
-        // left edge, so the (VStack-centred) image inside drifts right by
-        // varying amounts as the label gets longer, zigzagging column to
-        // column instead of lining up. Centering each item on its column
-        // keeps every image on the same axis regardless of label width.
-        LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+        LazyVGrid(columns: columns, alignment: alignment, spacing: 12) {
             ForEach(items, id: \.self) { item in
                 let isSelected = item == selected
                 Button {
                     onSelect(item)
                 } label: {
-                    VStack(spacing: 6) {
+                    VStack(alignment: alignment, spacing: 6) {
                         cardPreview(for: item)
                             .frame(width: cardSize.width, height: cardSize.height)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
