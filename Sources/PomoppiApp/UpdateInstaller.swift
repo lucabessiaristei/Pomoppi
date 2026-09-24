@@ -5,7 +5,11 @@
 // Pomoppi. If the user cancels the installer, nothing has changed.
 //
 // Owned by AppUpdateChecker, which publishes `state` to the settings row and
-// the tray, so a download outlives the settings window.
+// the tray, so a download outlives the settings window. Verified packages
+// are kept in ~/Library/Caches/Pomoppi/Updates, so pressing Update again
+// (after closing Installer.app, or after relaunching Pomoppi) reuses one that
+// still verifies instead of downloading it again; packages for versions at
+// or below the running one are pruned at launch.
 import AppKit
 import Foundation
 import PomoppiCore
@@ -18,9 +22,32 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
     private var downloadedPackage: URL?
     private var lastProgressReport = Date.distantPast
 
+    static var cacheFolder: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return caches.appendingPathComponent("Pomoppi/Updates", isDirectory: true)
+    }
+
+    // Drops cached packages that are no newer than the running version: once
+    // the update is installed, its package is just disk space.
+    static func pruneCache(currentVersion: String) {
+        guard let current = SemVer(currentVersion),
+              let names = try? FileManager.default.contentsOfDirectory(atPath: cacheFolder.path) else { return }
+        for name in names {
+            let version = name.range(of: #"\d+\.\d+\.\d+"#, options: .regularExpression)
+                .flatMap { SemVer(String(name[$0])) }
+            if let version, version > current { continue }
+            try? FileManager.default.removeItem(at: cacheFolder.appendingPathComponent(name))
+        }
+    }
+
     func start(_ asset: ReleaseAsset) {
         cancel()
         self.asset = asset
+        let cached = Self.cacheFolder.appendingPathComponent(asset.name)
+        if FileManager.default.fileExists(atPath: cached.path) {
+            verifyAndOpen(cached, asset: asset)
+            return
+        }
         // The delegate callbacks land on the main queue, where the state is
         // read; URLSession keeps its delegate alive until invalidated.
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
@@ -78,24 +105,30 @@ final class UpdateInstaller: NSObject, URLSessionDownloadDelegate {
         }
         // `location` is deleted as soon as this method returns, so the move
         // has to happen here, synchronously.
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PomoppiUpdate-\(UUID().uuidString)")
-        let package = folder.appendingPathComponent(asset.name)
+        let package = Self.cacheFolder.appendingPathComponent(asset.name)
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: Self.cacheFolder, withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: package)
             try FileManager.default.moveItem(at: location, to: package)
         } catch {
             fail(.downloadFailed)
             return
         }
         session.finishTasksAndInvalidate()
-        report(.verifying)
+        self.session = nil
+        verifyAndOpen(package, asset: asset)
+    }
 
+    // Also the path for a package already in the cache: it's re-verified
+    // every time, so a partial or tampered file is never opened.
+    private func verifyAndOpen(_ package: URL, asset: ReleaseAsset) {
+        report(.verifying)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let failure = asset.verify(downloadedFileAt: package)
             DispatchQueue.main.async {
                 guard let self, self.asset == asset else { return }
-                self.session = nil
                 if let failure {
+                    try? FileManager.default.removeItem(at: package)
                     self.fail(failure)
                     return
                 }

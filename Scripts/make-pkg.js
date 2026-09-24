@@ -49,22 +49,53 @@ function readBundleIdentifier(appPath) {
   return match[1];
 }
 
-function buildPkg(appPath, bundleId) {
+// `--component` mode leaves pkgbuild's defaults in place, and two of them
+// break updates: BundleIsRelocatable makes Installer.app install over any
+// other copy with the same bundle ID it finds on disk (a dist/ or .build
+// copy) instead of /Applications, and BundleIsVersionChecked refuses to
+// replace a newer version. `--root` + an explicit component plist turns
+// both off, so every install lands in /Applications/Pomoppi.app.
+function writeComponentPlist(plistPath) {
+  fs.writeFileSync(plistPath, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>RootRelativeBundlePath</key><string>${APP_NAME}.app</string>
+    <key>BundleIsRelocatable</key><false/>
+    <key>BundleIsVersionChecked</key><false/>
+    <key>BundleHasStrictIdentifier</key><true/>
+    <key>BundleOverwriteAction</key><string>upgrade</string>
+  </dict>
+</array>
+</plist>
+`);
+}
+
+function buildPkg(stagingDir, bundleId) {
   fs.mkdirSync(distDir, { recursive: true });
   const scriptsDir = path.join(REPO_ROOT, 'Scripts', 'pkg-scripts');
+  const plistPath = path.join(os.tmpdir(), `pomoppi-component-${process.pid}.plist`);
+  writeComponentPlist(plistPath);
   console.log(`Building ${pkgPath} (identifier ${bundleId}, version ${VERSION})...`);
-  execFileSync(
-    'pkgbuild',
-    [
-      '--component', appPath,
-      '--install-location', '/Applications',
-      '--identifier', bundleId,
-      '--version', VERSION,
-      '--scripts', scriptsDir,
-      pkgPath,
-    ],
-    { stdio: 'inherit' }
-  );
+  try {
+    execFileSync(
+      'pkgbuild',
+      [
+        // stagingDir holds only Pomoppi.app, so the payload is exactly that.
+        '--root', stagingDir,
+        '--component-plist', plistPath,
+        '--install-location', '/Applications',
+        '--identifier', bundleId,
+        '--version', VERSION,
+        '--scripts', scriptsDir,
+        pkgPath,
+      ],
+      { stdio: 'inherit' }
+    );
+  } finally {
+    fs.rmSync(plistPath, { force: true });
+  }
 }
 
 function main() {
@@ -72,7 +103,7 @@ function main() {
   try {
     const appPath = buildStagedApp(stagingDir);
     const bundleId = readBundleIdentifier(appPath);
-    buildPkg(appPath, bundleId);
+    buildPkg(stagingDir, bundleId);
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }
