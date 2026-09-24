@@ -47,6 +47,11 @@ one.
 - **The "Keys" tab is now "Shortcuts"**, with sections "From any app" and "In the widget".
 - **Smoother show/hide:** the widget fades in at launch and when shown, fades out when hidden and on Quit, on both platforms (Windows had no fade before).
 - **No UI sentence ends with a period any more**, on either platform.
+- **Five languages**: English, Italiano, Español, Français, Deutsch, with a
+  Language picker in General ("System" follows the OS); the Diary files
+  follow the app language too.
+- **New background: Tatami**; Grid retouched.
+- **Chimes play instantly** the first time (audio is prepared at launch).
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 
@@ -64,11 +69,12 @@ one.
 ## Suggested release notes
 
 ```
-- Pomodoros: one title per pomodoro, skip counts the session, reset discards the pomodoro.
-- "Focus sessions" setting replaces "Long break every N sessions".
+- Pomoppi now speaks English, Italiano, Español, Français and Deutsch (Settings > General > Language).
+- Pomodoros: one title per pomodoro, skip counts the focus session, reset discards the pomodoro.
+- Settings: the Pomodoro tab (was Rhythm) with "Focus sessions"; Keys is now Shortcuts; the title prompt lives in Diary.
+- Diary: export the full log as Markdown, text, OpenDocument or JSON, or a .zip archive; sync writes a daily summary per pomodoro in year/month folders.
 - Session history from earlier versions is cleared once on update.
-- Diary: export the full log as Markdown, text, OpenDocument or JSON; sync writes a daily summary per pomodoro in year/month folders.
-- Updates now appear only once the installer for your platform is ready to download.
-- macOS: the update installer opens above the widget.
-- Windows: the task-name prompt shows Pomoppi's icon.
+- New Tatami background.
+- Smoother fades when the widget appears, hides and quits; chimes play instantly.
+- Updates appear only once the installer for your platform is ready.
 ```
