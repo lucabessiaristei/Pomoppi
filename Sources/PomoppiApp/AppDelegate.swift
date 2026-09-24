@@ -61,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self.chimePlayer.play(chime: settings.chime, focusEnd: event.phase == .focus)
             }
         }
+        timer.onPomodoroDiscarded = { [unowned self] start in
+            Task { await self.sessionLogger.discardPomodoro(startedAt: start) }
+        }
 
         widgetWindow = WidgetWindow(
             timer: timer, settingsStore: settingsStore,

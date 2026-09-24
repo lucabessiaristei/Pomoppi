@@ -149,13 +149,9 @@ final class WidgetPixelView: NSView {
             }
         }
 
-        let dots = WidgetLayout.dotGeometry(longBreakEvery: settings.longBreakEvery)
-        if lx >= dots.x, lx < dots.x + dots.width, ly >= WidgetLayout.cycleDotsY - 2, ly < WidgetLayout.cycleDotsY + WidgetLayout.dotSize + 2 {
-            region = "dots"
-        }
-
         if region == nil {
             for box in WidgetLayout.buttonHitBoxes() {
+                guard WidgetLayout.isButtonEnabled(box.id, state: state) else { continue }
                 if lx >= box.x - 2, lx < box.x + WidgetLayout.buttonSize + 2,
                    ly >= WidgetLayout.buttonsY - 2, ly < WidgetLayout.buttonsY + WidgetLayout.buttonSize + 2 {
                     button = box.id
@@ -235,11 +231,6 @@ final class WidgetPixelView: NSView {
             stepFocusMinutes(-1)
         case "clock-plus":
             stepFocusMinutes(1)
-        case "dots":
-            let p = logicalPoint(from: event)
-            if let slot = WidgetLayout.dotSlot(at: p.x, longBreakEvery: settings.longBreakEvery) {
-                settings = settingsStore.update { $0.longBreakEvery = slot + 1 }
-            }
         default:
             if let clickedButton { activateButton(clickedButton) }
         }
@@ -267,7 +258,7 @@ final class WidgetPixelView: NSView {
         case "s":
             activateButton("skip")
         case "r":
-            activateButton("reset")
+            if WidgetLayout.isButtonEnabled("reset", state: state) { activateButton("reset") }
         case "o":
             toggleAlwaysOnTop()
         case ",":

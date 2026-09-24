@@ -131,7 +131,7 @@ final class TrayController: NSObject, NSMenuDelegate {
             title: L.t("tray.reset"), action: #selector(handleReset), enabled: !idle, shortcut: settings.shortcuts["reset"]))
         menu.addItem(.separator())
 
-        let sessionsItem = NSMenuItem(title: L.t("tray.sessionsPerLongBreak"), action: nil, keyEquivalent: "")
+        let sessionsItem = NSMenuItem(title: L.t("tray.focusSessions"), action: nil, keyEquivalent: "")
         sessionsItem.submenu = buildSessionsSubmenu(current: settings.longBreakEvery)
         menu.addItem(sessionsItem)
         menu.addItem(.separator())
