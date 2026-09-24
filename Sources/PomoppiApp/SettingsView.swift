@@ -682,7 +682,9 @@ private struct DiaryTab: View {
                 // only while recording (SPEC.md §5).
                 Toggle(L.t("diary.history.askForTitle"), isOn: viewModel.binding(\.askForTaskName))
                     .disabled(!viewModel.settings.loggingEnabled)
-                LabeledContent(L.t("diary.history.size"), value: Self.formattedSize(historySizeBytes))
+                LabeledContent(
+                    L.t("diary.history.pomodorosRecorded"),
+                    value: L.t("diary.history.countAndSize", pomodoroCount, Self.formattedSize(historySizeBytes)))
                 Button(L.t("diary.history.erase"), role: .destructive) {
                     showingEraseConfirmation = true
                 }
@@ -692,8 +694,9 @@ private struct DiaryTab: View {
                 Text(L.t("diary.history.footer"))
             }
             Section {
-                LabeledContent(L.t("diary.export.pomodorosRecorded"), value: "\(pomodoroCount)")
                 Button(L.t("diary.export.button")) { exportDiary() }
+                    .disabled(pomodoroCount == 0)
+                Button(L.t("diary.export.archiveButton")) { exportArchive() }
                     .disabled(pomodoroCount == 0)
                 if let exportStatus {
                     Text(exportStatus).foregroundStyle(.secondary)
@@ -777,6 +780,20 @@ private struct DiaryTab: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let format = accessory.selectedFormat
         let data = DiaryExporter.export(sessions: viewModel.sessionLogger.allSessionsSync(), format: format, text: diaryText)
+        do {
+            try data.write(to: url, options: .atomic)
+            exportStatus = L.t("diary.export.success", url.lastPathComponent)
+        } catch {
+            exportStatus = L.t("diary.export.failed")
+        }
+    }
+
+    private func exportArchive() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Pomoppi Diary Archive.zip"
+        panel.allowedContentTypes = [.zip]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let data = DiaryExporter.exportArchive(sessions: viewModel.sessionLogger.allSessionsSync(), text: diaryText)
         do {
             try data.write(to: url, options: .atomic)
             exportStatus = L.t("diary.export.success", url.lastPathComponent)

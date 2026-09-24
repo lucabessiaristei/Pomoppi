@@ -40,7 +40,9 @@ one.
   Diary, Export and Sync start clean. From 0.4.0 on the log is versioned
   and the only automatic cleanup left is dropping completely empty
   pomodoros (every focus skipped under a minute) at launch. The Diary tab
-  counts pomodoros, and Export is disabled while there are none.
+  shows "Pomodoros recorded: N (size)" instead of a bare history size, and
+  the exports are disabled while there are none. New **Export Diary
+  Archive…**: the same year/month day files Sync writes, as one .zip.
 - **Windows: the task-name prompt shows Pomoppi's icon** instead of the
   generic window icon (`f1d86b2`).
 

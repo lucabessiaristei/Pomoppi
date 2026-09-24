@@ -177,25 +177,39 @@ public enum DiaryExporter {
         }.joined(separator: "\n")
     }
 
+    // Every day the log covers, as the relative path Sync writes it to
+    // ("YYYY/MM/YYYY-MM-DD.md") and its content. Shared by Sync and the
+    // archive export, so the two can't drift apart.
+    static func dayFiles(_ sessions: [SessionLogEntry], text: DiaryText, calendar: Calendar) -> [(path: String, content: String)] {
+        byDay(pomodoros(sessions, calendar: calendar), calendar: calendar).map { day in
+            let d = dayKey(day.date, calendar: calendar)
+            let path = "\(d.year)/\(pad2(d.month))/\(d.year)-\(pad2(d.month))-\(pad2(d.day)).md"
+            return (path: path, content: dayFile(day.pomodoros, text: text, calendar: calendar))
+        }
+    }
+
     // Regenerates every day the log covers into <folder>/YYYY/MM/YYYY-MM-DD.md,
     // writing only files whose content changed. Returns how many were
     // written; throws the first write failure.
     @discardableResult
     public static func syncToFolder(_ folderURL: URL, sessions: [SessionLogEntry], text: DiaryText, calendar: Calendar = .current) throws -> Int {
         var written = 0
-        for (date, dayPomodoros) in byDay(pomodoros(sessions, calendar: calendar), calendar: calendar) {
-            let d = dayKey(date, calendar: calendar)
-            let dir = folderURL
-                .appendingPathComponent(String(d.year), isDirectory: true)
-                .appendingPathComponent(pad2(d.month), isDirectory: true)
-            let fileURL = dir.appendingPathComponent("\(d.year)-\(pad2(d.month))-\(pad2(d.day)).md")
-            let content = dayFile(dayPomodoros, text: text, calendar: calendar)
-            if (try? String(contentsOf: fileURL, encoding: .utf8)) == content { continue }
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        for file in dayFiles(sessions, text: text, calendar: calendar) {
+            let fileURL = file.path.split(separator: "/").reduce(folderURL) { $0.appendingPathComponent(String($1)) }
+            if (try? String(contentsOf: fileURL, encoding: .utf8)) == file.content { continue }
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try file.content.write(to: fileURL, atomically: true, encoding: .utf8)
             written += 1
         }
         return written
+    }
+
+    // The Diary Archive: the same YYYY/MM/ day files Sync writes, as one
+    // .zip (SPEC.md §8b).
+    public static func exportArchive(sessions: [SessionLogEntry], text: DiaryText, now: Date = Date(), calendar: Calendar = .current) -> Data {
+        ZipWriter.zip(dayFiles(sessions, text: text, calendar: calendar).map {
+            ZipWriter.Entry(name: $0.path, data: Data($0.content.utf8))
+        }, date: now)
     }
 
     // -- Export -----------------------------------------------------------------

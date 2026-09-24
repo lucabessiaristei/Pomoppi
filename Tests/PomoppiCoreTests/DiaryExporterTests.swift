@@ -207,6 +207,23 @@ final class DiaryExporterTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: flatLegacyFile, encoding: .utf8), "old flat layout, untouched")
     }
 
+    // The Diary Archive zips exactly the files Sync writes, at the same paths.
+    func testExportArchiveHoldsTheSyncDayFilesAtTheirNestedPaths() throws {
+        let sessions = [makeEntry(task: "write spec", hour: 14, minute: 29, pomodoroStart: date(hour: 14, minute: 29))]
+        let data = DiaryExporter.exportArchive(sessions: sessions, text: diaryText, calendar: utcCalendar)
+        let bytes = [UInt8](data)
+        XCTAssertEqual(Array(bytes[0..<4]), [0x50, 0x4b, 0x03, 0x04])
+        let nameLength = Int(bytes[26]) | Int(bytes[27]) << 8
+        let extraLength = Int(bytes[28]) | Int(bytes[29]) << 8
+        XCTAssertEqual(String(decoding: bytes[30..<(30 + nameLength)], as: UTF8.self), "2026/09/2026-09-24.md")
+
+        let dataStart = 30 + nameLength + extraLength
+        let size = Int(bytes[18]) | Int(bytes[19]) << 8 | Int(bytes[20]) << 16 | Int(bytes[21]) << 24
+        let content = String(decoding: bytes[dataStart..<(dataStart + size)], as: UTF8.self)
+        let day = DiaryExporter.pomodoros(sessions, calendar: utcCalendar)
+        XCTAssertEqual(content, DiaryExporter.dayFile(day, text: diaryText, calendar: utcCalendar))
+    }
+
     // -- 14. Export ---------------------------------------------------------------
 
     private func makeExportSessions() -> [SessionLogEntry] {
