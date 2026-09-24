@@ -66,6 +66,7 @@ let globalShortcutManager = GlobalShortcutManager(hwnd: widgetWindow.hwnd)
 widgetWindow.globalShortcutManager = globalShortcutManager
 
 let updateChecker = AppUpdateChecker(hwnd: widgetWindow.hwnd)
+updateChecker.isSessionActive = { timer.getState().phase != .idle }
 widgetWindow.updateChecker = updateChecker
 
 // -- global shortcuts -------------------------------------------------------

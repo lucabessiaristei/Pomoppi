@@ -41,6 +41,14 @@ enum URLSessionUpdateFetch {
 // footer can both read it) and owns the 10s/24h scheduling — see `start()`.
 final class AppUpdateChecker: ObservableObject {
     @Published private(set) var latestResult: UpdateChecker.CheckResult?
+    // The in-app update's progress (UPDATE_PLAN.md S6c). Lives here, not on
+    // the settings window, so it survives closing and reopening it.
+    @Published private(set) var installState: UpdateInstallState = .idle
+    // Set by AppDelegate: whether a focus or break is under way, so the
+    // Updates row can confirm before an install quits the app mid-session.
+    var isSessionActive: () -> Bool = { false }
+
+    private let installer = UpdateInstaller()
 
     private let currentVersion: String
     private let fetch: UpdateChecker.Fetch
@@ -50,6 +58,27 @@ final class AppUpdateChecker: ObservableObject {
     init(currentVersion: String = pomoppiVersion, fetch: @escaping UpdateChecker.Fetch = URLSessionUpdateFetch.fetch) {
         self.currentVersion = currentVersion
         self.fetch = fetch
+        installer.onStateChange = { [weak self] in self?.installState = $0 }
+    }
+
+    // The asset of the update currently on offer, when there is one to
+    // install in-app (nil means "release page only").
+    var availableAsset: ReleaseAsset? {
+        guard case .updateAvailable(_, _, let asset) = latestResult else { return nil }
+        return asset
+    }
+
+    func startUpdate() {
+        guard !installState.isBusy || installState == .installerOpened, let asset = availableAsset else { return }
+        installer.start(asset)
+    }
+
+    func cancelUpdate() {
+        installer.cancel()
+    }
+
+    func reopenInstaller() {
+        installer.reopenInstaller()
     }
 
     // ~10s after launch, then every 24h thereafter for as long as the app

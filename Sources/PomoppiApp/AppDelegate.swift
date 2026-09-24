@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         sessionLogger = SessionLogger(getSettings: { [unowned self] in self.settingsStore.get() }, storageDir: Self.storageDir())
         chimePlayer = ChimePlayer()
         updateChecker = AppUpdateChecker()
+        updateChecker.isSessionActive = { [unowned self] in self.timer.getState().phase != .idle }
         settingsViewModel = SettingsViewModel(
             settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer,
             updateChecker: updateChecker)

@@ -243,9 +243,12 @@ final class TrayController: NSObject, NSMenuDelegate {
     @objc private func handleOpenSettings() { onOpenSettingsRequested() }
     @objc private func handleQuit() { onQuitRequested() }
 
+    // Updating happens in the General tab's Updates row, so the menu item
+    // opens Settings on that tab rather than a browser. The tab is the
+    // `@AppStorage("pomoppi.settingsTab")` SettingsView already remembers.
     @objc private func handleOpenUpdatePage() {
-        guard case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult else { return }
-        NSWorkspace.shared.open(pageURL)
+        UserDefaults.standard.set("general", forKey: "pomoppi.settingsTab")
+        onOpenSettingsRequested()
     }
 
     // -- periodic refresh (icon animation, clock, tooltip) ---------------------
