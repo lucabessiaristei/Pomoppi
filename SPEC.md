@@ -790,13 +790,36 @@ Each entry:
   "endTime": "2026-09-19T09:40:00Z",
   "durationMinutes": 25,
   "durationSeconds": 1500,
+  "plannedSeconds": 1500,
+  "pausedSeconds": 0,
   "pomodoroStart": "2026-09-19T09:15:00Z",
+  "focusNumber": 1,
+  "focusCount": 4,
+  "timeZone": "Europe/Rome",
+  "appVersion": "0.4.0",
   "completed": true
 }
 ```
 
-`durationSeconds` and `pomodoroStart` were added 2026-09-24 and are optional
-in the decoder. The file carries `"version": 2` from 0.4.0 on. **A log
+| Field | Meaning |
+|---|---|
+| `durationSeconds` | the length that counted: planned if completed, actual if stopped early; pauses excluded |
+| `plannedSeconds` | the phase's planned length |
+| `pausedSeconds` | time spent paused inside the phase |
+| `pomodoroStart` | the pomodoro's id: its first focus's start (§5) |
+| `focusNumber` | which focus of the pomodoro, 1-based; a break carries the number of the focus it follows (the long break carries the last) |
+| `focusCount` | focus sessions planned for the pomodoro when the phase ended (`longBreakEvery`) |
+| `timeZone` | the zone `day`/`month`/`year` were computed in |
+| `appVersion` | the Pomoppi version that wrote the entry |
+
+**The schema only grows.** From log version 2 (0.4.0) on, fields are added,
+never renamed, repurposed or removed, and every new field is optional in
+the decoder, so any later version reads every earlier entry as is. A future
+change that needs more data adds a field and bumps `version`; it never
+deletes or rewrites existing entries.
+
+Every field after `completed` was added in 0.4.0 and is optional in the
+decoder. The file carries `"version": 2` from 0.4.0 on. **A log
 without `version` (written before 0.4.0) is cleaned once at launch**
 (`SessionLogger.migrateLegacyLog()`, both platforms): its entries without
 `pomodoroStart` are deleted (they can't be placed in a pomodoro, and the

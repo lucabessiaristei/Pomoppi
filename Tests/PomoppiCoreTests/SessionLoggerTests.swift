@@ -249,4 +249,25 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertNil(sessions[0].pomodoroStart)
         XCTAssertEqual(sessions[0].seconds, 25 * 60, "falls back to durationMinutes x 60")
     }
+
+    func testEntriesRecordFocusNumberCountPlannedPausedZoneAndVersion() async {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+        var event = makeEntry(plannedMs: 25 * 60_000, actualMs: 10 * 60_000, completed: false, pomodoroStart: Date(timeIntervalSince1970: 1_758_267_300))
+        event = PhaseCompleteEvent(
+            phase: event.phase, startedAt: event.startedAt, endedAt: event.endedAt,
+            plannedMs: event.plannedMs, actualMs: event.actualMs, task: event.task, completed: event.completed,
+            pomodoroStartedAt: event.pomodoroStartedAt, focusNumber: 2, focusCount: 4, pausedMs: 90_000)
+        _ = await logger.logSession(event)
+
+        let entry = logger.allSessionsSync()[0]
+        XCTAssertEqual(entry.durationSeconds, 600)
+        XCTAssertEqual(entry.plannedSeconds, 1500)
+        XCTAssertEqual(entry.pausedSeconds, 90)
+        XCTAssertEqual(entry.focusNumber, 2)
+        XCTAssertEqual(entry.focusCount, 4)
+        XCTAssertEqual(entry.timeZone, Calendar.current.timeZone.identifier)
+        XCTAssertEqual(entry.appVersion, pomoppiVersion)
+    }
 }

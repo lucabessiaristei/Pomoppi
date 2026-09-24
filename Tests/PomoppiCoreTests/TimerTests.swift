@@ -293,4 +293,31 @@ final class TimerTests: XCTestCase {
         XCTAssertEqual(state.phase, .idle)
         XCTAssertFalse(state.running)
     }
+
+    func testEventsCarryFocusNumberFocusCountAndPausedTime() {
+        var current = Date(timeIntervalSince1970: 0)
+        var events: [PhaseCompleteEvent] = []
+        let timer = PomodoroTimer(settingsGetter: { self.defaultSettings(longBreakEvery: 3) }, now: { current })
+        timer.onPhaseComplete = { events.append($0) }
+
+        timer.start()
+        current = current.addingTimeInterval(120)
+        timer.pause()
+        current = current.addingTimeInterval(30)
+        timer.start()
+        current = current.addingTimeInterval(60)
+        timer.skip() // focus 1 -> short break
+        current = current.addingTimeInterval(10)
+        timer.skip() // short break -> focus 2
+
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0].phase, .focus)
+        XCTAssertEqual(events[0].focusNumber, 1)
+        XCTAssertEqual(events[0].focusCount, 3)
+        XCTAssertEqual(events[0].pausedMs, 30_000, accuracy: 1)
+        XCTAssertEqual(events[0].actualMs, 180_000, accuracy: 1)
+        XCTAssertEqual(events[1].phase, .shortBreak)
+        XCTAssertEqual(events[1].focusNumber, 1, "a break carries the focus it follows")
+        XCTAssertEqual(events[1].pausedMs, 0, accuracy: 1)
+    }
 }
