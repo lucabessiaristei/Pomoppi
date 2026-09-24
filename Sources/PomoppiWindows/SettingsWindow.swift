@@ -280,17 +280,17 @@ final class SettingsWindow {
     }
     private static let themePresets: [ThemePreset] = [
         ThemePreset(name: "B/W", ink: "#000000", paper: "#FFFFFF"),
-        ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
-        ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
-        ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
-        ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
-        ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
-        ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
         ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
         ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
         ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
         ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
         ThemePreset(name: "Peach", ink: "#683525", paper: "#FFE1CF"),
+        ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
+        ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
+        ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
+        ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
+        ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
+        ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
     ]
     private struct ThemeSwatchControl {
         let hwnd: HWND
