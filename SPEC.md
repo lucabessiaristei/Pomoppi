@@ -858,10 +858,10 @@ Both read `SessionLogger.allSessionsSync()`, never write `sessions.json`,
 and go through `DiaryExporter` (`PomoppiCore`).
 
 **The model.** The log is grouped into **pomodoros** (§5) by
-`pomodoroStart`. Entries logged before that field existed are grouped by
-inference: a new pomodoro starts after a `longBreak` entry, after a gap of
-more than 30 minutes between one entry's end and the next one's start, or
-on a new calendar day. A pomodoro's **title** is its task (the most recent
+`pomodoroStart`, recorded on every entry since 2026-09-24. Entries logged
+before that have none and are **left out of the diary** (no guessing which
+pomodoro they belonged to); they stay in `sessions.json` and in the JSON
+export. A pomodoro's **title** is its task (the most recent
 non-empty one among its entries); its day is its start's local day. A focus
 stopped early after less than a minute is left out of the diary entirely
 (still in the log and in the JSON export); a pomodoro with no focus left is
