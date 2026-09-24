@@ -129,7 +129,7 @@ final class DiaryExporterTests: XCTestCase {
 
         let output = DiaryExporter.dayFile([pomodoro], text: diaryText, calendar: utcCalendar)
 
-        XCTAssertEqual(output, "## 14:29 · task 1\n\n4 sessions · 1 stopped early\n\nFocus 1h 32m · Breaks 18m\n")
+        XCTAssertEqual(output, "## 14:29 · task 1\n\n4 focus sessions · 1 stopped early\n\nFocus 1h 32m · Breaks 18m\n")
     }
 
     func testSessionsLineOmitsStoppedEarlyCountWhenZero() {
@@ -147,7 +147,7 @@ final class DiaryExporterTests: XCTestCase {
         let entries = [makeEntry(task: "t", hour: 9, minute: 0)]
         let pomodoro = DiaryExporter.Pomodoro(start: date(hour: 9, minute: 0), title: "t", entries: entries)
         let output = DiaryExporter.dayFile([pomodoro], text: diaryText, calendar: utcCalendar)
-        XCTAssertTrue(output.contains("1 session\n\n"))
+        XCTAssertTrue(output.contains("1 focus session\n\n"))
         XCTAssertFalse(output.contains("1 sessions"))
     }
 
@@ -244,7 +244,7 @@ final class DiaryExporterTests: XCTestCase {
             sessions: sessions, format: .markdown, text: diaryText, now: date(hour: 15, minute: 2), calendar: utcCalendar)
         let markdown = String(data: data, encoding: .utf8)!
 
-        XCTAssertTrue(markdown.hasPrefix("# Pomoppi: full session log"))
+        XCTAssertTrue(markdown.hasPrefix("# Pomoppi: full pomodoro log"))
         XCTAssertTrue(markdown.contains("\n## "), "a day heading")
         XCTAssertTrue(markdown.contains("### 14:29 · R&D <plan>"), "a pomodoro heading")
         XCTAssertTrue(markdown.contains("- 14:29–14:54 · Focus · 25m"))
@@ -260,8 +260,8 @@ final class DiaryExporterTests: XCTestCase {
         let text = String(data: data, encoding: .utf8)!
 
         XCTAssertFalse(text.contains("#"))
-        XCTAssertTrue(text.hasPrefix("Pomoppi: full session log\n="))
-        XCTAssertTrue(text.contains(String(repeating: "=", count: "Pomoppi: full session log".count)))
+        XCTAssertTrue(text.hasPrefix("Pomoppi: full pomodoro log\n="))
+        XCTAssertTrue(text.contains(String(repeating: "=", count: "Pomoppi: full pomodoro log".count)))
     }
 
     func testExportJSONDecodesBackToEverySessionIncludingTheSubMinuteOne() throws {

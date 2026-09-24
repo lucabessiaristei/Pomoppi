@@ -235,7 +235,7 @@ Everything is editable in the settings window and saved as you type, to
 | Appearance | friend, theme, window edge, background, pixel scale (1-4×), opacity |
 | Shortcuts | the seven global shortcuts, plus a reference card for the in-widget keys |
 | Sound | chime pack, ring length |
-| Diary | session history (record every session, ask for a pomodoro title, erase), export the full log (`.md`/`.txt`/`.odt`/`.json`), sync a daily summary to a folder |
+| Diary | pomodoro history (record every pomodoro, ask for a pomodoro title, erase), export the full log (`.md`/`.txt`/`.odt`/`.json`), sync a daily summary to a folder |
 
 ## Layout
 
