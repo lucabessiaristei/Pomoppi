@@ -1180,8 +1180,8 @@ caller — the tray right-click, the tray's Show item, `raiseOnEnd`, and
 temporary level change and no timer**.
 
 **Fades** (2026-09-24, both platforms). Showing the widget (launch, tray,
-the toggle shortcut) fades in over ~350 ms, eased out; hiding (tray,
-shortcut, Escape) fades out over ~250 ms, eased in, and only then hides the
+the toggle shortcut) fades in over ~220 ms, eased out; hiding (tray,
+shortcut, Escape) fades out over ~160 ms, eased in, and only then hides the
 window; **Quit fades out first**, then exits. Fades start from wherever the
 current one is, so raising an already visible widget never blinks and a
 toggle mid-fade reverses it instead of restarting. macOS steps
