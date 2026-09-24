@@ -8,6 +8,7 @@
 import Foundation
 import PomoppiCore
 import PomoppiRender
+import PomoppiStrings
 import WinSDK
 
 // Same "WNDPROC can't capture, dispatch through a shared instance" shape as
@@ -272,23 +273,28 @@ final class SettingsWindow {
     // ThemePresetPicker/themePresets exactly (same 12 presets, same names,
     // same order); 12 so the grid is two even rows of themePresetColumns.
     private struct ThemePreset {
-        let name: String
+        // A localization key id (theme.preset.<id>, macOS's own scheme —
+        // reused verbatim rather than duplicated), not the display name
+        // itself: looked up with L.t at the point each swatch's label is
+        // built (addThemePresetGrid), so a language switch's rebuild()
+        // picks up the new text.
+        let id: String
         let ink: String
         let paper: String
     }
     private static let themePresets: [ThemePreset] = [
-        ThemePreset(name: "B/W", ink: "#000000", paper: "#FFFFFF"),
-        ThemePreset(name: "Cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
-        ThemePreset(name: "Sakura", ink: "#5D2A42", paper: "#FFD6EC"),
-        ThemePreset(name: "Lavender", ink: "#372856", paper: "#E8DDFF"),
-        ThemePreset(name: "Mint", ink: "#1F473E", paper: "#D5F2E6"),
-        ThemePreset(name: "Peach", ink: "#683525", paper: "#FFE1CF"),
-        ThemePreset(name: "Pine", ink: "#E0FFC2", paper: "#064734"),
-        ThemePreset(name: "Midnight", ink: "#E2E8F0", paper: "#0F172A"),
-        ThemePreset(name: "OLED", ink: "#FFFFFF", paper: "#000000"),
-        ThemePreset(name: "Amber", ink: "#FFB000", paper: "#1A1100"),
-        ThemePreset(name: "Cherry", ink: "#FFE0E6", paper: "#6B1022"),
-        ThemePreset(name: "LCD Green", ink: "#276231", paper: "#80B391"),
+        ThemePreset(id: "bw", ink: "#000000", paper: "#FFFFFF"),
+        ThemePreset(id: "cocoa", ink: "#2B1B12", paper: "#F4E9DC"),
+        ThemePreset(id: "sakura", ink: "#5D2A42", paper: "#FFD6EC"),
+        ThemePreset(id: "lavender", ink: "#372856", paper: "#E8DDFF"),
+        ThemePreset(id: "mint", ink: "#1F473E", paper: "#D5F2E6"),
+        ThemePreset(id: "peach", ink: "#683525", paper: "#FFE1CF"),
+        ThemePreset(id: "pine", ink: "#E0FFC2", paper: "#064734"),
+        ThemePreset(id: "midnight", ink: "#E2E8F0", paper: "#0F172A"),
+        ThemePreset(id: "oled", ink: "#FFFFFF", paper: "#000000"),
+        ThemePreset(id: "amber", ink: "#FFB000", paper: "#1A1100"),
+        ThemePreset(id: "cherry", ink: "#FFE0E6", paper: "#6B1022"),
+        ThemePreset(id: "lcdGreen", ink: "#276231", paper: "#80B391"),
     ]
     private struct ThemeSwatchControl {
         let hwnd: HWND
@@ -480,18 +486,22 @@ final class SettingsWindow {
 
         var title: String {
             switch self {
-            case .general: return "General"
-            case .rhythm: return "Rhythm"
-            case .appearance: return "Appearance"
-            case .keys: return "Keys"
-            case .sound: return "Sound"
-            case .diary: return "Diary"
+            case .general: return L.t("tab.general")
+            case .rhythm: return L.t("tab.rhythm")
+            case .appearance: return L.t("tab.appearance")
+            case .keys: return L.t("tab.keys")
+            case .sound: return L.t("tab.sound")
+            case .diary: return L.t("tab.diary")
             }
         }
     }
 
-    // Exact order macOS's SettingsView.swift uses.
-    private static let tabTitles = Tab.allCases.map(\.title)
+    // Exact order macOS's SettingsView.swift uses. A computed property, not
+    // `static let` — a `let` would bake in whatever language was current the
+    // first time this type touched (Swift's lazy static-init semantics),
+    // and never see a later language switch's rebuild() (LOCALIZATION_PLAN.md's
+    // L4). Recomputed on every access instead, same as Tab.title itself.
+    private static var tabTitles: [String] { Tab.allCases.map(\.title) }
 
     // Width is both the opening and the minimum width: controls are laid
     // out at fixed x positions, so a narrower window would clip them.
@@ -952,9 +962,9 @@ final class SettingsWindow {
     private static let updatesSecondaryWidth: Int32 = 96
 
     private func addUpdateStatusRow(in page: HWND, y: Int32) {
-        addLabel("Pomoppi \(pomoppiVersion)", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel(L.t("updates.version", pomoppiVersion), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         updatesActionButton = addButton(
-            "Check for updates", in: page,
+            L.t("updates.checkNow"), in: page,
             x: rightX(Self.updatesPrimaryWidth), y: y,
             width: Self.updatesPrimaryWidth, height: Self.controlHeight
         ) { [weak self] in
@@ -985,40 +995,41 @@ final class SettingsWindow {
         switch install {
         case .downloading(let received, let total):
             let percent = total > 0 ? Int(received * 100 / total) : 0
-            setUpdateButtons(primary: received > 0 ? "Downloading… \(percent)%" : "Downloading…", enabled: false, secondary: "Cancel")
+            setUpdateButtons(primary: received > 0 ? L.t("updates.downloadingPercent", percent) : L.t("updates.downloadingEllipsis"), enabled: false, secondary: L.t("common.cancel"))
         case .verifying:
-            setUpdateButtons(primary: "Verifying…", enabled: false, secondary: nil)
+            setUpdateButtons(primary: L.t("updates.verifying"), enabled: false, secondary: nil)
         case .installerOpened:
-            setUpdateButtons(primary: "Installing…", enabled: false, secondary: nil)
+            setUpdateButtons(primary: L.t("updates.installing"), enabled: false, secondary: nil)
         case .failed(let failure):
-            setUpdateButtons(primary: "Try again", enabled: true, secondary: "Release page")
+            setUpdateButtons(primary: L.t("updates.tryAgain"), enabled: true, secondary: L.t("updates.releasePage"))
             // Announced once, when it happens: the reason doesn't fit a
             // button, and a window reopened later shows Try again only.
             if announcedFailure != install {
                 announcedFailure = install
-                showMessage("Update failed: \(failure.clause).", title: "Pomoppi Update", icon: UINT(MB_ICONWARNING))
+                let clause = L.t("updates.failure.\(failure)", fallback: failure.clause)
+                showMessage(L.t("updates.failed", clause), title: L.t("updates.dialogTitle"), icon: UINT(MB_ICONWARNING))
             }
         case .idle:
             announcedFailure = install
             if case .updateAvailable(let tag, _, _) = updateChecker.latestResult, manualCheckState != .checking {
                 if updateChecker.installableAsset != nil {
-                    setUpdateButtons(primary: "Update to \(tag)", enabled: true, secondary: "Release notes")
+                    setUpdateButtons(primary: L.t("updates.updateTo", tag), enabled: true, secondary: L.t("updates.releaseNotes"))
                 } else {
                     // A copy Inno didn't install: the release page is the
                     // only way.
-                    setUpdateButtons(primary: "Download \(tag)", enabled: true, secondary: nil)
+                    setUpdateButtons(primary: L.t("updates.downloadTag", tag), enabled: true, secondary: nil)
                 }
                 return
             }
             switch manualCheckState {
             case .idle:
-                setUpdateButtons(primary: "Check for updates", enabled: true, secondary: nil)
+                setUpdateButtons(primary: L.t("updates.checkNow"), enabled: true, secondary: nil)
             case .checking:
-                setUpdateButtons(primary: "Checking…", enabled: false, secondary: nil)
+                setUpdateButtons(primary: L.t("updates.checking"), enabled: false, secondary: nil)
             case .upToDate:
-                setUpdateButtons(primary: "Up to date", enabled: false, secondary: nil)
+                setUpdateButtons(primary: L.t("updates.upToDate"), enabled: false, secondary: nil)
             case .failed:
-                setUpdateButtons(primary: "Couldn't check — try again", enabled: true, secondary: nil)
+                setUpdateButtons(primary: L.t("updates.checkFailed"), enabled: true, secondary: nil)
             }
         }
     }
@@ -1064,8 +1075,12 @@ final class SettingsWindow {
     // is never logged, so a running session asks first.
     private func requestUpdate() {
         if updateChecker.isSessionActive() {
-            let text = Array("A session is in progress. Pomoppi will close to finish updating, and the current session won't be recorded.\n\nUpdate now?".utf16) + [0]
-            let title = Array("Pomoppi Update".utf16) + [0]
+            // Composed from the same three keys macOS's own NSAlert shows as
+            // separate messageText/informativeText/button — this
+            // MessageBoxW needs one string, but the rendered English stays
+            // byte-identical to the concatenation.
+            let text = Array((L.t("updates.sessionActive.title") + ". " + L.t("updates.sessionActive.message") + "\n\n" + L.t("updates.sessionActive.confirm")).utf16) + [0]
+            let title = Array(L.t("updates.dialogTitle").utf16) + [0]
             let answer = text.withUnsafeBufferPointer { textPtr in
                 title.withUnsafeBufferPointer { titlePtr in
                     MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONQUESTION))
@@ -1440,59 +1455,59 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        y = addSectionHeader("Focus", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("rhythm.focus.header"), in: page, y: y, width: rowWidth)
         addStepper(
-            "Default focus length (minutes)", in: page, value: Int32(settings.focusMinutes),
+            L.t("rhythm.focus.label.windows"), in: page, value: Int32(settings.focusMinutes),
             min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.focusMinutes = Double(newValue) }
         }
         y += Self.rowHeight
-        addHint("Or click the clock on the widget.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("rhythm.focus.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        y = addSectionHeader("Breaks", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("rhythm.breaks.header"), in: page, y: y, width: rowWidth)
         addStepper(
-            "Short break (minutes)", in: page, value: Int32(settings.shortBreakMinutes),
+            L.t("rhythm.breaks.shortLabel.windows"), in: page, value: Int32(settings.shortBreakMinutes),
             min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.shortBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
         addStepper(
-            "Long break (minutes)", in: page, value: Int32(settings.longBreakMinutes),
+            L.t("rhythm.breaks.longLabel.windows"), in: page, value: Int32(settings.longBreakMinutes),
             min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.longBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
         addStepper(
-            "Long break every (sessions)", in: page, value: Int32(settings.longBreakEvery),
+            L.t("rhythm.breaks.everyLabel.windows"), in: page, value: Int32(settings.longBreakEvery),
             min: 2, max: 10, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.longBreakEvery = Int(newValue) }
         }
         y += Self.rowHeight
-        addHint("Or click the dots on the widget.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("rhythm.breaks.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        y = addSectionHeader("Automation", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("rhythm.automation.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Start breaks automatically", in: page, checked: settings.autoStartBreaks,
+            L.t("rhythm.automation.autoStartBreaks"), in: page, checked: settings.autoStartBreaks,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.autoStartBreaks = checked }
         }
         y += Self.rowHeight
         addCheckbox(
-            "Start the next focus automatically", in: page, checked: settings.autoStartFocus,
+            L.t("rhythm.automation.autoStartFocus"), in: page, checked: settings.autoStartFocus,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.autoStartFocus = checked }
         }
         y += Self.rowHeight
         addCheckbox(
-            "Ask what I’m working on before each focus", in: page, checked: settings.askForTaskName,
+            L.t("rhythm.automation.askForTaskName"), in: page, checked: settings.askForTaskName,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.askForTaskName = checked }
@@ -1510,8 +1525,8 @@ final class SettingsWindow {
     // drifting copies" shape as trayClickHintText above.
     private static func askForTaskHintText(loggingEnabled: Bool) -> String {
         loggingEnabled
-            ? "Always asks while session logging is on (Diary tab)."
-            : "Leave the name blank to skip."
+            ? L.t("rhythm.askForTask.hint.loggingOn")
+            : L.t("rhythm.askForTask.hint.loggingOff")
     }
 
     // Called from the Diary tab's own "Record every session" checkbox —
@@ -1534,7 +1549,7 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        y = addSectionHeader("Roommate", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("appearance.roommate.header"), in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .friend, items: PomoppiSettings.friendIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
@@ -1549,7 +1564,7 @@ final class SettingsWindow {
         }
         y += Self.sectionGap
 
-        y = addSectionHeader("Window edge", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("appearance.windowEdge.header"), in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .frameStyle, items: PomoppiSettings.frameStyles, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
@@ -1561,7 +1576,7 @@ final class SettingsWindow {
         }
         y += Self.sectionGap
 
-        y = addSectionHeader("Background", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("appearance.background.header"), in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .background, items: PomoppiSettings.backgroundIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
@@ -1573,14 +1588,14 @@ final class SettingsWindow {
         }
         y += Self.sectionGap
 
-        y = addSectionHeader("Theme", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("appearance.theme.header"), in: page, y: y, width: rowWidth)
         y += addThemePresetGrid(in: page, x: Self.rowMargin, y: y, availableWidth: rowWidth)
-        addColorPickerRow(label: "Ink", keyPath: \.inkColor, in: page, y: y)
+        addColorPickerRow(label: L.t("appearance.theme.ink"), keyPath: \.inkColor, in: page, y: y)
         y += Self.rowHeight
-        addColorPickerRow(label: "Paper", keyPath: \.paperColor, in: page, y: y)
+        addColorPickerRow(label: L.t("appearance.theme.paper"), keyPath: \.paperColor, in: page, y: y)
         y += Self.rowHeight + Self.sectionGap
 
-        y = addSectionHeader("Size & transparency", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("appearance.size.header"), in: page, y: y, width: rowWidth)
         addScalePicker(in: page, y: y)
         y += Self.rowHeight
         addOpacitySlider(in: page, y: y)
@@ -1612,7 +1627,7 @@ final class SettingsWindow {
         // label-width combination gets the same safety net for free.
         // Frame-style/background names are already short enough that this
         // collapses to cardWidth, a no-op.
-        let maxLabelWidth = items.map { measureTextWidth(displayName($0)) }.max() ?? 0
+        let maxLabelWidth = items.map { measureTextWidth(pickerLabel(kind: kind, id: $0)) }.max() ?? 0
         let cellContentWidth = max(cardWidth, maxLabelWidth)
         let cellWidth = cellContentWidth + gap
         let columns = max(1, (availableWidth + gap) / cellWidth)
@@ -1631,7 +1646,7 @@ final class SettingsWindow {
             let cardY = y + row * rowHeight
             addPickerCard(kind: kind, itemID: item, in: page, x: cardX, y: cardY, width: cardWidth, height: cardHeight, onSelect: onSelect)
             let labelX = leftAlignLabel ? cardX : cardX - (cellContentWidth - cardWidth) / 2
-            addLabel(displayName(item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: !leftAlignLabel)
+            addLabel(pickerLabel(kind: kind, id: item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: !leftAlignLabel)
         }
 
         let rowCount = (Int32(items.count) + columns - 1) / columns
@@ -1696,6 +1711,23 @@ final class SettingsWindow {
     private func displayName(_ id: String) -> String {
         guard let first = id.first else { return id }
         return first.uppercased() + id.dropFirst()
+    }
+
+    // A picker card's own label: friend names stay plain proper nouns (no
+    // key, mirrors macOS never localizing them either), while frameStyle/
+    // background are data-driven ids that gain a new id via
+    // `node refresh-art` — L.t(_:fallback:) so an id not yet in the catalog
+    // still renders instead of showing a raw key, same fallback shape macOS's
+    // AppearanceTab uses for these same two pickers.
+    private func pickerLabel(kind: PickerKind, id: String) -> String {
+        switch kind {
+        case .friend:
+            return displayName(id)
+        case .frameStyle:
+            return L.t("frameStyle.\(id)", fallback: displayName(id))
+        case .background:
+            return L.t("background.\(id)", fallback: displayName(id))
+        }
     }
 
     // The WM_DRAWITEM handler (forwarded here via pomoppiSettingsPageWndProc
@@ -1937,7 +1969,7 @@ final class SettingsWindow {
                 }
                 self?.invalidateEverythingColorDependent()
             }))
-            addLabel(preset.name, in: page, x: swatchX - (labelWidth - swatchSize) / 2, y: swatchY + swatchSize + 2, width: labelWidth, height: labelHeight, centered: true)
+            addLabel(L.t("theme.preset.\(preset.id)"), in: page, x: swatchX - (labelWidth - swatchSize) / 2, y: swatchY + swatchSize + 2, width: labelWidth, height: labelHeight, centered: true)
         }
 
         let rowCount = (Int32(Self.themePresets.count) + columns - 1) / columns
@@ -2057,7 +2089,7 @@ final class SettingsWindow {
     // has no native equivalent of, each showing its own "N×" and a
     // highlighted fill when selected.
     private func addScalePicker(in page: HWND, y: Int32) {
-        addLabel("Size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel(L.t("appearance.size.label"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let buttonWidth = Self.segmentWidth
         let gap: Int32 = 6
         let startX = rightX(Self.segmentedWidth(count: 4))
@@ -2093,7 +2125,7 @@ final class SettingsWindow {
     // and re-apply isDarkMode itself, unlike every other segmented group's
     // onSelect.
     private func addColorSchemePicker(in page: HWND, y: Int32) {
-        addLabel("Mode", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel(L.t("general.colorScheme.mode"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let buttonWidth = Self.segmentWidth
         let gap: Int32 = 6
         let startX = rightX(Self.segmentedWidth(count: PomoppiSettings.colorSchemeIDs.count))
@@ -2132,7 +2164,7 @@ final class SettingsWindow {
     // (same rule CLAUDE.md gives for the friend/background pickers), so a
     // fourth pack needs no changes here.
     private func addChimePicker(in page: HWND, y: Int32) {
-        chimeLabel = addLabel("Chime", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        chimeLabel = addLabel(L.t("sound.chime"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let ids = PomoppiSettings.chimeIDs
         let gap: Int32 = 6
         let buttonWidth = Self.segmentWidth
@@ -2176,12 +2208,12 @@ final class SettingsWindow {
 
     private func drawSchemeOption(_ option: SchemeOptionControl, drawItem: DRAWITEMSTRUCT) {
         let isSelected = settingsStore.get().colorScheme == option.value
-        drawSegmentedOption(text: displayName(option.value), isSelected: isSelected, drawItem: drawItem)
+        drawSegmentedOption(text: L.t("general.colorScheme.\(option.value)", fallback: displayName(option.value)), isSelected: isSelected, drawItem: drawItem)
     }
 
     private func drawChimeOption(_ option: ChimeOptionControl, drawItem: DRAWITEMSTRUCT) {
         let isSelected = settingsStore.get().chime == option.value
-        drawSegmentedOption(text: displayName(option.value), isSelected: isSelected, drawItem: drawItem)
+        drawSegmentedOption(text: L.t("chime.\(option.value)", fallback: displayName(option.value)), isSelected: isSelected, drawItem: drawItem)
     }
 
     // The shared paint for every owner-drawn segmented group (scale, color
@@ -2232,7 +2264,7 @@ final class SettingsWindow {
     // wParam/lParam), safe to build by hand here since both bounds fit
     // comfortably in 16 bits.
     private func addOpacitySlider(in page: HWND, y: Int32) {
-        addLabel("Opacity", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel(L.t("appearance.size.opacity"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let settings = settingsStore.get()
         let trackWidth: Int32 = 200
         guard let trackbar = (Self.trackbarClassName.withUnsafeBufferPointer { classNamePtr in
@@ -2343,16 +2375,16 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        y = addSectionHeader("Widget", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("general.widget.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Keep the widget on top of other windows", in: page, checked: settings.alwaysOnTop,
+            L.t("general.widget.alwaysOnTop"), in: page, checked: settings.alwaysOnTop,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.alwaysOnTop = checked }
         }
         y += Self.rowHeight
         addCheckbox(
-            "Pop to the front when a session ends", in: page, checked: settings.raiseOnEnd,
+            L.t("general.widget.raiseOnEnd"), in: page, checked: settings.raiseOnEnd,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.raiseOnEnd = checked }
@@ -2360,10 +2392,11 @@ final class SettingsWindow {
         y += Self.rowHeight + Self.sectionGap
 
         // macOS says "menu bar icon"; Windows has no menu bar, and "tray
-        // icon" is what TrayController already calls it.
-        y = addSectionHeader("Tray icon", in: page, y: y, width: rowWidth)
+        // icon" is what TrayController already calls it — its own
+        // ".windows"-suffixed keys, since the English genuinely differs.
+        y = addSectionHeader(L.t("general.trayIcon.header.windows"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Swap the tray icon's left and right clicks", in: page, checked: settings.reverseTrayClick,
+            L.t("general.trayIcon.reverseTrayClick.windows"), in: page, checked: settings.reverseTrayClick,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.reverseTrayClick = checked }
@@ -2373,33 +2406,33 @@ final class SettingsWindow {
         trayClickHintLabel = addHint(Self.trayClickHintText(reversed: settings.reverseTrayClick), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        y = addSectionHeader("Startup", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("general.startup.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Open Pomoppi when I log in", in: page, checked: settings.launchAtLogin,
+            L.t("general.startup.launchAtLogin"), in: page, checked: settings.launchAtLogin,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.launchAtLogin = checked }
         }
         y += Self.rowHeight
         addCheckbox(
-            "Start without showing the widget", in: page, checked: settings.startHidden,
+            L.t("general.startup.startHidden"), in: page, checked: settings.startHidden,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.startHidden = checked }
         }
         y += Self.rowHeight
-        addHint("\u{201C}Start hidden\u{201D} applies from the next launch.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("general.startup.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        y = addSectionHeader("Color scheme", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("general.colorScheme.header"), in: page, y: y, width: rowWidth)
         addColorSchemePicker(in: page, y: y)
         y += Self.rowHeight
-        addHint("Pomoppi's own windows only. Widget colors are in Appearance.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("general.colorScheme.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        y = addSectionHeader("Updates", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("general.updates.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Automatically check for updates", in: page, checked: settings.checkForUpdates,
+            L.t("general.updates.checkForUpdates"), in: page, checked: settings.checkForUpdates,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.checkForUpdates = checked }
@@ -2408,12 +2441,12 @@ final class SettingsWindow {
         addUpdateStatusRow(in: page, y: y)
         y += Self.rowHeight + Self.sectionGap
 
-        y = addSectionHeader("Reset", in: page, y: y, width: rowWidth)
-        addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
+        y = addSectionHeader(L.t("general.reset.header"), in: page, y: y, width: rowWidth)
+        addButton(L.t("general.reset.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.confirmResetToDefaults()
         }
         y += Self.rowHeight
-        addHint("Also erases your session history.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("general.reset.footer"), in: page, y: &y, width: rowWidth)
     }
 
     // The tray-icon hint's own two variants — kept as a pure function so
@@ -2423,8 +2456,8 @@ final class SettingsWindow {
     // drifting apart.
     private static func trayClickHintText(reversed: Bool) -> String {
         reversed
-            ? "Left-click opens the menu, right-click raises the widget."
-            : "Left-click raises the widget, right-click opens the menu."
+            ? L.t("general.trayIcon.footer.reversed")
+            : L.t("general.trayIcon.footer.normal")
     }
 
     // reverseTrayClick's own checkbox calls this directly on toggle —
@@ -2443,8 +2476,11 @@ final class SettingsWindow {
     // not just a plain click. Replaces the old installer-side fresh/update
     // toggle by design.
     private func confirmResetToDefaults() {
-        let text = Array("Reset Pomoppi to defaults? This erases all settings and session history.".utf16) + [0]
-        let title = Array("Reset to Defaults".utf16) + [0]
+        // Composed from the same two keys macOS's confirmationDialog shows
+        // as a separate title/message — this MessageBoxW needs one string,
+        // but the rendered English stays byte-identical to the concatenation.
+        let text = Array((L.t("general.reset.confirm.title") + " " + L.t("general.reset.confirm.message")).utf16) + [0]
+        let title = Array(L.t("general.reset.confirm.button").utf16) + [0]
         let result = text.withUnsafeBufferPointer { textPtr in
             title.withUnsafeBufferPointer { titlePtr in
                 MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
@@ -2526,9 +2562,9 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        y = addSectionHeader("Chime", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("sound.chime"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Play a chime when a session ends", in: page, checked: settings.soundEnabled,
+            L.t("sound.chime.enabled"), in: page, checked: settings.soundEnabled,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.soundEnabled = checked }
@@ -2537,19 +2573,19 @@ final class SettingsWindow {
         y += Self.rowHeight
         addChimePicker(in: page, y: y)
         y += Self.rowHeight
-        chimeHintLabel = addHint("Click a chime to hear it.", in: page, y: &y, width: rowWidth)
+        chimeHintLabel = addHint(L.t("sound.chime.footer"), in: page, y: &y, width: rowWidth)
         refreshChimeEnabled(settings.soundEnabled)
         y += Self.sectionGap
 
-        y = addSectionHeader("Ring", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("sound.ring.header"), in: page, y: y, width: rowWidth)
         addStepper(
-            "Keep ringing for (seconds)", in: page, value: Int32(settings.ringSeconds),
+            L.t("sound.ring.label.windows"), in: page, value: Int32(settings.ringSeconds),
             min: 0, max: 60, step: 5, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.ringSeconds = Double(newValue) }
         }
         y += Self.rowHeight
-        addHint("Visual only, so it rings even with the chime off.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("sound.ring.footer"), in: page, y: &y, width: rowWidth)
     }
 
     // The chime picker only matters while soundEnabled is on. The Ring
@@ -2575,11 +2611,11 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        y = addSectionHeader("Global shortcuts", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("keys.shortcuts.header"), in: page, y: y, width: rowWidth)
         for action in Shortcuts.actions {
-            addLabel(action.label, in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+            addLabel(L.t("shortcut.\(action.id).label"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
             let button = addButton(
-                Shortcuts.displayWindows(bindings[action.id] ?? ""),
+                shortcutDisplay(bindings[action.id] ?? ""),
                 in: page, x: rightX(160), y: y, width: 160, height: Self.controlHeight
             ) { [weak self] in
                 self?.toggleShortcutRecording(actionID: action.id)
@@ -2588,12 +2624,13 @@ final class SettingsWindow {
             shortcutRecorders.append(ShortcutRecorderControl(buttonHwnd: button, actionID: action.id))
             y += Self.rowHeight
         }
-        addHint("Work from any app. Click one, then press a new combo that includes a modifier.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("keys.shortcuts.footer"), in: page, y: &y, width: rowWidth)
 
         // Sized to its own text: the recorder buttons' fixed width is too
         // narrow for this label.
-        let resetButtonWidth = measureTextWidth("Restore Default Shortcuts") + 24
-        addButton("Restore Default Shortcuts", in: page, x: Self.rowMargin, y: y, width: resetButtonWidth, height: Self.controlHeight) { [weak self] in
+        let restoreDefaultsText = L.t("keys.shortcuts.restoreDefaults")
+        let resetButtonWidth = measureTextWidth(restoreDefaultsText) + 24
+        addButton(restoreDefaultsText, in: page, x: Self.rowMargin, y: y, width: resetButtonWidth, height: Self.controlHeight) { [weak self] in
             self?.resetShortcutsToDefaults()
         }
         y += Self.rowHeight + Self.sectionGap
@@ -2601,9 +2638,9 @@ final class SettingsWindow {
         // Action left, keys right-aligned, same as macOS's LabeledContent
         // rows. Plain text rows, so a tighter pitch than
         // rowHeight.
-        y = addSectionHeader("While the widget is focused", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("keys.widget.header"), in: page, y: y, width: rowWidth)
         for binding in Self.widgetKeyBindings {
-            addLabel(binding.action, in: page, x: Self.rowMargin, y: y, width: Self.labelColumnWidth - 8)
+            addLabel(L.t(binding.actionKey), in: page, x: Self.rowMargin, y: y, width: Self.labelColumnWidth - 8)
             anchorRight(addLabel(binding.keys, in: page, x: rightX(160), y: y, width: 160, rightAligned: true))
             y += 22
         }
@@ -2611,7 +2648,10 @@ final class SettingsWindow {
 
     private struct WidgetKeyBinding {
         let keys: String
-        let action: String
+        // A localization key, not the English text itself — looked up with
+        // L.t() at render time in buildKeysTab, same reasoning as macOS's
+        // own WidgetKeyBinding.actionKey.
+        let actionKey: String
     }
 
     // Mirrors macOS's widgetKeyBindings (SettingsView.swift), minus the T
@@ -2619,13 +2659,13 @@ final class SettingsWindow {
     // feature exists on Windows yet, so listing their keys here would be
     // informational noise about nothing actually bound.
     private static let widgetKeyBindings: [WidgetKeyBinding] = [
-        WidgetKeyBinding(keys: "Space / Return", action: "Start / pause"),
-        WidgetKeyBinding(keys: "S", action: "Skip phase"),
-        WidgetKeyBinding(keys: "R", action: "Reset phase"),
-        WidgetKeyBinding(keys: "O", action: "Keep on top"),
-        WidgetKeyBinding(keys: ",", action: "Open settings"),
-        WidgetKeyBinding(keys: "Esc", action: "Dismiss the ring, or hide the widget"),
-        WidgetKeyBinding(keys: "Up / Down", action: "Adjust focus length, while idle"),
+        WidgetKeyBinding(keys: "Space / Return", actionKey: "shortcut.startPause.label"),
+        WidgetKeyBinding(keys: "S", actionKey: "shortcut.skip.label"),
+        WidgetKeyBinding(keys: "R", actionKey: "shortcut.reset.label"),
+        WidgetKeyBinding(keys: "O", actionKey: "shortcut.toggleOnTop.label"),
+        WidgetKeyBinding(keys: ",", actionKey: "shortcut.openSettings.label"),
+        WidgetKeyBinding(keys: "Esc", actionKey: "keys.widget.dismissRing"),
+        WidgetKeyBinding(keys: "Up / Down", actionKey: "keys.widget.adjustFocusLength"),
     ]
 
     // -- Diary tab (logging + export + sync) -----------------------------------
@@ -2644,41 +2684,41 @@ final class SettingsWindow {
         let valueWidth = rowWidth - Self.labelColumnWidth
         var y = Self.rowMargin
 
-        y = addSectionHeader("Session history", in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("diary.history.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            "Record every session", in: page, checked: settings.loggingEnabled,
+            L.t("diary.history.record"), in: page, checked: settings.loggingEnabled,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.loggingEnabled = checked }
             self?.refreshAskForTaskHint(loggingEnabled: checked)
         }
         y += Self.rowHeight
-        addLabel("History size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel(L.t("diary.history.size"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
         anchorRight(sessionHistorySizeLabel)
         y += Self.rowHeight
-        addButton("Erase History…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
+        addButton(L.t("diary.history.erase"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.confirmEraseSessionLog()
         }
         y += Self.rowHeight
-        addHint("Stored only on this computer.", in: page, y: &y, width: rowWidth)
+        addHint(L.t("diary.history.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
         // Export/Sync outcomes sit beside their own button rather than on
         // a row of their own, so an empty status never leaves a blank gap.
-        y = addSectionHeader("Export", in: page, y: y, width: rowWidth)
-        addLabel("Sessions recorded", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        y = addSectionHeader(L.t("diary.export.header"), in: page, y: y, width: rowWidth)
+        addLabel(L.t("diary.export.sessionsRecorded"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         diarySessionCountLabel = addLabel("\(sessionLogger.allSessionsSync().count)", in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
         anchorRight(diarySessionCountLabel)
         y += Self.rowHeight
-        addButton("Export Diary…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
+        addButton(L.t("diary.export.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
         }
         diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 152, y: y, width: rowWidth - 152)
         y += Self.rowHeight + Self.sectionGap
 
-        y = addSectionHeader("Sync to folder", in: page, y: y, width: rowWidth)
-        addLabel("Diary folder", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        y = addSectionHeader(L.t("diary.sync.header"), in: page, y: y, width: rowWidth)
+        addLabel(L.t("diary.sync.folder"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         // Path ellipsis keeps a long path on one line, like macOS's
         // head-truncated LabeledContent.
         diaryFolderLabel = addLabel(
@@ -2687,10 +2727,10 @@ final class SettingsWindow {
         )
         anchorRight(diaryFolderLabel)
         y += Self.rowHeight
-        addButton("Choose…", in: page, x: Self.rowMargin, y: y, width: 100, height: Self.controlHeight) { [weak self] in
+        addButton(L.t("diary.sync.choose"), in: page, x: Self.rowMargin, y: y, width: 100, height: Self.controlHeight) { [weak self] in
             self?.chooseDiaryFolder()
         }
-        let syncButton = addButton("Sync Now", in: page, x: Self.rowMargin + 108, y: y, width: 100, height: Self.controlHeight) { [weak self] in
+        let syncButton = addButton(L.t("diary.sync.now"), in: page, x: Self.rowMargin + 108, y: y, width: 100, height: Self.controlHeight) { [weak self] in
             self?.syncDiaryNow()
         }
         diarySyncButton = syncButton
@@ -2704,8 +2744,10 @@ final class SettingsWindow {
     // tab. IDYES is the only outcome that erases anything; Cancel/No/the
     // window's own close box are all treated as "do nothing."
     private func confirmEraseSessionLog() {
-        let text = Array("Erase all session history? This can't be undone.".utf16) + [0]
-        let title = Array("Erase History".utf16) + [0]
+        // Same two-keys-composed-into-one-string shape as
+        // confirmResetToDefaults above.
+        let text = Array((L.t("diary.history.eraseConfirm.title") + " " + L.t("diary.history.eraseConfirm.message")).utf16) + [0]
+        let title = Array(L.t("diary.history.eraseConfirm.button").utf16) + [0]
         let result = text.withUnsafeBufferPointer { textPtr in
             title.withUnsafeBufferPointer { titlePtr in
                 MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONWARNING))
@@ -2727,17 +2769,17 @@ final class SettingsWindow {
         // which looks like the erase didn't work. Bytes below 1 KB, then
         // KB, then MB.
         if bytes < 1024 {
-            return "\(bytes) bytes"
+            return L.t("common.bytes", bytes)
         }
         let kb = Double(bytes) / 1024
         if kb < 1024 {
-            return "\(Int(kb.rounded())) KB"
+            return L.t("common.kilobytes", Int(kb.rounded()))
         }
-        return "\(String(format: "%.1f", kb / 1024)) MB"
+        return L.t("common.megabytes", String(format: "%.1f", kb / 1024))
     }
 
     private static func folderDisplayText(_ path: String) -> String {
-        path.isEmpty ? "Not set" : path
+        path.isEmpty ? L.t("diary.sync.notSet") : path
     }
 
     private func exportDiary() {
@@ -2747,11 +2789,11 @@ final class SettingsWindow {
         do {
             try zipData.write(to: url, options: .atomic)
             if let diaryExportStatusLabel {
-                setWindowText(diaryExportStatusLabel, "Exported to \(url.lastPathComponent).")
+                setWindowText(diaryExportStatusLabel, L.t("diary.export.success", url.lastPathComponent))
             }
         } catch {
             if let diaryExportStatusLabel {
-                setWindowText(diaryExportStatusLabel, "Export failed.")
+                setWindowText(diaryExportStatusLabel, L.t("diary.export.failed"))
             }
         }
     }
@@ -2779,11 +2821,11 @@ final class SettingsWindow {
         do {
             let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions)
             if let diarySyncStatusLabel {
-                setWindowText(diarySyncStatusLabel, written == 0 ? "Up to date." : "Added \(written) session\(written == 1 ? "" : "s").")
+                setWindowText(diarySyncStatusLabel, written == 0 ? L.t("diary.sync.upToDate") : L.t(written == 1 ? "diary.sync.added.one" : "diary.sync.added.other", written))
             }
         } catch {
             if let diarySyncStatusLabel {
-                setWindowText(diarySyncStatusLabel, "Sync failed.")
+                setWindowText(diarySyncStatusLabel, L.t("diary.sync.failed"))
             }
         }
     }
@@ -2837,7 +2879,7 @@ final class SettingsWindow {
     // SHGetKnownFolderPath.
     private func promptDiaryFolder() -> String? {
         var displayName = [UInt16](repeating: 0, count: Int(MAX_PATH))
-        let title = Array("Choose a folder for your diary".utf16) + [0]
+        let title = Array(L.t("diary.sync.chooseFolderTitle").utf16) + [0]
 
         var info = BROWSEINFOW()
         info.hwndOwner = hwnd
@@ -2885,7 +2927,7 @@ final class SettingsWindow {
         recordingActionID = actionID
         globalShortcutManager.unregisterAll()
         if let recorder = shortcutRecorders.first(where: { $0.actionID == actionID }) {
-            setWindowText(recorder.buttonHwnd, "Press a key…")
+            setWindowText(recorder.buttonHwnd, L.t("keys.pressKey.windows"))
         }
         // Moves focus off the button that was just clicked (clicking a
         // BUTTON control focuses it as a side effect) onto the Keys page
@@ -2921,8 +2963,15 @@ final class SettingsWindow {
     private func refreshShortcutButtons() {
         let bindings = settingsStore.get().shortcuts
         for recorder in shortcutRecorders {
-            setWindowText(recorder.buttonHwnd, Shortcuts.displayWindows(bindings[recorder.actionID] ?? ""))
+            setWindowText(recorder.buttonHwnd, shortcutDisplay(bindings[recorder.actionID] ?? ""))
         }
+    }
+
+    // Shortcuts.displayWindows's own "Not set" is Core's English; the shell
+    // owns the localized one, same split macOS's ShortcutRow.shortcutDisplay
+    // makes for Shortcuts.display.
+    private func shortcutDisplay(_ accel: String) -> String {
+        accel.isEmpty ? L.t("keys.notSet") : Shortcuts.displayWindows(accel)
     }
 
     private func resetShortcutsToDefaults() {

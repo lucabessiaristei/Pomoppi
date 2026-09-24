@@ -9,6 +9,7 @@ import Foundation
 import PomoppiCore
 import PomoppiRender
 import PomoppiSprites
+import PomoppiStrings
 import WinSDK
 
 final class TrayController {
@@ -218,7 +219,7 @@ final class TrayController {
 
     private func currentTooltip() -> String {
         let state = window.state
-        return "\(Self.phaseLabel(state.phase)) — \(Self.formatClock(state.remainingMs))"
+        return L.t("tray.tooltip", Self.phaseLabel(state.phase), Self.formatClock(state.remainingMs))
     }
 
     // nid.szTip is a fixed-size inline WCHAR array (a tuple in the imported
@@ -242,10 +243,10 @@ final class TrayController {
 
     private static func phaseLabel(_ phase: Phase) -> String {
         switch phase {
-        case .focus: return "Focus"
-        case .shortBreak: return "Short Break"
-        case .longBreak: return "Long Break"
-        case .idle: return "Idle"
+        case .focus: return L.t("tray.phase.focus")
+        case .shortBreak: return L.t("tray.phase.shortBreak")
+        case .longBreak: return L.t("tray.phase.longBreak")
+        case .idle: return L.t("tray.phase.idle")
         }
     }
 
@@ -306,13 +307,13 @@ final class TrayController {
         // release — no greyed-out "no
         // update" placeholder item the rest of the time.
         if case .updateAvailable(let tag, _, _) = window.updateChecker?.latestResult {
-            appendItem(menu, .openUpdatePage, "Update available: \(tag)")
+            appendItem(menu, .openUpdatePage, L.t("tray.updateAvailable", tag))
             appendSeparator(menu)
         }
 
-        appendItem(menu, .startPause, state.running ? "Pause" : "Start")
-        appendItem(menu, .skip, "Skip", enabled: !idle)
-        appendItem(menu, .reset, "Reset", enabled: !idle)
+        appendItem(menu, .startPause, state.running ? L.t("tray.pause") : L.t("common.start"))
+        appendItem(menu, .skip, L.t("tray.skip"), enabled: !idle)
+        appendItem(menu, .reset, L.t("tray.reset"), enabled: !idle)
         appendSeparator(menu)
 
         if let built = CreatePopupMenu() {
@@ -320,16 +321,16 @@ final class TrayController {
             for n in WidgetLayout.dotMin...WidgetLayout.dotMax {
                 appendItem(built, Self.longBreakBaseID + Int32(n), "\(n)", checked: n == settings.longBreakEvery)
             }
-            appendSubmenu(menu, built, "Sessions per long break")
+            appendSubmenu(menu, built, L.t("tray.sessionsPerLongBreak"))
         }
         appendSeparator(menu)
 
-        appendItem(menu, .toggleVisibility, widgetVisible ? "Hide Pomoppi" : "Show Pomoppi")
-        appendItem(menu, .toggleAlwaysOnTop, "Keep on top", checked: settings.alwaysOnTop)
+        appendItem(menu, .toggleVisibility, widgetVisible ? L.t("tray.hideWidget") : L.t("tray.showWidget"))
+        appendItem(menu, .toggleAlwaysOnTop, L.t("shortcut.toggleOnTop.label"), checked: settings.alwaysOnTop)
         appendSeparator(menu)
 
-        appendItem(menu, .settings, "Settings…")
-        appendItem(menu, .quit, "Quit")
+        appendItem(menu, .settings, L.t("tray.settings"))
+        appendItem(menu, .quit, L.t("tray.quit"))
 
         // The classic dismiss dance: without the trailing WM_NULL post, the
         // menu doesn't reliably dismiss on a click outside it.
