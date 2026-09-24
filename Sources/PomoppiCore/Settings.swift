@@ -90,7 +90,7 @@ public struct PomoppiSettings: Codable, Equatable {
     // is the one that falls back for missing art, not settings validation.
     public static let friendIDs = ["namidappi", "onanippi", "gemuppin", "jankuppin", "utsupon"]
     public static let frameStyles = ["ziggy", "scallopy", "splotchy", "wavey"]
-    public static let backgroundIDs = ["grid", "luna"]
+    public static let backgroundIDs = ["grid", "luna", "tatami"]
     public static let chimeIDs = ["classic", "chord", "jingle", "soft"]
     public static let languageIDs = ["en", "de", "es", "fr", "it"]
     public static let colorSchemeIDs = ["auto", "light", "dark"]
