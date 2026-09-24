@@ -23,9 +23,8 @@ npm runtime dependency.
 
 ## 0a. Platform scope tags
 
-Pomoppi is being ported to also run on Windows (see `WINDOWS_PORT_PLAN.md`
-at the repo root for the phase plan). Sections below get one of these tags,
-placed right after the heading:
+Pomoppi is being ported to also run on Windows. Sections below get one of
+these tags, placed right after the heading:
 
 - **`[macOS]`** — macOS-only contract, no Windows equivalent (yet or ever).
 - **`[windows]`** — Windows-only contract, no macOS equivalent.
@@ -40,9 +39,7 @@ heading below carries its tag, and the parity ledger reflects real shipped
 behavior on both platforms, not a plan. Where a tag or ledger row
 describes a gap (Windows has no task-name prompt, no virtual-desktop
 visibility, etc.), that's a genuine, known gap surfaced by this pass, not
-something to silently "fix" as part of a future edit — check
-`WINDOWS_PORT_PLAN.md` for whether any phase already owns it before
-touching one.
+something to silently "fix" as part of a future edit.
 
 ## 0b. Parity ledger
 
@@ -55,11 +52,11 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Rhythm/Appearance/Keys/Sound/Diary (`SETTINGS_PLAN.md` S2) | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Rhythm/Appearance/Keys/Sound/Diary | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
-| Task-name prompt | `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | Win32 modal via `TaskPromptDialog.swift`, same gate and behavior — part of the settings overhaul's Part B (see `SETTINGS_PLAN.md` T1–T3) |
+| Task-name prompt | `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | Win32 modal via `TaskPromptDialog.swift`, same gate and behavior — part of the settings overhaul's Part B |
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
@@ -140,8 +137,8 @@ sizes:
   plain `NSAlert` (`StartCoordinator.swift`), not a custom frameless window
   — this table's `300x120` describes a window that no longer exists even on
   macOS. **Windows has no task-name prompt at all** — `startPause` starts
-  the timer directly, a known, explicitly-flagged gap (see
-  `WINDOWS_PORT_PLAN.md`'s W3/W5 notes) rather than a silent omission.
+  the timer directly, a known, explicitly-flagged gap rather than a silent
+  omission.
 
 The widget must be a genuinely transparent window: macOS draws a rounded
 rectangle behind an opaque frameless window, and the whole point of the pixel
@@ -417,7 +414,7 @@ Both macOS and Windows implement the task-name prompt:
 `StartCoordinator.swift` on macOS (via `NSAlert`), `TaskPromptDialog.swift`
 on Windows (via a hand-rolled Win32 modal), each prompting when
 `askForTaskName` is on, or unconditionally when `loggingEnabled` (§8), exactly
-as described below (see `SETTINGS_PLAN.md` Part B, phases T1–T3).
+as described below.
 
 Phases: `focus` → `shortBreak` → `focus` → … and every `longBreakEvery`
 completed focus sessions the break is a `longBreak` instead. `cycleIndex`
@@ -661,8 +658,7 @@ naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
 it is; it leads because it is the app-level tab, and because both
 platforms remember the last tab, so "which tab is first" only decides
-what a brand-new install opens on. See `SETTINGS_PLAN.md` for the phase
-that carries this shape into code.
+what a brand-new install opens on.
 
 | Tab | Section | Controls | Hint footer |
 |---|---|---|---|
@@ -688,8 +684,7 @@ that carries this shape into code.
 | | Sync to folder | Diary folder; Choose…; Sync Now | — |
 
 Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
-a pixel match for SwiftUI's `Form`/`Section` — see
-`WINDOWS_PORT_PLAN.md`'s locked decisions for why that's accepted (identical
+a pixel match for SwiftUI's `Form`/`Section` — that's accepted (identical
 information architecture, not identical pixels). Everything below this
 point in the subsection (disclosure/ARIA/CSP-era rules) is `[legacy]` —
 written for the Electron HTML settings page, which no longer exists on
@@ -1396,9 +1391,8 @@ the user's disk, and §12's posture is why it is the narrow one.
 
 ## 15. Versioning and updates `[both]`
 
-Added by the cross-platform release/update plan (**R0-R6**; see
-`RELEASE_PLAN.md` for the full phase history and `RELEASING.md` for the
-checklist that actually cuts one) — the first time either platform's app
+Added before v0.3.0 (`RELEASING.md` has the checklist that cuts a
+release; `UPDATE_PLAN.md` is the in-app update that comes next) — the first time either platform's app
 has shipped a version number that means anything beyond a source comment,
 or made an outbound network call at all.
 

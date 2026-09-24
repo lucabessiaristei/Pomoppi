@@ -2,21 +2,16 @@
 
 A concrete, followable checklist for shipping a new version. See `SPEC.md`
 §15 for the behavior this feeds (version source, unsigned-for-now posture,
-the update checker) and `RELEASE_PLAN.md` for how this whole pipeline came
-to exist.
+the update checker).
 
-**This repo currently has zero GitHub releases.** The next one cut will be
-the first real end-to-end exercise of the `release: published`-triggered
-path below — both `.github/workflows/macos.yml` and `windows.yml` have
-only ever been run via `workflow_dispatch` so far (see `RELEASE_PLAN.md`'s
-R0/R7 notes), which skips the tag-version guard and the release-upload
-step entirely. Expect to find and fix something the first time through;
-that's exactly why this checklist exists.
+**v0.3.0 was released 2026-09-24** — both `.github/workflows/macos.yml`
+and `windows.yml` ran green through the actual `release: published` path,
+tag guard and all, and uploaded their assets successfully.
 
 ## 1. Bump the version
 
 ```sh
-node Scripts/set-version.js 0.3.0
+node Scripts/set-version.js 0.4.0
 ```
 
 Rewrites `pomoppiVersion` in `Sources/PomoppiCore/Version.swift` in place —
@@ -27,13 +22,13 @@ and both release workflows read from.
 
 ```sh
 git add Sources/PomoppiCore/Version.swift
-git commit -m "Bump version to 0.3.0"
+git commit -m "Bump version to 0.4.0"
 ```
 
 ## 3. Tag and push
 
 ```sh
-git tag v0.3.0
+git tag v0.4.0
 git push origin main --tags
 ```
 
@@ -47,10 +42,10 @@ workflows run it as their first step, but only when triggered by
 Either via `gh` or the web UI, pointed at the tag just pushed:
 
 ```sh
-gh release create v0.3.0 --title "v0.3.0" --notes "..."
+gh release create v0.4.0 --title "v0.4.0" --notes "..."
 ```
 
-**Consider publishing a pre-release first** (`gh release create v0.3.0
+**Consider publishing a pre-release first** (`gh release create v0.4.0
 --prerelease ...`, or the "Set as a pre-release" checkbox in the web UI).
 `GET /releases/latest` — what the update checker polls (`SPEC.md` §15) —
 excludes drafts and prereleases automatically, server-side. A pre-release

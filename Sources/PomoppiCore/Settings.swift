@@ -56,7 +56,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public var launchAtLogin: Bool
     public var startHidden: Bool
 
-    // Cross-platform release/update plan, phase R6: whether to poll
+    // Whether to poll
     // GitHub's /releases/latest for a newer tag than Version.swift's
     // pomoppiVersion. No "last checked"/"skipped version" bookkeeping
     // alongside it — see UpdateChecker.swift's own header for why that's

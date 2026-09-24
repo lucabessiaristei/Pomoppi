@@ -2,9 +2,8 @@
 <!--
   Pomoppi.exe.manifest — Win32 application manifest.
 
-  Not wired into the build yet (no packaging step exists until Phase W8);
-  this file just exists as the source-of-truth for later phases to embed
-  as a resource next to the built .exe.
+  Shipped by Scripts/make-windows-app.js as an external side-by-side
+  manifest next to Pomoppi.exe (not linker-embedded).
 
   - Common Controls v6 dependency: needed for SysTabControl32 and the other
     themed common controls used by the Settings window (Phase W6/W7).

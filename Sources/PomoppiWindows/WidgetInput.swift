@@ -205,9 +205,7 @@ extension WidgetWindow {
             if state.ringing {
                 state = timer.dismissRing()
             } else {
-                // No tray yet to un-hide from (Phase W4) — relaunching the
-                // exe is the only way back until then, expected for this
-                // dev/test phase.
+                // The tray icon and the toggleWidget hotkey bring it back.
                 setVisible(false)
             }
         default:

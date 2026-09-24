@@ -1,11 +1,10 @@
 // TrayController.swift — the Windows notification-area icon: setup, the
 // 500ms icon/tooltip refresh, click dispatch, and the right-click context
 // menu. Ported from Sources/PomoppiApp/TrayController.swift's structure and
-// "only push what changed" discipline, onto Shell_NotifyIcon/Win32 menus —
-// see WINDOWS_PORT_PLAN.md's Phase W4 entry for the full scope. Kept as its
-// own object (not a WidgetWindow extension) reusing the widget's own hwnd —
-// no second hidden window needed, same separateness the macOS
-// TrayController has from its WidgetWindow.
+// "only push what changed" discipline, onto Shell_NotifyIcon/Win32 menus.
+// Kept as its own object (not a WidgetWindow extension) reusing the
+// widget's own hwnd — no second hidden window needed, same separateness
+// the macOS TrayController has from its WidgetWindow.
 import Foundation
 import PomoppiCore
 import PomoppiRender
@@ -317,7 +316,7 @@ final class TrayController {
         }
 
         // Only present at all when a check has actually resolved to a newer
-        // release (release/update plan, phase R6) — no greyed-out "no
+        // release — no greyed-out "no
         // update" placeholder item the rest of the time.
         if case .updateAvailable(let tag, _) = window.updateChecker?.latestResult {
             appendItem(menu, .openUpdatePage, "Update available: \(tag)")

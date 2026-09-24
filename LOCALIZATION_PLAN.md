@@ -1,14 +1,12 @@
 # Pomoppi localization — plan and status
 
-A self-contained handoff for making Pomoppi speak more than English, in
-the same spirit as `WINDOWS_PORT_PLAN.md` and `RELEASE_PLAN.md`. Read this
-first for *why* things are the shape they are; once L5 lands, `SPEC.md`
-§16 is the behavior contract.
+A self-contained handoff for making Pomoppi speak more than English. Read
+this first for *why* things are the shape they are; once L5 lands,
+`SPEC.md` §16 is the behavior contract.
 
 **Status as of 2026-09-23: nothing started.** This plan is gated on
-`SETTINGS_PLAN.md` — S0 locks the copy and the tab map, and S2-S5 rename a
-good third of the settings window. Extracting strings before that lands
-means extracting strings that are about to change, twice.
+`UPDATE_PLAN.md` finishing (the settings overhaul it waited on is done and
+shipped in v0.3.0).
 
 **One open item before L2**: the language roster below is seeded with
 English + Italian. Confirm the full list before translation content
@@ -81,8 +79,8 @@ first step of L0**, don't fold it in silently.
 ## Full phase plan
 
 - **L0 — Catalog infrastructure + the extraction sweep. English only, no
-  visible change.** Gated on `SETTINGS_PLAN.md`'s S0 (copy locked) and
-  ideally on T1-T3 (the Windows task prompt's own strings). Build
+  visible change.** Gated on `UPDATE_PLAN.md` finishing (the settings
+  overhaul it waited on is done and shipped in v0.3.0). Build
   `Localization/en.json` by walking every user-facing literal in
   `Sources/PomoppiApp/` and `Sources/PomoppiWindows/` — settings window,
   tray menu and tooltip, `MessageBoxW` confirmations, update-footer
@@ -130,8 +128,8 @@ first step of L0**, don't fold it in silently.
   owner-drawn segmented picker if the roster stays at 2-3 entries, a
   `COMBOBOX` beyond that. Win32 bakes a control's text in at creation, so
   a language change rebuilds the settings window — **reuse
-  `SettingsWindow.rebuild()` from `SETTINGS_PLAN.md`'s S3**, which exists
-  for exactly this reason (the reset button has the same problem), and
+  `SettingsWindow.rebuild()`**, which exists for exactly this reason (the
+  reset button has the same problem), and
   reselect the remembered tab afterwards so the window doesn't jump back
   to General. **Hard dependency on S2's other half**: `createPage`
   currently picks which tab to build by `switch`-ing on the tab's
@@ -161,14 +159,10 @@ first step of L0**, don't fold it in silently.
 
 ## What to do next
 
-Order across the three plans, dependencies first:
-
-1. `SETTINGS_PLAN.md` **S0** — locks the copy this plan extracts.
-2. `SETTINGS_PLAN.md` **S2-S5** — every rename lands before extraction.
-3. `SETTINGS_PLAN.md` **T1-T3** — the Windows task prompt adds
-   user-facing strings; cheaper to extract them with everything else than
-   to retrofit a second pass.
-4. **L0 → L5** here, in order. L0 and L1 are mechanical and can be
+1. `UPDATE_PLAN.md` finishing — the settings overhaul this plan waited on
+   (copy locked, every rename landed, the Windows task prompt's own
+   strings) is done and shipped in v0.3.0.
+2. **L0 → L5** here, in order. L0 and L1 are mechanical and can be
    delegated; L2 needs a human reader; L4 depends on S3's rebuild; L5 is
    the only phase that needs every language present.
 

@@ -1,8 +1,8 @@
 // WindowsTheme.swift — "is Pomoppi's own chrome dark right now", plus the
 // two hex constants that answer feeds into a paint. Extracted out of
-// SettingsWindow.swift (SETTINGS_PLAN.md's T2) so TaskPromptDialog.swift can
-// use the same detection and colors instead of a light-mode-only popup out
-// of a dark-themed app. Both files are Windows-side, so this needs no
+// SettingsWindow.swift so TaskPromptDialog.swift can use the same
+// detection and colors instead of a light-mode-only popup out of a
+// dark-themed app. Both files are Windows-side, so this needs no
 // Mac-side equivalent and doesn't violate the no-shared-abstraction
 // invariant (CLAUDE.md) — it's one file sharing with another file on the
 // same platform, not a cross-platform extraction.

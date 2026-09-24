@@ -114,7 +114,7 @@ final class TrayController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
 
         // Only present at all when a check has actually resolved to a newer
-        // release (release/update plan, phase R6) — no greyed-out "no
+        // release — no greyed-out "no
         // update" placeholder item the rest of the time.
         if case .updateAvailable(let tag, _) = updateChecker.latestResult {
             menu.addItem(makeItem(title: "Update available: \(tag)", action: #selector(handleOpenUpdatePage)))

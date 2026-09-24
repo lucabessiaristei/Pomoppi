@@ -76,7 +76,7 @@ widgetWindow.updateChecker = updateChecker
 // simply never registered with the OS). startPause goes through the same
 // task-name prompt as the widget's own play button and the tray menu's
 // Start item — all three funnel through activateButton("play"), which now
-// calls StartCoordinator.requestStart (SETTINGS_PLAN.md's T1).
+// calls StartCoordinator.requestStart.
 let shortcutHandlers: [String: () -> Void] = [
     "toggleWidget": {
         let visible: Bool = IsWindowVisible(widgetWindow.hwnd)

@@ -1,14 +1,14 @@
 // AppUpdateChecker.swift — Windows counterpart to
-// Sources/PomoppiApp/AppUpdateChecker.swift (release/update plan, phase
-// R6b): the real transport UpdateChecker.swift was built against, plus the
-// object main.swift owns to actually run it — a check ~10s after launch,
-// then every 24h for as long as the app keeps running, only while
-// `checkForUpdates` is on. No persisted "last checked"/"skipped version"
-// state, same reasoning as UpdateChecker.swift itself.
+// Sources/PomoppiApp/AppUpdateChecker.swift: the real transport
+// UpdateChecker.swift was built against, plus the object main.swift owns
+// to actually run it — a check ~10s after launch, then every 24h for as
+// long as the app keeps running, only while `checkForUpdates` is on. No
+// persisted "last checked"/"skipped version" state, same reasoning as
+// UpdateChecker.swift itself.
 //
 // Transport: URLSession/FoundationNetworking, same as macOS — a spike
-// (VM-verified live, see WINDOWS_PORT_PLAN.md's R6b entry) confirmed a real
-// HTTPS GET against api.github.com works end-to-end on Windows Swift, and
+// (VM-verified live) confirmed a real HTTPS GET against api.github.com
+// works end-to-end on Windows Swift, and
 // Scripts/make-windows-app.js's existing dumpbin-based DLL walk already
 // discovers FoundationNetworking.dll on its own — it's just another
 // Swift-toolchain DLL sitting in the same Runtimes\...\usr\bin folder as
