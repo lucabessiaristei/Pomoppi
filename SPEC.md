@@ -795,8 +795,11 @@ Each entry:
 }
 ```
 
-`durationSeconds` and `pomodoroStart` were added 2026-09-24 and are optional:
-entries written before then lack them and still decode. `durationSeconds`
+`durationSeconds` and `pomodoroStart` were added 2026-09-24 and are optional
+in the decoder. **Entries without `pomodoroStart` are moved out at launch**
+(`SessionLogger.moveLegacyEntriesOut()`, both platforms): into
+`sessions-legacy.json` next to `sessions.json`, appended, never deleted. They
+can't be placed in a pomodoro, and the diary doesn't guess. `durationSeconds`
 is the exact length (the diary shows `<1m` rather than `0m`; older entries
 fall back to `durationMinutes × 60`). `pomodoroStart` is the pomodoro the
 entry belongs to (§5); §8b groups by it. `completed: false` means stopped
@@ -858,10 +861,9 @@ Both read `SessionLogger.allSessionsSync()`, never write `sessions.json`,
 and go through `DiaryExporter` (`PomoppiCore`).
 
 **The model.** The log is grouped into **pomodoros** (§5) by
-`pomodoroStart`, recorded on every entry since 2026-09-24. Entries logged
-before that have none and are **left out of the diary** (no guessing which
-pomodoro they belonged to); they stay in `sessions.json` and in the JSON
-export. A pomodoro's **title** is its task (the most recent
+`pomodoroStart`, recorded on every entry since 2026-09-24. Older entries
+are moved to `sessions-legacy.json` at launch (§8), so the diary never
+sees them; grouping also skips any entry without the field, as a guard. A pomodoro's **title** is its task (the most recent
 non-empty one among its entries); its day is its start's local day. A focus
 stopped early after less than a minute is left out of the diary entirely
 (still in the log and in the JSON export); a pomodoro with no focus left is
