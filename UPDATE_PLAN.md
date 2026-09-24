@@ -1,9 +1,11 @@
 # Pomoppi in-app update — plan and status
 
-**Status as of 2026-09-24: S6a done** (`ReleaseAsset`/`UpdatePlatform` in
-`UpdateChecker.swift`, `SHA256.swift`, `UpdateInstallState.swift`, tests;
-`swift build` + `swift test` green on the Mac and in the VM). **Next: S6b
-and S6d**, each platform's installer side before its app phase.
+**Status as of 2026-09-24: S6a, S6b and S6d done.** S6a: `ReleaseAsset`/
+`UpdatePlatform` in `UpdateChecker.swift`, `SHA256.swift`,
+`UpdateInstallState.swift`, tests; green on the Mac and in the VM. S6b and
+S6d: both installers relaunch Pomoppi after updating over a running copy,
+verified by hand on the Mac and in the VM (see each phase's result below).
+**Next: S6c and S6e**, the in-app side on each platform.
 v0.3.0 is released (first run of the `release: published` pipeline,
 green on both platforms), so there is a real release to update to.
 Build order: S6a, then (S6b, S6c) and (S6d, S6e) in parallel, each
@@ -210,6 +212,10 @@ on a mismatch, offer only the release page.
   `.pkg` deliberately quarantined (`xattr -w com.apple.quarantine ...`)
   then stripped opens in Installer.app with no Gatekeeper dialog and no
   System Settings step, proving the safety net.
+  **Result (✅ 2026-09-24):** manual tests on the Mac all passed. The only
+  noise was four `write: Permission denied` lines from `pkgbuild` on a
+  macOS 27 beta / Xcode beta host; the release CI (macOS 26, Xcode 26.6)
+  doesn't print them and the package is fine.
 - **S6c — macOS in-app update.** `Sources/PomoppiApp/UpdateInstaller.swift`
   (download with progress, verify, open), owned by `AppUpdateChecker`;
   `UpdateStatusRow` in `SettingsView.swift` grows the state table; the tray
@@ -229,6 +235,18 @@ on a mismatch, offer only the release page.
   survive; the setup launched with a `Zone.Identifier` stream deliberately
   added and then deleted shows no SmartScreen dialog. **If `CloseApplications` prompts in silent mode, or
   `WizardSilent` doesn't fire, stop and report.**
+  **Result (✅ 2026-09-24):** with the Inno-installed copy running,
+  `/SILENT /SUPPRESSMSGBOXES /NORESTART /LOG=...` showed only a progress
+  window; the log shows RestartManager finding and closing Pomoppi, no
+  reboot needed, and the `WizardSilent` `[Run]` entry relaunching it. Two
+  things that looked like failures and weren't: a copy running from
+  `dist\Pomoppi-win\` is not closed (RestartManager only sees processes
+  using files in the install folder, which is also why S6e offers only the
+  release page to non-installed copies), and an installer built before the
+  `[Run]` line existed obviously doesn't relaunch. The installer also gained
+  a desktop-shortcut task (checked by default, remembered across silent
+  updates). Run these tests from the VM's own desktop, not over SSH; Task
+  Scheduler isn't needed for them.
 - **S6e — Windows in-app update.**
   `Sources/PomoppiWindows/UpdateInstaller.swift`; the General tab's Updates
   row gains a hidden-by-default `msctls_progress32` and a second button; the
