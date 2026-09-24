@@ -152,8 +152,9 @@ final class TrayController {
                 // here.
                 DestroyWindow(window.hwnd)
             case .openUpdatePage:
-                guard case .updateAvailable(_, let pageURL, _) = window.updateChecker?.latestResult else { return }
-                Self.openURL(pageURL)
+                // Updating happens in Settings' General tab, not a browser.
+                SettingsWindow.selectGeneralTab()
+                window.activateButton("settings")
             }
             return
         }
@@ -285,20 +286,6 @@ final class TrayController {
     }
 
     // -- menu -----------------------------------------------------------------
-
-    // Win32's NSWorkspace.shared.open(_:) equivalent — no extra linking
-    // needed, shell32 is already in MSVC's default link set (confirmed by
-    // Shell_NotifyIconW above, from the same DLL, already working with no
-    // explicit linkerSettings entry the way winmm needed one).
-    private static func openURL(_ url: URL) {
-        let operation = Array("open".utf16) + [0]
-        let target = Array(url.absoluteString.utf16) + [0]
-        _ = operation.withUnsafeBufferPointer { opPtr in
-            target.withUnsafeBufferPointer { targetPtr in
-                ShellExecuteW(nil, opPtr.baseAddress, targetPtr.baseAddress, nil, nil, SW_SHOWNORMAL)
-            }
-        }
-    }
 
     // Built fresh every time it's shown, mirroring macOS's buildMenu() —
     // no incremental checkbox syncing needed since it's a transient popup.

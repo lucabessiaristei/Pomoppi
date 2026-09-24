@@ -5,9 +5,11 @@
 `UpdateInstallState.swift`, tests; green on the Mac and in the VM. S6b and
 S6d: both installers relaunch Pomoppi after updating over a running copy,
 verified by hand on the Mac and in the VM (see each phase's result below).
-**Next: S6c and S6e**, the in-app side on each platform. **It ships as
-v0.3.5** (`node Scripts/set-version.js 0.3.5` at release time, per
-`RELEASING.md`).
+**S6c and S6e are written, not yet verified** (`Sources/PomoppiApp/UpdateInstaller.swift`,
+`Sources/PomoppiWindows/UpdateInstaller.swift`, the Updates rows, the tray
+items). **Next: build and test them** (see "Testing without cutting a
+release"), then S6f. **It ships as v0.3.5** (`node Scripts/set-version.js
+0.3.5` at release time, per `RELEASING.md`).
 v0.3.0 is released (first run of the `release: published` pipeline,
 green on both platforms), so there is a real release to update to.
 Build order: S6a, then (S6b, S6c) and (S6d, S6e) in parallel, each
@@ -259,6 +261,12 @@ on a mismatch, offer only the release page.
   at any point), plus the download survives closing and reopening the
   settings window, and a copy run from an unzipped folder offers only the
   release page.
+  **As built:** no `msctls_progress32`. The primary button's own label
+  carries the progress ("Downloading… 45%", or just "Downloading…" if
+  `FoundationNetworking` never reports any), next to a secondary button
+  (Cancel / Release notes / Release page) shown only when a state has a
+  second action. A failure's reason is announced once in a `MessageBoxW`
+  (it doesn't fit a button); the row then offers Try again / Release page.
 - **S6f — Docs.** `SPEC.md` §15's "passive and notify-only" paragraph
   rewritten (what's downloaded, what the check does and doesn't prove, the
   per-platform install/relaunch, "no auto-install, ever"), §0b's parity

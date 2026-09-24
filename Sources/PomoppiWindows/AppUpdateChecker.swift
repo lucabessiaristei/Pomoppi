@@ -85,6 +85,37 @@ final class AppUpdateChecker {
 
     private(set) var latestResult: UpdateChecker.CheckResult?
     var onUpdate: (() -> Void)?
+    // The in-app update's progress (UPDATE_PLAN.md S6e). Lives here, not on
+    // the settings window, which is destroyed on close.
+    private(set) var installState: UpdateInstallState = .idle
+    // Set by main.swift: whether a focus or break is under way, so the
+    // Updates row can confirm before an install closes the app mid-session.
+    var isSessionActive: () -> Bool = { false }
+    private lazy var installer: UpdateInstaller = {
+        let installer = UpdateInstaller(post: { [weak self] work in self?.postToMainThread(work) })
+        installer.onStateChange = { [weak self] state in
+            self?.installState = state
+            self?.onUpdate?()
+        }
+        return installer
+    }()
+
+    // The asset of the update on offer, when this copy can install it
+    // in-app; nil means "release page only" (no asset yet, or a copy that
+    // Inno didn't install).
+    var installableAsset: ReleaseAsset? {
+        guard case .updateAvailable(_, _, let asset) = latestResult, UpdateInstaller.isRunningInstalledCopy else { return nil }
+        return asset
+    }
+
+    func startUpdate() {
+        guard !installState.isBusy, let asset = installableAsset else { return }
+        installer.start(asset)
+    }
+
+    func cancelUpdate() {
+        installer.cancel()
+    }
 
     private let hwnd: HWND
     private let currentVersion: String

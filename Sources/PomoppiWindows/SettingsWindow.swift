@@ -374,6 +374,10 @@ final class SettingsWindow {
     // the check state changes (refreshUpdateStatus); mirrors macOS's
     // UpdateStatusRow.
     private var updatesActionButton: HWND?
+    private var updatesSecondaryButton: HWND?
+    // The install state a failure MessageBox was last shown for, so each
+    // failure is announced once.
+    private var announcedFailure: UpdateInstallState = .idle
 
     // Hint footers created via addHint — handleCtlColor looks a painted
     // STATIC up here to decide whether it gets the dimmed hint text color
@@ -937,65 +941,149 @@ final class SettingsWindow {
     // -- update status row -------------------------------------------------------
 
     // The General tab's Updates section own version/check-for-updates row —
-    // mirrors macOS's UpdateStatusRow. Built as part of buildGeneralTab like
-    // any other control on that page (moved off the page-wide footer strip
-    // this used to be), so WM_COMMAND/WM_CTLCOLORSTATIC/WM_CTLCOLORBTN all
-    // arrive already forwarded through pomoppiSettingsPageWndProc the same
-    // way every other General tab control's do — no separate dispatch path
-    // needed anymore. Version on the left, action button on the right,
-    // like every other labeled row.
+    // mirrors macOS's UpdateStatusRow. Version on the left; on the right a
+    // primary button and, when a state has a second action, a secondary one
+    // to its left (hidden otherwise). The in-app update (UPDATE_PLAN.md S6e)
+    // shows its progress as the primary button's own label: no progress
+    // bar control, and if FoundationNetworking never reports progress it
+    // just reads "Downloading…".
+    private static let updatesPrimaryWidth: Int32 = 170
+    private static let updatesSecondaryWidth: Int32 = 96
+
     private func addUpdateStatusRow(in page: HWND, y: Int32) {
         addLabel("Pomoppi \(pomoppiVersion)", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         updatesActionButton = addButton(
             "Check for updates", in: page,
-            x: rightX(250), y: y,
-            width: 250, height: Self.controlHeight
+            x: rightX(Self.updatesPrimaryWidth), y: y,
+            width: Self.updatesPrimaryWidth, height: Self.controlHeight
         ) { [weak self] in
             self?.handleUpdateActionClick()
         }
         anchorRight(updatesActionButton)
+        updatesSecondaryButton = addButton(
+            "", in: page,
+            x: rightX(Self.updatesPrimaryWidth + 6 + Self.updatesSecondaryWidth), y: y,
+            width: Self.updatesSecondaryWidth, height: Self.controlHeight
+        ) { [weak self] in
+            self?.handleUpdateSecondaryClick()
+        }
+        anchorRight(updatesSecondaryButton)
+        announcedFailure = updateChecker.installState
         refreshUpdateStatus()
     }
 
-    // Redraws the action control from updateChecker.latestResult and this
-    // window's own manualCheckState — called after either one changes (a
-    // background check resolving while this window is open, via
-    // updateChecker.onUpdate, or the button's own click-driven state
-    // machine below). Priority order mirrors macOS's UpdateStatusRow.actionView:
-    // an update found in the background wins over "Check for updates"/
-    // "Up to date"/"Couldn't check", but never mid-check — a click
-    // shouldn't flash straight past "Checking…".
+    // Redraws both buttons from updateChecker (installState first, then
+    // latestResult) and this window's own manualCheckState. Called after
+    // any of them changes: updateChecker.onUpdate for background results
+    // and install progress, the buttons' own clicks otherwise. An update
+    // found in the background wins over the manual-check labels, but never
+    // mid-check, so a click doesn't flash straight past "Checking…".
     private func refreshUpdateStatus() {
-        guard let updatesActionButton else { return }
-        if case .updateAvailable(let tag, _, _) = updateChecker.latestResult, manualCheckState != .checking {
-            setWindowText(updatesActionButton, "Update available: \(tag) — Download")
-            EnableWindow(updatesActionButton, true)
-            return
-        }
-        switch manualCheckState {
+        guard updatesActionButton != nil else { return }
+        let install = updateChecker.installState
+        switch install {
+        case .downloading(let received, let total):
+            let percent = total > 0 ? Int(received * 100 / total) : 0
+            setUpdateButtons(primary: received > 0 ? "Downloading… \(percent)%" : "Downloading…", enabled: false, secondary: "Cancel")
+        case .verifying:
+            setUpdateButtons(primary: "Verifying…", enabled: false, secondary: nil)
+        case .installerOpened:
+            setUpdateButtons(primary: "Installing…", enabled: false, secondary: nil)
+        case .failed(let failure):
+            setUpdateButtons(primary: "Try again", enabled: true, secondary: "Release page")
+            // Announced once, when it happens: the reason doesn't fit a
+            // button, and a window reopened later shows Try again only.
+            if announcedFailure != install {
+                announcedFailure = install
+                showMessage("Update failed: \(failure.clause).", title: "Pomoppi Update", icon: UINT(MB_ICONWARNING))
+            }
         case .idle:
-            setWindowText(updatesActionButton, "Check for updates")
-            EnableWindow(updatesActionButton, true)
-        case .checking:
-            setWindowText(updatesActionButton, "Checking…")
-            EnableWindow(updatesActionButton, false)
-        case .upToDate:
-            setWindowText(updatesActionButton, "Up to date")
-            EnableWindow(updatesActionButton, false)
-        case .failed:
-            setWindowText(updatesActionButton, "Couldn't check — try again")
-            EnableWindow(updatesActionButton, true)
+            announcedFailure = install
+            if case .updateAvailable(let tag, _, _) = updateChecker.latestResult, manualCheckState != .checking {
+                if updateChecker.installableAsset != nil {
+                    setUpdateButtons(primary: "Update to \(tag)", enabled: true, secondary: "Release notes")
+                } else {
+                    // No asset yet, or a copy Inno didn't install: the
+                    // release page is the only way.
+                    setUpdateButtons(primary: "Download \(tag)", enabled: true, secondary: nil)
+                }
+                return
+            }
+            switch manualCheckState {
+            case .idle:
+                setUpdateButtons(primary: "Check for updates", enabled: true, secondary: nil)
+            case .checking:
+                setUpdateButtons(primary: "Checking…", enabled: false, secondary: nil)
+            case .upToDate:
+                setUpdateButtons(primary: "Up to date", enabled: false, secondary: nil)
+            case .failed:
+                setUpdateButtons(primary: "Couldn't check — try again", enabled: true, secondary: nil)
+            }
         }
     }
 
-    // The action button's own click — either opens the release page (when
-    // an update is already known) or kicks off an explicit check.
+    private func setUpdateButtons(primary: String, enabled: Bool, secondary: String?) {
+        if let updatesActionButton {
+            setWindowText(updatesActionButton, primary)
+            EnableWindow(updatesActionButton, enabled)
+        }
+        if let updatesSecondaryButton {
+            if let secondary { setWindowText(updatesSecondaryButton, secondary) }
+            ShowWindow(updatesSecondaryButton, secondary == nil ? SW_HIDE : SW_SHOW)
+        }
+    }
+
     private func handleUpdateActionClick() {
+        if case .failed = updateChecker.installState {
+            requestUpdate()
+            return
+        }
         if case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult, manualCheckState != .checking {
-            Self.openURL(pageURL)
+            if updateChecker.installableAsset != nil {
+                requestUpdate()
+            } else {
+                Self.openURL(pageURL)
+            }
             return
         }
         checkForUpdatesNow()
+    }
+
+    private func handleUpdateSecondaryClick() {
+        if case .downloading = updateChecker.installState {
+            updateChecker.cancelUpdate()
+            return
+        }
+        if case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult {
+            Self.openURL(pageURL)
+        }
+    }
+
+    // Installing closes Pomoppi (Inno relaunches it), and a phase cut short
+    // is never logged, so a running session asks first.
+    private func requestUpdate() {
+        if updateChecker.isSessionActive() {
+            let text = Array("A session is in progress. Pomoppi will close to finish updating, and the current session won't be recorded.\n\nUpdate now?".utf16) + [0]
+            let title = Array("Pomoppi Update".utf16) + [0]
+            let answer = text.withUnsafeBufferPointer { textPtr in
+                title.withUnsafeBufferPointer { titlePtr in
+                    MessageBoxW(hwnd, textPtr.baseAddress, titlePtr.baseAddress, UINT(MB_YESNO) | UINT(MB_ICONQUESTION))
+                }
+            }
+            guard answer == IDYES else { return }
+        }
+        updateChecker.startUpdate()
+        refreshUpdateStatus()
+    }
+
+    private func showMessage(_ message: String, title: String, icon: UINT) {
+        let text = Array(message.utf16) + [0]
+        let caption = Array(title.utf16) + [0]
+        _ = text.withUnsafeBufferPointer { textPtr in
+            caption.withUnsafeBufferPointer { captionPtr in
+                MessageBoxW(hwnd, textPtr.baseAddress, captionPtr.baseAddress, UINT(MB_OK) | icon)
+            }
+        }
     }
 
     // The explicit-check-only path (unlike the silent 10s/24h background
@@ -1027,10 +1115,7 @@ final class SettingsWindow {
         }
     }
 
-    // Win32's NSWorkspace.shared.open(_:) equivalent — same small helper
-    // TrayController.openURL already duplicates for its own "Update
-    // available" menu item, matching this port's usual small-duplication-
-    // over-shared-abstraction ethos (see CLAUDE.md's Windows invariants).
+    // Win32's NSWorkspace.shared.open(_:) equivalent.
     private static func openURL(_ url: URL) {
         let operation = Array("open".utf16) + [0]
         let target = Array(url.absoluteString.utf16) + [0]
@@ -2418,6 +2503,7 @@ final class SettingsWindow {
         chimeLabel = nil
         chimeHintLabel = nil
         updatesActionButton = nil
+        updatesSecondaryButton = nil
         pageScroll = [:]
         rightAnchored = []
         keysPage = nil
@@ -3203,6 +3289,16 @@ final class SettingsWindow {
     }
 
     // -- tab memory --------------------------------------------------------
+
+    // The tray's "Update available" item: the Updates row lives on General,
+    // so remember General for the next open and switch to it now if the
+    // window is already showing.
+    static func selectGeneralTab() {
+        saveRememberedTabIndex(Tab.general.rawValue)
+        guard let window = shared, let tabControl = window.tabControl else { return }
+        SendMessageW(tabControl, UINT(TCM_SETCURSEL), WPARAM(Tab.general.rawValue), 0)
+        window.selectTab(Tab.general.rawValue)
+    }
 
     // Windows' counterpart to macOS's `@AppStorage("pomoppi.settingsTab")` —
     // the settings window here is destroyed on close (Self.shared = nil on

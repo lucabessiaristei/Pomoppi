@@ -499,16 +499,58 @@ private struct UpdateStatusRow: View {
         }
     }
 
+    // The in-app update (UPDATE_PLAN.md S6c) takes over the row while it
+    // runs; otherwise an update found in the background takes priority over
+    // the manual-check state machine, except mid-check (so a click doesn't
+    // flash straight past "Checking…").
     @ViewBuilder
     private var actionView: some View {
-        // An update found in the background takes priority over whatever
-        // the manual-check state machine below is doing, except mid-check
-        // (so a click doesn't flash straight past "Checking…").
-        if case .updateAvailable(let tag, let pageURL, _) = updateChecker.latestResult, manualState != .checking {
-            Button("Update available: \(tag) — Download") {
-                NSWorkspace.shared.open(pageURL)
+        switch updateChecker.installState {
+        case .downloading(let received, let total):
+            HStack(spacing: 8) {
+                ProgressView(value: Double(received), total: Double(max(total, 1)))
+                    .frame(width: 110)
+                Text("\(Self.bytes(received)) of \(Self.bytes(total))")
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button("Cancel") { updateChecker.cancelUpdate() }
+                    .buttonStyle(.link)
             }
-            .buttonStyle(.link)
+        case .verifying:
+            Text("Verifying…").foregroundStyle(.secondary)
+        case .installerOpened:
+            HStack(spacing: 8) {
+                Text("Installer opened. Follow its steps.").foregroundStyle(.secondary)
+                Button("Open again") { updateChecker.reopenInstaller() }
+                    .buttonStyle(.link)
+            }
+        case .failed(let failure):
+            HStack(spacing: 8) {
+                Text("Update failed: \(failure.clause)").foregroundStyle(.secondary)
+                Button("Try again", action: requestUpdate)
+                    .buttonStyle(.link)
+                if case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult {
+                    Button("Release page") { NSWorkspace.shared.open(pageURL) }
+                        .buttonStyle(.link)
+                }
+            }
+        case .idle:
+            checkView
+        }
+    }
+
+    @ViewBuilder
+    private var checkView: some View {
+        if case .updateAvailable(let tag, let pageURL, let asset) = updateChecker.latestResult, manualState != .checking {
+            HStack(spacing: 8) {
+                Text("\(tag) available").foregroundStyle(.secondary)
+                // No asset yet (CI still uploading): release page only.
+                if asset != nil {
+                    Button("Update", action: requestUpdate)
+                }
+                Button("Release notes") { NSWorkspace.shared.open(pageURL) }
+                    .buttonStyle(.link)
+            }
         } else {
             switch manualState {
             case .checking:
@@ -523,6 +565,25 @@ private struct UpdateStatusRow: View {
                     .buttonStyle(.link)
             }
         }
+    }
+
+    // Installing quits Pomoppi (the pkg's postinstall relaunches it), and a
+    // phase cut short is never logged, so a running session asks first.
+    private func requestUpdate() {
+        if updateChecker.isSessionActive() {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "A session is in progress"
+            alert.informativeText = "Pomoppi will close to finish updating, and the current session won't be recorded."
+            alert.addButton(withTitle: "Update Now")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        updateChecker.startUpdate()
+    }
+
+    private static func bytes(_ count: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
     }
 
     private func checkNow() {
