@@ -23,12 +23,12 @@ It has three parts:
   already reshaping around it. Read `RELEASE_PLAN.md` first for why the
   checker exists at all and why it is hand-rolled.
 
-**Status as of 2026-09-23: S0-S3 and T1 are done (S1 in commit `b092865`,
-shipped in the `1dcf97e` 0.3.0 bump; S2 in commit `1ec7af2`); S4-S5,
-T2-T3 and S6a-S6f are not started.** `LOCALIZATION_PLAN.md` depends on
-this file: S0 locks the copy, and nothing in L0's string-extraction
-sweep should run against labels this plan is still about to rename —
-or against the pile of new strings Part C adds.
+**Status as of 2026-09-24: S0-S4 and T1 are done (S1 in commit `b092865`,
+shipped in the `1dcf97e` 0.3.0 bump; S2 in commit `1ec7af2`); S5, T2-T3
+and S6a-S6f are not started.** `LOCALIZATION_PLAN.md` depends on this
+file: S0 locks the copy, and nothing in L0's string-extraction sweep
+should run against labels this plan is still about to rename — or
+against the pile of new strings Part C adds.
 
 ## Locked decisions — do not re-derive or re-litigate these
 
@@ -203,39 +203,64 @@ confirmation reads as harmless while it is permanent.
     unrelated setting (the exact case that regressed before); session
     history reads 0 B. Verified on both platforms, Windows in the VM's
     interactive session.
-- **S4 — Hint footers.** macOS already has `Form`'s `footer:`; this is
-  mostly a Windows mechanism plus the copy from the map above on both
-  sides.
-  - Windows: add `addHint(_:in:x:y:width:trackForScroll:)` next to
-    `addLabel` (`SettingsWindow.swift:3085`) — a `STATIC` with
+- **S4 — Hint footers. ✅ DONE**, Windows only — macOS's own `Form`
+  `footer:` side (several hints the map calls for — Reset, Sound, Diary's
+  Session history, Rhythm's Automation/askForTaskName — don't exist in
+  `SettingsView.swift` yet either) is **not** part of this pass; flagged
+  as open below rather than folded into S5 silently.
+  - Windows: added `addHint(_:in:x:y:width:trackForScroll:)` next to
+    `addLabel` (`SettingsWindow.swift:3327`) — a `STATIC` with
     `SS_NOPREFIX` (mandatory: a bare `&` is eaten as a mnemonic, the bug
     W7 already hit), a second `HFONT` one point smaller than the default
-    GUI font, and dimmed text.
-  - The dimming is the fiddly part: `handleCtlColor` (`:3556`) is
-    **dark-mode-only and HWND-blind** — it returns early to
-    `DefWindowProcW` whenever `isDarkMode` is false, and otherwise paints
-    every `STATIC` the same color. Hints need it to (a) run in light mode
-    too and (b) branch per control, so it grows a `hintLabels` HWND set
-    and two text colors (dimmed light / dimmed dark), returning the
-    matching background brush in each of the four combinations. Get this
-    right once here; every later hint is then free.
-  - Appearance-page hints must pass `trackForScroll: true` or they stay
-    put while the rest of the page scrolls.
-  - Live hints: `reverseTrayClick`'s (already live on macOS, new on
-    Windows) and `askForTaskName`'s both re-render on the *other*
-    control's change — on Windows that is `setWindowText` +
-    `InvalidateRect` from the owning checkbox's toggle handler, plus a
-    refresh when the Diary tab's logging toggle changes (it is what
+    GUI font (`hintFont`, built once via `GetObjectW`/`CreateFontIndirectW`
+    off the stock `DEFAULT_GUI_FONT`'s own `LOGFONTW`), and dimmed text.
+    Height is measured, not guessed — `measuredHintHeight` reads
+    `hintFont`'s own text extent and computes a word-wrap line count
+    against `width`, capped at 3 lines — because a first pass using one
+    flat height for every hint clipped the Keys tab's trailing hint clean
+    off the bottom of the page; the per-call height is cached
+    (`lastHintHeight`) for the call site's own `y +=` bookkeeping right
+    after.
+  - The dimming was the fiddly part: `handleCtlColor` (`:3869`) was
+    **dark-mode-only and HWND-blind** — it returned early to
+    `DefWindowProcW` whenever `isDarkMode` was false, and otherwise
+    painted every `STATIC` the same color. Now it (a) runs in light mode
+    too and (b) branches per control via a `hintLabels` HWND set
+    (`:396`) and two text colors (`hintTextLightHex`/`hintTextDarkHex`),
+    returning the matching background brush in each of the four
+    combinations.
+  - Appearance-page hint (`Size & transparency`'s) passes
+    `trackForScroll: true` so it scrolls with the rest of the page.
+  - Live hints: `reverseTrayClick`'s and `askForTaskName`'s both
+    re-render on the *other* control's change — `setWindowText` alone
+    from the owning checkbox's toggle handler (no separate
+    `InvalidateRect`; matches this file's existing shortcut-recorder-button
+    redraw idiom, `SetWindowTextW` already repaints on its own), plus a
+    refresh from the Diary tab's `loggingEnabled` toggle (it is what
     overrides `askForTaskName`).
-  - The `askForTaskName` hint is the point of this phase: with default
+  - The `askForTaskName` hint was the point of this phase: with default
     settings (`loggingEnabled: true`, `askForTaskName: true`) the toggle
     is inert — logging forces the prompt and makes cancelling refuse to
-    start (`SPEC.md` §5). That override is currently invisible on macOS
-    and doesn't exist at all on Windows until Part B.
-  - **Exit:** every hint in the map renders on both platforms; toggling
-    session logging on the Diary tab visibly changes the Rhythm tab's
-    ask-for-task hint; no hint clips or overlaps at the default window
-    size; VM screenshots of Rhythm and General.
+    start (`SPEC.md` §5). That override was invisible on macOS and didn't
+    exist at all on Windows before this; it's still invisible on macOS
+    (see the note above — out of scope for this pass) but now shown and
+    live on Windows.
+  - Fitting the Keys tab's two new hints (its content was already at the
+    old budget's ceiling with none) needed the settings window's own
+    minimum content height to grow, `480` → `552`
+    (`SettingsWindow.swift:542`, `clientHeight`); every other tab still
+    has slack at the new size.
+  - **Exit:** every hint in the map renders on Windows; toggling session
+    logging on the Diary tab visibly changes the Rhythm tab's ask-for-task
+    hint (verified live in the VM); no hint clips or overlaps at the
+    default window size, light or dark (verified — General/Rhythm/Keys
+    screenshotted both themes in the VM's interactive session); `swift
+    build`/`swift test` green on both platforms. **Still open:** macOS's
+    own `Form` `footer:` side for the hints this phase's map calls for
+    that `SettingsView.swift` doesn't have yet (Reset, Sound, Diary's
+    Session history, Rhythm's Automation/askForTaskName) — copy is
+    already locked in the map above, so it's a `SettingsView.swift`-only
+    follow-up, not a re-litigation.
 - **S5 — Diary terminology + docs catch-up.** The renames in the map's
   Diary row, on both platforms and in `SPEC.md` §8/§8b (which call the
   session log a "cache" throughout), plus the leftovers this pass
