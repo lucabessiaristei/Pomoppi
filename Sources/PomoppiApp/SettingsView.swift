@@ -189,12 +189,6 @@ private struct AppearanceTab: View {
                 Text("Roommate")
             }
 
-            Section("Theme") {
-                ThemePresetPicker(viewModel: viewModel)
-                ColorPicker("Ink", selection: viewModel.colorBinding(\.inkColor), supportsOpacity: false)
-                ColorPicker("Paper", selection: viewModel.colorBinding(\.paperColor), supportsOpacity: false)
-            }
-
             Section("Window edge") {
                 CardPickerGrid(
                     items: PomoppiSettings.frameStyles,
@@ -225,6 +219,12 @@ private struct AppearanceTab: View {
                             inkColor: viewModel.settings.inkColor, paperColor: viewModel.settings.paperColor)
                     },
                     onSelect: { background in viewModel.update { $0.background = background } })
+            }
+
+            Section("Theme") {
+                ThemePresetPicker(viewModel: viewModel)
+                ColorPicker("Ink", selection: viewModel.colorBinding(\.inkColor), supportsOpacity: false)
+                ColorPicker("Paper", selection: viewModel.colorBinding(\.paperColor), supportsOpacity: false)
             }
 
             Section {
@@ -390,21 +390,14 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
-            Section("Color scheme") {
-                Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
-                    Text("Auto").tag("auto")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
             Section("Widget") {
                 Toggle("Keep the widget on top of other windows", isOn: viewModel.binding(\.alwaysOnTop))
                 Toggle("Pop to the front when a session ends", isOn: viewModel.binding(\.raiseOnEnd))
             }
             Section {
                 Toggle("Swap the menu bar icon's left and right clicks", isOn: viewModel.binding(\.reverseTrayClick))
+            } header: {
+                Text("Menu bar icon")
             } footer: {
                 Text(viewModel.settings.reverseTrayClick
                     ? "Left-click opens the menu, right-click raises the widget."
@@ -417,6 +410,19 @@ private struct GeneralTab: View {
                 Text("Startup")
             } footer: {
                 Text("Launch at login only registers when Pomoppi is running as an installed app. “Start hidden” applies the next time Pomoppi launches.")
+            }
+            Section {
+                Picker("Color scheme", selection: viewModel.binding(\.colorScheme)) {
+                    Text("Auto").tag("auto")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("Color scheme")
+            } footer: {
+                Text("Applies to Pomoppi's own windows. The widget's colors are under Appearance.")
             }
             Section {
                 Toggle("Automatically check for updates", isOn: viewModel.binding(\.checkForUpdates))
@@ -467,13 +473,9 @@ private struct UpdateStatusRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text("Pomoppi \(pomoppiVersion)")
-            Text("·")
+        LabeledContent("Pomoppi \(pomoppiVersion)") {
             actionView
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -489,9 +491,9 @@ private struct UpdateStatusRow: View {
         } else {
             switch manualState {
             case .checking:
-                Text("Checking…")
+                Text("Checking…").foregroundStyle(.secondary)
             case .upToDate:
-                Text("Up to date")
+                Text("Up to date").foregroundStyle(.secondary)
             case .failed:
                 Button("Couldn't check — try again", action: checkNow)
                     .buttonStyle(.link)
@@ -549,11 +551,19 @@ private struct SoundTab: View {
                         viewModel.chimePlayer.play(chime: viewModel.settings.chime, focusEnd: true)
                     }
                 }
+            } header: {
+                Text("Chime")
+            } footer: {
+                Text("Selecting a chime plays it.")
+            }
+            Section {
                 Stepper(
                     ringLabel,
                     value: viewModel.binding(\.ringSeconds), in: 0...60, step: 5)
+            } header: {
+                Text("Ring")
             } footer: {
-                Text("Selecting a chime plays it.")
+                Text("How long the widget keeps ringing when a session ends, with or without the chime.")
             }
         }
         .settingsForm()

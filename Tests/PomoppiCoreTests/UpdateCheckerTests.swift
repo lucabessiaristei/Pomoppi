@@ -2,6 +2,16 @@ import XCTest
 @testable import PomoppiCore
 
 final class UpdateCheckerTests: XCTestCase {
+    // Pinned as a literal: a local build once shipped with the slug pointed at
+    // cli/cli for a manual test and reported GitHub CLI releases as Pomoppi
+    // updates. Any such edit now fails `swift test` on the machine carrying it.
+    func testEndpointTargetsPomoppiRepository() {
+        XCTAssertEqual(UpdateChecker.repositorySlug, "lucabessiaristei/Pomoppi")
+        XCTAssertEqual(
+            UpdateChecker.latestReleaseAPIURL.absoluteString,
+            "https://api.github.com/repos/lucabessiaristei/Pomoppi/releases/latest")
+    }
+
     // -- SemVer ---------------------------------------------------------------
 
     func testSemVerOrderingNewerAndOlder() throws {

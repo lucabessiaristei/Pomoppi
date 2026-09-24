@@ -66,34 +66,21 @@ private func pomoppiSettingsWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WP
 // handleEraseBackground/handleCtlColor for what each one actually does once
 // it arrives there.
 //
+// WM_VSCROLL is the exception: every page owns a native WS_VSCROLL bar, and a
+// window scrollbar's notification arrives with lParam == 0 on the page itself,
+// so it's handled here with the page's own HWND rather than forwarded (the
+// parent couldn't tell which page sent it). A nonzero lParam is a stepper's
+// up-down control notifying its parent, which needs nothing from us.
 private func pomoppiSettingsPageWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
+    if message == UINT(WM_VSCROLL), lParam == 0, let hwnd, let window = SettingsWindow.shared {
+        window.handlePageVScroll(page: hwnd, wParam: wParam)
+        return 0
+    }
     if message == UINT(WM_COMMAND) || message == UINT(WM_NOTIFY) || message == UINT(WM_KEYDOWN) || message == UINT(WM_SYSKEYDOWN) || message == UINT(WM_DRAWITEM) || message == UINT(WM_HSCROLL) || message == UINT(WM_ERASEBKGND) || message == UINT(WM_CTLCOLORSTATIC) || message == UINT(WM_CTLCOLORBTN) || message == UINT(WM_CTLCOLOREDIT),
        let hwnd, let parent = GetParent(hwnd) {
         return SendMessageW(parent, message, wParam, lParam)
     }
     return DefWindowProcW(hwnd, message, wParam, lParam)
-}
-
-// The Appearance page's custom scroll rail (added to replace the native
-// WS_VSCROLL scrollbar the user found visually dated) is its own window
-// class rather than a BS_OWNERDRAW BUTTON reusing pageClassName's
-// WM_DRAWITEM-via-parent-forwarding pattern above: a real owner-draw
-// BUTTON's own default WndProc captures WM_LBUTTONDOWN/WM_MOUSEMOVE/
-// WM_LBUTTONUP itself to drive its own press/release click tracking (fine
-// for every other owner-drawn control on this tab, which only ever needs a
-// single click), which would need subclassing to get out of the way for a
-// dragged thumb's continuous WM_MOUSEMOVE deltas. Simpler to own the
-// WndProc outright, the same "can't capture, dispatch through the shared
-// instance" shape as pomoppiSettingsWndProc/pomoppiSettingsPageWndProc
-// above, and build a real DRAWITEMSTRUCT by hand on WM_PAINT so painting
-// still goes through handleDrawItem's existing dispatch (see
-// SettingsWindow.handleScrollRailMessage) rather than inventing a second
-// drawing path just for this one control.
-private func pomoppiScrollRailWndProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    guard let window = SettingsWindow.shared, let hwnd, window.appearanceScrollRail == hwnd else {
-        return DefWindowProcW(hwnd, message, wParam, lParam)
-    }
-    return window.handleScrollRailMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
 }
 
 // SysTabControl32 has no dark visual style (setControlDarkTheme's own
@@ -173,12 +160,12 @@ final class SettingsWindow {
     // re-applies the table afterward via main.swift's own registration logic.
     private let globalShortcutManager: GlobalShortcutManager
     private let reregisterShortcuts: () -> Void
-    // Owned by main.swift (WidgetWindow's own instance) — the footer strip
-    // reads/triggers checks through it directly, same "own object passed
+    // Owned by main.swift (WidgetWindow's own instance) — the General tab's
+    // Updates row reads/triggers checks through it directly, same "own object passed
     // in, no separate view-model wrapper" shape as sessionLogger/chimePlayer
     // above.
     private let updateChecker: AppUpdateChecker
-    // Not `private` — same reason `hwnd`/`appearanceScrollRail` aren't:
+    // Not `private` — same reason `hwnd` isn't:
     // pomoppiTabControlSubclassProc needs it to identify which HWND it's
     // dispatching for, same shape as every other WndProc free function in
     // this file.
@@ -424,55 +411,25 @@ final class SettingsWindow {
     private static let manualCheckRevertTimerID: UINT_PTR = 1
     private var manualCheckRevertPending = false
 
-    // The Appearance page's own scroll state — it's the only page whose
-    // content is taller than the window's own floor size (11 theme
-    // swatches + 3 picker grids + 2 color rows + size/opacity controls
-    // easily clears 650px against a ~450px visible page area at 560x480),
-    // so it's the only page with its own scroll rail (see
-    // createAppearanceScrollRail). `appearanceContentHeight` is set once at
-    // the end of buildAppearanceTab from the running `y` every add*/build*
-    // helper below already returns/advances.
-    private var appearancePage: HWND?
-    private var appearanceContentHeight: Int32 = 0
-    private var appearanceScrollY: Int32 = 0
-    // The custom scroll rail itself (replaces the native WS_VSCROLL
-    // scrollbar this page used to have — see pomoppiScrollRailWndProc's own
-    // comment for why it's a whole separate window class rather than an
-    // owner-draw button). Deliberately not registered via
-    // trackAppearanceControl below: unlike every other tracked control on
-    // this page, the rail must stay fixed in the viewport as content
-    // scrolls past it, never moving itself. Not `private` — same reason
-    // `hwnd` above isn't: pomoppiScrollRailWndProc needs it to identify
-    // which HWND it's dispatching for, same shape as every other WndProc
-    // free function in this file.
-    var appearanceScrollRail: HWND?
-    // Set only while the thumb itself (not the track) is being dragged —
-    // see handleScrollRailMouseDown/handleScrollRailMouseMove. The grab
-    // offset is where inside the thumb (from its top edge) the drag
-    // started, so the thumb stays put under the cursor instead of
-    // jumping to center on it.
-    private var railDragging = false
-    private var railGrabOffset: Int32 = 0
-
-    // Every one of the Appearance page's own children (labels included),
-    // recorded at its un-scrolled ("base") position the moment it's
-    // created. scrollAppearance repositions each one explicitly (one
-    // DeferWindowPos batch) rather than ScrollWindowEx — see scrollAppearance's own
-    // comment for why: ScrollWindowEx's SW_SCROLLCHILDREN blit-and-shift
-    // approach turned out to visibly corrupt this page live in the VM
-    // (confirmed by screenshot — stale fragments of labels/cards left
-    // behind after scrolling), a real, documented MSDN caveat of that
-    // flag, not a fluke of this one call.
-    private struct AppearanceControlPosition {
+    // Every page scrolls vertically with its own native WS_VSCROLL bar, so
+    // the window can be resized to any height. Each page's children are
+    // captured at their un-scrolled ("base") positions once the page is
+    // built (captureScrollLayout), and scrollPage repositions them all in
+    // one DeferWindowPos batch rather than using ScrollWindowEx: its
+    // SW_SCROLLCHILDREN blit-and-shift left stale fragments of owner-drawn
+    // cards on screen, confirmed live in the VM (a documented MSDN caveat
+    // for children straddling the scroll boundary).
+    private struct ScrollChild {
         let hwnd: HWND
         let baseX: Int32
         let baseY: Int32
     }
-    private var appearanceControlPositions: [AppearanceControlPosition] = []
-
-    private func trackAppearanceControl(_ hwnd: HWND, x: Int32, y: Int32) {
-        appearanceControlPositions.append(AppearanceControlPosition(hwnd: hwnd, baseX: x, baseY: y))
+    private struct PageScrollState {
+        let contentHeight: Int32
+        let children: [ScrollChild]
+        var scrollY: Int32 = 0
     }
+    private var pageScroll: [HWND: PageScrollState] = [:]
 
     // The Keys tab's own page — SetFocus target while recording, so the
     // capture keystroke's WM_(SYS)KEYDOWN has somewhere of ours to land
@@ -490,7 +447,7 @@ final class SettingsWindow {
     // bookkeeping at each call site.
     private var isDarkMode = false
     // Non-private read-only window onto isDarkMode above — same reason
-    // `hwnd`/`appearanceScrollRail`/`tabControl` aren't private themselves:
+    // `hwnd`/`tabControl` aren't private themselves:
     // pomoppiTabControlSubclassProc needs to know whether to intercept
     // WM_PAINT/WM_ERASEBKGND at all before calling in.
     var isDarkModeActive: Bool { isDarkMode }
@@ -528,24 +485,14 @@ final class SettingsWindow {
     // Exact order macOS's SettingsView.swift uses.
     private static let tabTitles = Tab.allCases.map(\.title)
 
-    // clientWidth/clientHeight is the *minimum* size now, not a fixed one
-    // (WS_THICKFRAME below makes the window user-resizable) — in the
-    // ballpark of macOS's idealWidth/idealHeight (520x400), and proven to
-    // fit every tab's content (Appearance excepted, which scrolls). Never
-    // let a drag-resize go smaller than this (see WM_GETMINMAXINFO in
-    // handleMessage) — a smaller window with no scrollbar anywhere but
-    // Appearance would make some controls on other tabs unreachable.
+    // Width is both the opening and the minimum width: controls are laid
+    // out at fixed x positions, so a narrower window would clip them.
+    // Height is free — every page scrolls — so it opens at a comfortable
+    // height (clamped to the screen) and can be dragged down to
+    // minClientHeight.
     private static let clientWidth: Int32 = 560
-    // The base grew from 480 to 552 in SETTINGS_PLAN.md's S4: the Keys
-    // tab's own two new hints (after "Global shortcuts" and after "While
-    // the widget is focused") pushed its always-visible, never-scrolling
-    // content past the old 480 — confirmed live, the second hint clipped
-    // clean off the bottom of the page under the old budget. No footer
-    // strip carve-out anymore (release/update plan's version/check-for-
-    // updates row moved into the General tab's own Updates section) — the
-    // full 552 is tab content again, General included: its own new row
-    // still fits with room to spare at this height.
-    private static let clientHeight: Int32 = 552
+    private static let initialClientHeight: Int32 = 680
+    private static let minClientHeight: Int32 = 240
 
     // WS_THICKFRAME (aka WS_SIZEBOX) is what makes the window user-
     // resizable — shared between window creation and WM_GETMINMAXINFO's
@@ -556,7 +503,6 @@ final class SettingsWindow {
     private static let className: [UInt16] = Array("PomoppiSettingsWindowClass".utf16) + [0]
     private static let windowTitle: [UInt16] = Array("Pomoppi Settings".utf16) + [0]
     private static let pageClassName: [UInt16] = Array("PomoppiSettingsPageClass".utf16) + [0]
-    private static let scrollRailClassName: [UInt16] = Array("PomoppiScrollRailClass".utf16) + [0]
     private static let tabClassName: [UInt16] = Array("SysTabControl32".utf16) + [0]
     private static let staticClassName: [UInt16] = Array("STATIC".utf16) + [0]
     private static let buttonClassName: [UInt16] = Array("BUTTON".utf16) + [0]
@@ -565,13 +511,22 @@ final class SettingsWindow {
     private static let trackbarClassName: [UInt16] = Array("msctls_trackbar32".utf16) + [0]
     private static let hInstance = GetModuleHandleW(nil)
 
-    // Shared row geometry for the plain vertical stacks the 3 real tabs
-    // below use — not a pixel match for macOS's Form/Section layout (see
-    // the task's stated philosophy), just enough spacing to read cleanly,
-    // with a bit of extra gap between logical groups.
-    private static let rowMargin: Int32 = 16
-    private static let rowHeight: Int32 = 26
-    private static let groupGap: Int32 = 14
+    // Shared geometry for every tab, standing in for macOS's grouped Form:
+    // each section is a bold header, rows of 24px controls on a 30px pitch,
+    // an optional hint footer, then sectionGap. A row with its own label
+    // (stepper, picker, swatch, recorder button, value readout) puts the
+    // label at rowMargin and the control at controlX, the same column on
+    // every tab.
+    private static let rowMargin: Int32 = 20
+    private static let rowHeight: Int32 = 30
+    private static let controlHeight: Int32 = 24
+    private static let headerHeight: Int32 = 26
+    private static let sectionGap: Int32 = 22
+    private static let labelColumnWidth: Int32 = 230
+    private static let controlX: Int32 = rowMargin + labelColumnWidth
+    // A plain label beside a 24px control: nudged down so its text sits on
+    // the control's vertical center.
+    private static let labelNudge: Int32 = 4
 
     private static var classesRegistered = false
     private static var commonControlsInitialized = false
@@ -638,26 +593,6 @@ final class SettingsWindow {
             fatalError("RegisterClassW (settings page) failed with error \(GetLastError())")
         }
 
-        // The Appearance page's scroll rail — its own class rather than a
-        // stock BUTTON (see pomoppiScrollRailWndProc's comment for why),
-        // with the same plain page-matching background and arrow cursor as
-        // the top-level window itself (nothing else in this file bothers
-        // setting hCursor on a child, but this one is real, standalone,
-        // click-and-drag chrome rather than something a BUTTON/EDIT/etc.
-        // already handles for free).
-        let scrollRailAtom: ATOM = scrollRailClassName.withUnsafeBufferPointer { classNamePtr in
-            var windowClass = WNDCLASSW()
-            windowClass.lpfnWndProc = pomoppiScrollRailWndProc
-            windowClass.hInstance = hInstance
-            windowClass.lpszClassName = classNamePtr.baseAddress
-            windowClass.hCursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
-            windowClass.hbrBackground = HBRUSH(bitPattern: Int(COLOR_BTNFACE + 1))
-            return RegisterClassW(&windowClass)
-        }
-        guard scrollRailAtom != 0 else {
-            fatalError("RegisterClassW (scroll rail) failed with error \(GetLastError())")
-        }
-
         classesRegistered = true
     }
 
@@ -709,13 +644,16 @@ final class SettingsWindow {
         // client rect through AdjustWindowRectEx rather than guessing a
         // margin by hand, same technique as any other fixed-content Win32
         // dialog-shaped window.
-        var rect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.clientHeight)
+        let screenWidth = GetSystemMetrics(SM_CXSCREEN)
+        let screenHeight = GetSystemMetrics(SM_CYSCREEN)
+        // Leaves room for the taskbar and title bar on a short screen; the
+        // pages scroll, so opening shorter than initialClientHeight is fine.
+        let clientHeight = max(Self.minClientHeight, min(Self.initialClientHeight, screenHeight - 160))
+        var rect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: clientHeight)
         AdjustWindowRectEx(&rect, Self.windowStyle, false, 0)
         let windowWidth = rect.right - rect.left
         let windowHeight = rect.bottom - rect.top
 
-        let screenWidth = GetSystemMetrics(SM_CXSCREEN)
-        let screenHeight = GetSystemMetrics(SM_CYSCREEN)
         let x = (screenWidth - windowWidth) / 2
         let y = (screenHeight - windowHeight) / 2
 
@@ -762,9 +700,6 @@ final class SettingsWindow {
     private func setUpTabsAndPages() {
         var clientRect = RECT()
         GetClientRect(hwnd, &clientRect)
-        // No footer strip anymore (see clientHeight's own comment) — the
-        // tab control (and, through TCM_ADJUSTRECT below, every page) gets
-        // the full client height.
         let tabAreaHeight = clientRect.bottom - clientRect.top
 
         guard let tab = (Self.tabClassName.withUnsafeBufferPointer { classNamePtr in
@@ -819,15 +754,10 @@ final class SettingsWindow {
         SendMessageW(tab, UINT(TCM_SETCURSEL), WPARAM(rememberedIndex), 0)
     }
 
-    // WM_SIZE (user drag-resize, now that WS_THICKFRAME makes that
-    // possible) — resizes the tab strip and every page to match the new
-    // client rect via the exact same TCM_ADJUSTRECT technique
-    // setUpTabsAndPages already uses once at creation. Deliberately not a
-    // real layout system: existing child controls inside each page stay at
-    // their own absolute positions, nothing reflows or anchors to the new
-    // edges — a bigger window just leaves more inert margin below/right of
-    // whatever a tab already draws, same look as today's "short tab in a
-    // fixed window", just user-controlled now instead of a fixed 560x480.
+    // WM_SIZE — resizes the tab strip and every page via the same
+    // TCM_ADJUSTRECT technique setUpTabsAndPages uses at creation. Controls
+    // keep their absolute positions (no reflow); only each page's scroll
+    // range follows the new visible height.
     private func handleResize() {
         guard let tab = tabControl else { return }
         var clientRect = RECT()
@@ -843,34 +773,127 @@ final class SettingsWindow {
         let pageHeight = displayRect.bottom - displayRect.top
         for page in pages {
             SetWindowPos(page, nil, displayRect.left, displayRect.top, pageWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+            updatePageScrollInfo(page)
         }
+    }
 
-        // Appearance is the only page whose own scroll math depends on the
-        // page's visible height — every other page just gets more/less
-        // inert margin, nothing to recompute.
-        if let rail = appearanceScrollRail {
-            let railWidth = GetSystemMetrics(SM_CXVSCROLL)
-            SetWindowPos(rail, nil, pageWidth - railWidth, 0, railWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
-            // scrollAppearance's own clamp (maxScroll = max(0,
-            // appearanceContentHeight - visibleHeight)) already re-derives
-            // a valid appearanceScrollY from the new pageHeight — a by-0
-            // "scroll" is enough to trigger that clamp (and the resulting
-            // reposition/repaint) without duplicating its math here. A
-            // no-op delta when nothing needs to move (window grew and
-            // appearanceScrollY was already 0) is exactly scrollAppearance's
-            // own early-return case, so this is safe to call unconditionally
-            // on every resize. Confirmed live: shrinking the window back
-            // down after growing it past appearanceContentHeight correctly
-            // re-clamps rather than leaving the page scrolled past its own
-            // (now shorter) content.
-            scrollAppearance(by: 0)
-            // scrollAppearance above only repaints if the scroll offset
-            // actually changed (its own early-return) — the rail's *thumb
-            // size* still depends on the new pageHeight even when the
-            // offset didn't move (e.g. growing from an already-top-scrolled
-            // page), so it needs its own unconditional invalidate here.
-            InvalidateRect(rail, nil, true)
+    // -- page scrolling ---------------------------------------------------------
+
+    // Records every direct child of a freshly built page at its un-scrolled
+    // position, and the page's content height as the lowest child bottom
+    // plus the same margin the page starts with. Walking the real children
+    // (rather than each add* helper registering itself) also picks up
+    // controls Windows positions on its own, like a stepper's up-down,
+    // which UDS_ALIGNRIGHT docks against its buddy edit.
+    private func captureScrollLayout(page: HWND) {
+        var children: [ScrollChild] = []
+        var lowestBottom: Int32 = 0
+        var child = GetWindow(page, UINT(GW_CHILD))
+        while let current = child {
+            var rect = RECT()
+            GetWindowRect(current, &rect)
+            var topLeft = POINT(x: rect.left, y: rect.top)
+            ScreenToClient(page, &topLeft)
+            children.append(ScrollChild(hwnd: current, baseX: topLeft.x, baseY: topLeft.y))
+            lowestBottom = max(lowestBottom, topLeft.y + (rect.bottom - rect.top))
+            child = GetWindow(current, UINT(GW_HWNDNEXT))
         }
+        pageScroll[page] = PageScrollState(contentHeight: lowestBottom + Self.rowMargin, children: children)
+        updatePageScrollInfo(page)
+    }
+
+    // Syncs the native scrollbar with the page's current visible height, and
+    // re-clamps the offset first when a taller window leaves the page
+    // scrolled past its own content. Windows hides the bar by itself once
+    // nPage covers the whole range; layout always reserves its gutter
+    // (createPage), so showing or hiding it never overlaps a control.
+    private func updatePageScrollInfo(_ page: HWND) {
+        guard let state = pageScroll[page] else { return }
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        let visibleHeight = max(0, clientRect.bottom - clientRect.top)
+        let maxScroll = max(0, state.contentHeight - visibleHeight)
+        if state.scrollY > maxScroll {
+            scrollPage(page, to: maxScroll)
+        }
+        var info = SCROLLINFO()
+        info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+        info.fMask = UINT(SIF_RANGE | SIF_PAGE | SIF_POS)
+        info.nMin = 0
+        info.nMax = state.contentHeight - 1
+        info.nPage = UINT(visibleHeight)
+        info.nPos = pageScroll[page]?.scrollY ?? 0
+        SetScrollInfo(page, Int32(SB_VERT), &info, true)
+    }
+
+    // One DeferWindowPos batch moves every child by the same delta, then
+    // RDW_UPDATENOW flushes the exposed strips synchronously so a thumb
+    // drag's rapid WM_VSCROLLs never queue up behind posted WM_PAINTs.
+    // WS_CLIPCHILDREN on the page (createPage) keeps its erase off the
+    // children, which is what made this flicker-free on Appearance.
+    private func scrollPage(_ page: HWND, to target: Int32) {
+        guard var state = pageScroll[page] else { return }
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        let maxScroll = max(0, state.contentHeight - (clientRect.bottom - clientRect.top))
+        let newScrollY = min(max(0, target), maxScroll)
+        guard newScrollY != state.scrollY else { return }
+        state.scrollY = newScrollY
+        pageScroll[page] = state
+
+        var batch = BeginDeferWindowPos(Int32(state.children.count))
+        for child in state.children {
+            batch = DeferWindowPos(
+                batch, child.hwnd, nil, child.baseX, child.baseY - newScrollY, 0, 0,
+                UINT(SWP_NOZORDER) | UINT(SWP_NOSIZE) | UINT(SWP_NOACTIVATE))
+        }
+        EndDeferWindowPos(batch)
+        SetScrollPos(page, Int32(SB_VERT), newScrollY, true)
+        RedrawWindow(page, nil, nil, UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
+    }
+
+    // WM_VSCROLL from a page's own scrollbar (see pomoppiSettingsPageWndProc).
+    // The thumb position comes from SIF_TRACKPOS rather than wParam's high
+    // word, which is only 16 bits wide.
+    func handlePageVScroll(page: HWND, wParam: WPARAM) {
+        guard let state = pageScroll[page] else { return }
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        let visibleHeight = clientRect.bottom - clientRect.top
+        let request = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) & 0xFFFF)
+        let target: Int32
+        switch request {
+        case SB_LINEUP: target = state.scrollY - Self.rowHeight
+        case SB_LINEDOWN: target = state.scrollY + Self.rowHeight
+        case SB_PAGEUP: target = state.scrollY - visibleHeight
+        case SB_PAGEDOWN: target = state.scrollY + visibleHeight
+        case SB_TOP: target = 0
+        case SB_BOTTOM: target = state.contentHeight
+        case SB_THUMBTRACK, SB_THUMBPOSITION:
+            var info = SCROLLINFO()
+            info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+            info.fMask = UINT(SIF_TRACKPOS)
+            GetScrollInfo(page, Int32(SB_VERT), &info)
+            target = info.nTrackPos
+        default:
+            return
+        }
+        scrollPage(page, to: target)
+    }
+
+    // WM_MOUSEWHEEL goes to the focused control, and DefWindowProc bubbles
+    // it up the parent chain to this window (the opacity trackbar is the
+    // one control that consumes it itself), so it scrolls whichever page is
+    // showing. The high word of wParam is a signed multiple of WHEEL_DELTA
+    // (120) per notch, already carrying the user's scroll-direction setting.
+    private func handleMouseWheel(wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        guard let page = pages.first(where: { IsWindowVisible($0) }), let state = pageScroll[page] else {
+            return DefWindowProcW(hwnd, UINT(WM_MOUSEWHEEL), wParam, lParam)
+        }
+        let highWord = UInt16(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
+        let notches = Double(Int16(bitPattern: highWord)) / 120.0
+        scrollPage(page, to: state.scrollY + Int32((-notches * 60).rounded()))
+        return 0
     }
 
     // -- update status row (release/update plan, phase R6b) -------------------
@@ -881,23 +904,18 @@ final class SettingsWindow {
     // this used to be), so WM_COMMAND/WM_CTLCOLORSTATIC/WM_CTLCOLORBTN all
     // arrive already forwarded through pomoppiSettingsPageWndProc the same
     // way every other General tab control's do — no separate dispatch path
-    // needed anymore. Returns the row's own height for the call site's y +=
-    // bookkeeping, same shape as addColorSchemePicker/addChimePicker.
-    @discardableResult
-    private func addUpdateStatusRow(in page: HWND, x: Int32, y: Int32, width: Int32) -> Int32 {
-        // Label sits 3px lower than the button — the same small nudge
-        // createFooter used to vertically center an 18px label text
-        // against a 20px button, confirmed live.
-        updatesVersionLabel = addLabel("Pomoppi \(pomoppiVersion) ·", in: page, x: x, y: y + 3, width: 140)
+    // needed anymore. Version on the left, action button in the shared
+    // control column, like every other labeled row.
+    private func addUpdateStatusRow(in page: HWND, y: Int32) {
+        updatesVersionLabel = addLabel("Pomoppi \(pomoppiVersion)", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         updatesActionButton = addButton(
             "Check for updates", in: page,
-            x: x + 140, y: y,
-            width: width - 140, height: 20
+            x: Self.controlX, y: y,
+            width: 250, height: Self.controlHeight
         ) { [weak self] in
             self?.handleUpdateActionClick()
         }
         refreshUpdateStatus()
-        return 22
     }
 
     // Redraws the action control from updateChecker.latestResult and this
@@ -1113,7 +1131,7 @@ final class SettingsWindow {
     // WM_PAINT-takeover workaround as drawTabControlDark, just for this
     // control: a flat darkScrollTrackHex fill (reads the same "distinct
     // surface" role a stepper's up-down plays against the page as the
-    // scroll rail's own track does — see drawScrollRail), a 1px
+    // trackbar channel does), a 1px
     // darkElevatedHex outline plus a 1px separator between the up/down
     // halves, and each arrow as a few centered FillRect rows of shrinking
     // width in darkTextHex rather than a real triangle/font glyph.
@@ -1153,8 +1171,7 @@ final class SettingsWindow {
     }
 
     // A tiny solid triangle built from a few centered FillRect rows of
-    // shrinking width, same "flat GDI primitives only" spirit as
-    // drawScrollRailGrip's own decoration above — no font glyph, no
+    // shrinking width, flat GDI primitives only — no font glyph, no
     // DrawFrameControl (both would need the classic system look this
     // control just lost by having its own WM_PAINT taken over).
     private func drawUpDownArrow(hdc: HDC?, centerX: Int32, centerY: Int32, pointingUp: Bool, brush: HBRUSH) {
@@ -1242,20 +1259,16 @@ final class SettingsWindow {
                 // matters when overlapping siblings can be visible at the
                 // same time, which never happens here.
                 //
-                // WS_CLIPCHILDREN is the opposite story and only the
-                // Appearance page needs it: without it, every page-level
-                // erase (WM_ERASEBKGND's COLOR_BTNFACE/dark fill) paints
-                // straight over every child too, and each child then
-                // repaints itself on top — a visible blank-then-refill
-                // flash on every repaint. Harmless on a static page that
-                // only ever repaints once, but Appearance repaints on
-                // every scroll step, and during a thumb drag that's many
-                // times a second — confirmed live as flicker. With the
-                // flag set, the page's own erase is clipped to the gaps
-                // between children (the only place its background is
-                // actually visible), and children are never painted over
-                // by their parent at all.
-                DWORD(tab == .appearance ? WS_CHILD | WS_CLIPCHILDREN : WS_CHILD),
+                // WS_CLIPCHILDREN is the opposite story: without it, every
+                // page-level erase (WM_ERASEBKGND's COLOR_BTNFACE/dark
+                // fill) paints straight over every child too, and each
+                // child then repaints itself on top — a blank-then-refill
+                // flash on every scroll step, confirmed live as flicker
+                // during a thumb drag. With it, the page's erase is clipped
+                // to the gaps between children.
+                //
+                // WS_VSCROLL: every page scrolls (see scrollPage).
+                DWORD(WS_CHILD | WS_CLIPCHILDREN | WS_VSCROLL),
                 rect.left, rect.top, width, height,
                 hwnd, nil, Self.hInstance, nil)
         }) else {
@@ -1270,61 +1283,60 @@ final class SettingsWindow {
         // failing loudly. Switching on Tab instead makes that case
         // unrepresentable: every case is handled, and the compiler enforces
         // it stays that way as the enum grows.
+        //
+        // Layout width always leaves the scrollbar's gutter free, whether or
+        // not the bar is currently shown, so it never overlaps a control.
+        let layoutWidth = width - GetSystemMetrics(SM_CXVSCROLL)
         switch tab {
         case .general:
-            buildGeneralTab(page: page, width: width)
+            buildGeneralTab(page: page, width: layoutWidth)
         case .rhythm:
-            buildRhythmTab(page: page, width: width)
+            buildRhythmTab(page: page, width: layoutWidth)
         case .appearance:
-            appearancePage = page
-            // Layout uses a narrower width than the page's own physical
-            // size so nothing sits under the scroll rail this page alone
-            // gets (see createAppearanceScrollRail, which reuses this exact
-            // same reserved gutter rather than the page needing a second
-            // width adjustment of its own).
-            buildAppearanceTab(page: page, width: width - GetSystemMetrics(SM_CXVSCROLL))
-            createAppearanceScrollRail(page: page, pageWidth: width, pageHeight: height)
+            buildAppearanceTab(page: page, width: layoutWidth)
         case .keys:
-            buildKeysTab(page: page, width: width)
+            buildKeysTab(page: page, width: layoutWidth)
         case .sound:
-            buildSoundTab(page: page, width: width)
+            buildSoundTab(page: page, width: layoutWidth)
         case .diary:
-            buildDiaryTab(page: page, width: width)
+            buildDiaryTab(page: page, width: layoutWidth)
         }
+        captureScrollLayout(page: page)
         return page
     }
 
     // -- General/Rhythm/Sound tab content --------------------------------------
 
-    // Mirrors macOS's RhythmTab (SettingsView.swift): 3 minute steppers, a
-    // sessions-per-long-break stepper, then 3 automation checkboxes.
+    // Mirrors macOS's RhythmTab (SettingsView.swift): Focus, Breaks,
+    // Automation.
     private func buildRhythmTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
-        let labelWidth: Int32 = 220
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
+        y = addSectionHeader("Focus", in: page, y: y, width: rowWidth)
         addStepper(
             "Default focus length (minutes)", in: page, value: Int32(settings.focusMinutes),
-            min: 1, max: 180, step: 1, x: Self.rowMargin, y: y, labelWidth: labelWidth
+            min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.focusMinutes = Double(newValue) }
         }
         y += Self.rowHeight
         addHint("Or click the clock on the widget.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + Self.sectionGap
 
+        y = addSectionHeader("Breaks", in: page, y: y, width: rowWidth)
         addStepper(
-            "Short break length (minutes)", in: page, value: Int32(settings.shortBreakMinutes),
-            min: 1, max: 180, step: 1, x: Self.rowMargin, y: y, labelWidth: labelWidth
+            "Short break (minutes)", in: page, value: Int32(settings.shortBreakMinutes),
+            min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.shortBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
 
         addStepper(
-            "Long break length (minutes)", in: page, value: Int32(settings.longBreakMinutes),
-            min: 1, max: 180, step: 1, x: Self.rowMargin, y: y, labelWidth: labelWidth
+            "Long break (minutes)", in: page, value: Int32(settings.longBreakMinutes),
+            min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.longBreakMinutes = Double(newValue) }
         }
@@ -1332,14 +1344,15 @@ final class SettingsWindow {
 
         addStepper(
             "Long break every (sessions)", in: page, value: Int32(settings.longBreakEvery),
-            min: 2, max: 10, step: 1, x: Self.rowMargin, y: y, labelWidth: labelWidth
+            min: 2, max: 10, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.longBreakEvery = Int(newValue) }
         }
         y += Self.rowHeight
         addHint("Or click the dots on the widget.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + Self.sectionGap
 
+        y = addSectionHeader("Automation", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Start breaks automatically", in: page, checked: settings.autoStartBreaks,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -1391,16 +1404,15 @@ final class SettingsWindow {
 
     // -- Appearance tab content -----------------------------------------------
 
-    // Mirrors macOS's AppearanceTab's three CardPickerGrid sections (roommate/
-    // window-edge/background) — the theme-preset grid, ink/paper
-    // ChooseColorW pickers, and the size/opacity controls are a separate,
-    // later chunk of this phase (see WINDOWS_PORT_PLAN.md's W7 entry).
+    // Mirrors macOS's AppearanceTab, same section order: what the widget
+    // shows (Roommate, Window edge, Background), then its colors (Theme),
+    // then Size & transparency. Picker grids end with their own 10px cell
+    // gap, hence sectionGap - 10 after each.
     private func buildAppearanceTab(page: HWND, width: Int32) {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        addLabel("Roommate", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += 20
+        y = addSectionHeader("Roommate", in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .friend, items: PomoppiSettings.friendIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
@@ -1419,10 +1431,9 @@ final class SettingsWindow {
         ) { [settingsStore] friend in
             settingsStore.update { $0.friend = friend }
         }
-        y += Self.groupGap
+        y += Self.sectionGap - 10
 
-        addLabel("Window edge", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += 20
+        y = addSectionHeader("Window edge", in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .frameStyle, items: PomoppiSettings.frameStyles, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
@@ -1434,10 +1445,9 @@ final class SettingsWindow {
         ) { [settingsStore] style in
             settingsStore.update { $0.frameStyle = style }
         }
-        y += Self.groupGap
+        y += Self.sectionGap - 10
 
-        addLabel("Background", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += 20
+        y = addSectionHeader("Background", in: page, y: y, width: rowWidth)
         y += addPickerGrid(
             kind: .background, items: PomoppiSettings.backgroundIDs, in: page,
             x: Self.rowMargin, y: y, availableWidth: rowWidth,
@@ -1449,26 +1459,21 @@ final class SettingsWindow {
         ) { [settingsStore] background in
             settingsStore.update { $0.background = background }
         }
-        y += Self.groupGap
+        y += Self.sectionGap - 10
 
-        addLabel("Theme", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += 20
+        y = addSectionHeader("Theme", in: page, y: y, width: rowWidth)
         y += addThemePresetGrid(in: page, x: Self.rowMargin, y: y, availableWidth: rowWidth)
-        y += Self.groupGap
+        addColorPickerRow(label: "Ink", keyPath: \.inkColor, in: page, y: y)
+        y += Self.rowHeight
+        addColorPickerRow(label: "Paper", keyPath: \.paperColor, in: page, y: y)
+        y += Self.rowHeight + Self.sectionGap
 
-        y += addColorPickerRow(label: "Ink", keyPath: \.inkColor, in: page, x: Self.rowMargin, y: y)
-        y += addColorPickerRow(label: "Paper", keyPath: \.paperColor, in: page, x: Self.rowMargin, y: y)
-        y += Self.groupGap
-
-        addLabel("Size & transparency", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += 20
-        y += addScalePicker(in: page, x: Self.rowMargin, y: y)
-        y += addOpacitySlider(in: page, x: Self.rowMargin, y: y)
-        addHint("1× is very small — 104×128 physical pixels.", in: page, x: Self.rowMargin, y: y, width: rowWidth, trackForScroll: true)
-        y += lastHintHeight
-        y += Self.rowMargin
-
-        appearanceContentHeight = y
+        y = addSectionHeader("Size & transparency", in: page, y: y, width: rowWidth)
+        addScalePicker(in: page, y: y)
+        y += Self.rowHeight
+        addOpacitySlider(in: page, y: y)
+        y += Self.rowHeight
+        addHint("1× is very small — 104×128 physical pixels.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
     }
 
     // A plain flow layout (left-to-right, wrapping at `availableWidth`) of
@@ -1516,7 +1521,7 @@ final class SettingsWindow {
             let cardY = y + row * rowHeight
             addPickerCard(kind: kind, itemID: item, in: page, x: cardX, y: cardY, width: cardWidth, height: cardHeight, onSelect: onSelect)
             let labelX = leftAlignLabel ? cardX : cardX - (cellContentWidth - cardWidth) / 2
-            addLabel(displayName(item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: !leftAlignLabel, trackForScroll: true)
+            addLabel(displayName(item), in: page, x: labelX, y: cardY + cardHeight + 2, width: cellContentWidth, height: labelHeight, centered: !leftAlignLabel)
         }
 
         let rowCount = (Int32(items.count) + columns - 1) / columns
@@ -1563,7 +1568,6 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (picker card) failed with error \(GetLastError())")
         }
         pickerCards.append(PickerCardControl(hwnd: button, kind: kind, itemID: itemID))
-        trackAppearanceControl(button, x: x, y: y)
         pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self] in
             onSelect(itemID)
             self?.invalidateAllPickerCards()
@@ -1585,11 +1589,10 @@ final class SettingsWindow {
     }
 
     // The WM_DRAWITEM handler (forwarded here via pomoppiSettingsPageWndProc
-    // + this window's own handleMessage, or built by hand for the scroll
-    // rail — see handleScrollRailPaint): looks up which owner-drawn control
-    // owns the drawn HWND — across all five kinds this tab now has (picker
-    // cards, theme swatches, color-picker swatches, scale options, the
-    // scroll rail) — builds its current appearance fresh from
+    // + this window's own handleMessage): looks up which owner-drawn control
+    // owns the drawn HWND — picker cards, theme swatches, color-picker
+    // swatches, and the segmented scale/scheme/chime options — builds its
+    // current appearance fresh from
     // settingsStore every time (not cached at button-creation time, so a
     // later color/theme change always repaints every dependent control
     // correctly), and draws it plus a selection border where relevant.
@@ -1618,10 +1621,6 @@ final class SettingsWindow {
         }
         if let option = chimeOptions.first(where: { $0.hwnd == hwndItem }) {
             drawChimeOption(option, drawItem: drawItem.pointee)
-            return 1
-        }
-        if let rail = appearanceScrollRail, rail == hwndItem {
-            drawScrollRail(drawItem: drawItem.pointee)
             return 1
         }
         return 0
@@ -1816,7 +1815,6 @@ final class SettingsWindow {
                 fatalError("CreateWindowExW (theme swatch) failed with error \(GetLastError())")
             }
             themeSwatches.append(ThemeSwatchControl(hwnd: button, preset: preset))
-            trackAppearanceControl(button, x: swatchX, y: swatchY)
             pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
                 settingsStore.update {
                     $0.inkColor = preset.ink
@@ -1824,7 +1822,7 @@ final class SettingsWindow {
                 }
                 self?.invalidateEverythingColorDependent()
             }))
-            addLabel(preset.name, in: page, x: swatchX - 7, y: swatchY + swatchSize + 2, width: swatchSize + 14, height: labelHeight, centered: true, trackForScroll: true)
+            addLabel(preset.name, in: page, x: swatchX - 7, y: swatchY + swatchSize + 2, width: swatchSize + 14, height: labelHeight, centered: true)
         }
 
         let rowCount = (Int32(Self.themePresets.count) + columns - 1) / columns
@@ -1865,25 +1863,22 @@ final class SettingsWindow {
     // button showing the current color that opens the Win32 common color
     // dialog (ChooseColorW) on click. `keyPath` is the only thing that
     // differs between the Ink and Paper rows — everything else is shared.
-    @discardableResult
-    private func addColorPickerRow(label: String, keyPath: WritableKeyPath<PomoppiSettings, String>, in page: HWND, x: Int32, y: Int32) -> Int32 {
-        addLabel(label, in: page, x: x, y: y + 3, width: 100, trackForScroll: true)
+    private func addColorPickerRow(label: String, keyPath: WritableKeyPath<PomoppiSettings, String>, in page: HWND, y: Int32) {
+        addLabel(label, in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let swatchWidth: Int32 = 60
         guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
                 DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
-                x + 108, y, swatchWidth, 22,
+                Self.controlX, y, swatchWidth, Self.controlHeight,
                 page, nil, Self.hInstance, nil)
         }) else {
             fatalError("CreateWindowExW (color picker) failed with error \(GetLastError())")
         }
         colorPickers.append(ColorPickerControl(hwnd: button, keyPath: keyPath))
-        trackAppearanceControl(button, x: x + 108, y: y)
         pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self] in
             self?.pickColor(keyPath: keyPath)
         }))
-        return Self.rowHeight
     }
 
     private func drawColorSwatch(_ picker: ColorPickerControl, drawItem: DRAWITEMSTRUCT) {
@@ -1945,31 +1940,27 @@ final class SettingsWindow {
     // plain owner-drawn buttons standing in for the segmented control Win32
     // has no native equivalent of, each showing its own "N×" and a
     // highlighted fill when selected.
-    @discardableResult
-    private func addScalePicker(in page: HWND, x: Int32, y: Int32) -> Int32 {
-        addLabel("Size", in: page, x: x, y: y + 3, width: 100, trackForScroll: true)
+    private func addScalePicker(in page: HWND, y: Int32) {
+        addLabel("Size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let buttonWidth: Int32 = 50
-        let height: Int32 = 24
         let gap: Int32 = 6
         for (index, value) in [1, 2, 3, 4].enumerated() {
-            let bx = x + 108 + Int32(index) * (buttonWidth + gap)
+            let bx = Self.controlX + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, nil,
                     DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
-                    bx, y, buttonWidth, height,
+                    bx, y, buttonWidth, Self.controlHeight,
                     page, nil, Self.hInstance, nil)
             }) else {
                 fatalError("CreateWindowExW (scale option) failed with error \(GetLastError())")
             }
             scaleOptions.append(ScaleOptionControl(hwnd: button, value: value))
-            trackAppearanceControl(button, x: bx, y: y)
             pushButtons.append(PushButtonControl(hwnd: button, onClick: { [weak self, settingsStore] in
                 settingsStore.update { $0.scale = value }
                 self?.invalidateAllScaleOptions()
             }))
         }
-        return height
     }
 
     private func invalidateAllScaleOptions() {
@@ -1978,24 +1969,22 @@ final class SettingsWindow {
         }
     }
 
-    // The Appearance tab's own first section, ahead of Roommate — same 3
-    // owner-drawn segmented buttons as addScalePicker above, just over
-    // PomoppiSettings.colorSchemeIDs instead of the [1,2,3,4] scale values.
-    // A click here also has to re-resolve and re-apply isDarkMode itself
-    // (addScalePicker's onSelect only ever touches PomoppiSettings.scale,
-    // never this window's own dark/light paint), unlike every other
-    // Appearance control's onSelect closure.
-    private func addColorSchemePicker(in page: HWND, x: Int32, y: Int32) -> Int32 {
+    // The General tab's Color scheme section — same owner-drawn segmented
+    // buttons as addScalePicker above, over PomoppiSettings.colorSchemeIDs.
+    // Label-less like macOS's (the section header already names it), so it
+    // starts at rowMargin rather than controlX. A click also has to
+    // re-resolve and re-apply isDarkMode itself, unlike every other
+    // segmented group's onSelect.
+    private func addColorSchemePicker(in page: HWND, y: Int32) {
         let buttonWidth: Int32 = 64
-        let height: Int32 = 24
         let gap: Int32 = 6
         for (index, value) in PomoppiSettings.colorSchemeIDs.enumerated() {
-            let bx = x + Int32(index) * (buttonWidth + gap)
+            let bx = Self.rowMargin + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, nil,
                     DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
-                    bx, y, buttonWidth, height,
+                    bx, y, buttonWidth, Self.controlHeight,
                     page, nil, Self.hInstance, nil)
             }) else {
                 fatalError("CreateWindowExW (color scheme option) failed with error \(GetLastError())")
@@ -2009,7 +1998,6 @@ final class SettingsWindow {
                 self.invalidateAllSchemeOptions()
             }))
         }
-        return height
     }
 
     private func invalidateAllSchemeOptions() {
@@ -2023,19 +2011,18 @@ final class SettingsWindow {
     // instead of colorSchemeIDs. Built from the array rather than hardcoded
     // (same rule CLAUDE.md gives for the friend/background pickers), so a
     // fourth pack needs no changes here.
-    @discardableResult
-    private func addChimePicker(in page: HWND, x: Int32, y: Int32, width: Int32) -> Int32 {
+    private func addChimePicker(in page: HWND, y: Int32, width: Int32) {
+        addLabel("Chime", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let ids = PomoppiSettings.chimeIDs
-        let height: Int32 = 24
         let gap: Int32 = 6
         let buttonWidth = (width - gap * Int32(ids.count - 1)) / Int32(ids.count)
         for (index, value) in ids.enumerated() {
-            let bx = x + Int32(index) * (buttonWidth + gap)
+            let bx = Self.controlX + Int32(index) * (buttonWidth + gap)
             guard let button = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
                 CreateWindowExW(
                     0, classNamePtr.baseAddress, nil,
                     DWORD(WS_CHILD | WS_VISIBLE | BS_OWNERDRAW),
-                    bx, y, buttonWidth, height,
+                    bx, y, buttonWidth, Self.controlHeight,
                     page, nil, Self.hInstance, nil)
             }) else {
                 fatalError("CreateWindowExW (chime option) failed with error \(GetLastError())")
@@ -2052,7 +2039,6 @@ final class SettingsWindow {
                 self?.chimePlayer.play(chime: value, focusEnd: true)
             }))
         }
-        return height
     }
 
     private func invalidateAllChimeOptions() {
@@ -2115,17 +2101,15 @@ final class SettingsWindow {
     // MAKELONG(min, max) packing (unlike UDM_SETRANGE32's separate
     // wParam/lParam), safe to build by hand here since both bounds fit
     // comfortably in 16 bits.
-    @discardableResult
-    private func addOpacitySlider(in page: HWND, x: Int32, y: Int32) -> Int32 {
-        addLabel("Opacity", in: page, x: x, y: y + 3, width: 100, trackForScroll: true)
+    private func addOpacitySlider(in page: HWND, y: Int32) {
+        addLabel("Opacity", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         let settings = settingsStore.get()
         let trackWidth: Int32 = 200
-        let height: Int32 = 24
         guard let trackbar = (Self.trackbarClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
                 DWORD(WS_CHILD | WS_VISIBLE) | DWORD(bitPattern: TBS_HORZ) | DWORD(bitPattern: TBS_AUTOTICKS),
-                x + 108, y, trackWidth, height,
+                Self.controlX, y, trackWidth, Self.controlHeight,
                 page, nil, Self.hInstance, nil)
         }) else {
             fatalError("CreateWindowExW (opacity trackbar) failed with error \(GetLastError())")
@@ -2134,11 +2118,9 @@ final class SettingsWindow {
         SendMessageW(trackbar, UINT(TBM_SETRANGE), WPARAM(1), LPARAM(Int(3) | (Int(10) << 16)))
         SendMessageW(trackbar, UINT(TBM_SETPOS), WPARAM(1), LPARAM(Int((settings.opacity * 10).rounded())))
         opacityTrackbar = trackbar
-        trackAppearanceControl(trackbar, x: x + 108, y: y)
 
         let percent = Int((settings.opacity * 100).rounded())
-        opacityValueLabel = addLabel("\(percent)%", in: page, x: x + 108 + trackWidth + 8, y: y + 4, width: 44, height: 18, trackForScroll: true)
-        return height
+        opacityValueLabel = addLabel("\(percent)%", in: page, x: Self.controlX + trackWidth + 8, y: y + Self.labelNudge, width: 44)
     }
 
     // WM_HSCROLL from the opacity trackbar (forwarded here via
@@ -2221,342 +2203,15 @@ final class SettingsWindow {
         }
     }
 
-    // -- Appearance tab: scrolling ---------------------------------------------
-
-    // Repositions every tracked child to its recorded base position minus
-    // the new scroll offset, rather than ScrollWindowEx's SW_SCROLLCHILDREN
-    // (tried first — see AppearanceControlPosition's own comment for why
-    // that broke live: MSDN documents that SW_SCROLLCHILDREN "does not
-    // properly update the screen" for children straddling the scroll
-    // boundary, and this page's owner-drawn buttons hit exactly that
-    // case, confirmed by a real screenshot showing stale ghosted fragments
-    // after scrolling). Owner-drawn buttons need no changes of their own:
-    // DRAWITEMSTRUCT.rcItem is always in the control's own client-rect
-    // terms, independent of where it currently sits.
-    //
-    // The moves go through one BeginDeferWindowPos/EndDeferWindowPos batch
-    // so Windows repositions all of them in a single pass (every child
-    // shifts by the same delta, so the batch is effectively one region
-    // move): each child's already-painted pixels are copied to its new
-    // spot, only the strips that actually changed get invalidated (the
-    // page background a child vacated, the part of a child that just
-    // scrolled in from outside the page's client area), and the trailing
-    // RDW_UPDATENOW flushes exactly those pending paints synchronously —
-    // so a drag's rapid-fire WM_MOUSEMOVE deltas never queue up behind
-    // posted WM_PAINTs. This used to force a full RDW_INVALIDATE|RDW_ERASE
-    // repaint of the page and every child on every step instead; with the
-    // page erasing straight over its children (no WS_CLIPCHILDREN then)
-    // and every picker card re-rendering its preview from scratch, one
-    // step took several display frames and the erase-then-refill was
-    // visible as flicker throughout a thumb drag. The page's own erase is
-    // now clipped to the gaps between children (WS_CLIPCHILDREN, see
-    // createPage) and card previews are cached (pickerCardCache), so even
-    // the full-repaint paths that remain (applyTheme, a resize) are cheap.
-    private func scrollAppearance(by delta: Int32) {
-        guard let page = appearancePage else { return }
-        var clientRect = RECT()
-        GetClientRect(page, &clientRect)
-        let visibleHeight = clientRect.bottom - clientRect.top
-        let maxScroll = max(0, appearanceContentHeight - visibleHeight)
-        let newScrollY = min(max(0, appearanceScrollY + delta), maxScroll)
-        guard newScrollY != appearanceScrollY else { return }
-        appearanceScrollY = newScrollY
-
-        var batch = BeginDeferWindowPos(Int32(appearanceControlPositions.count))
-        for control in appearanceControlPositions {
-            batch = DeferWindowPos(
-                batch, control.hwnd, nil, control.baseX, control.baseY - newScrollY, 0, 0,
-                UINT(SWP_NOZORDER) | UINT(SWP_NOSIZE) | UINT(SWP_NOACTIVATE))
-        }
-        EndDeferWindowPos(batch)
-        // The rail doesn't move, so nothing above invalidated it — its
-        // thumb still has to be repainted at the new offset. No erase:
-        // drawScrollRail repaints the full track itself, and an erase
-        // first would just be one more blank-then-refill flash per step.
-        if let rail = appearanceScrollRail {
-            InvalidateRect(rail, nil, false)
-        }
-        RedrawWindow(page, nil, nil, UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
-    }
-
-    // WM_MOUSEWHEEL isn't a scrollbar notification at all — it's delivered
-    // straight to whichever HWND currently owns keyboard focus (the
-    // Appearance page's own owner-drawn buttons grab focus on click, same
-    // as any BUTTON-derived control), *not* whatever the cursor happens to
-    // be hovering. This app never has to chase that down by hand, though:
-    // DefWindowProc itself walks an unhandled WM_MOUSEWHEEL up the parent
-    // chain automatically (a real, documented Win32 behavior, not
-    // something this app opts into), so neither pomoppiSettingsPageWndProc
-    // nor any owner-drawn button needs its own forwarding case for this
-    // message the way WM_COMMAND/WM_NOTIFY/WM_HSCROLL above do — it simply
-    // arrives here once it bubbles all the way up to the top-level window.
-    // Guarded to the Appearance page specifically so the exact same
-    // message, delivered while any other tab happens to have focus, is a
-    // no-op rather than silently repositioning an invisible page's
-    // controls.
-    private func handleMouseWheel(wParam: WPARAM, lParam: LPARAM) -> LRESULT {
-        guard let appearancePage, IsWindowVisible(appearancePage) else {
-            return DefWindowProcW(hwnd, UINT(WM_MOUSEWHEEL), wParam, lParam)
-        }
-        // GET_WHEEL_DELTA_WPARAM: wParam's high word, a *signed* 16-bit
-        // multiple of WHEEL_DELTA (120) per notch — reconstructed via
-        // Int16(bitPattern:) rather than this file's usual
-        // Int32(truncatingIfNeeded:) idiom (see handleCommand's
-        // notificationCode extraction for that one) since that one doesn't
-        // sign-extend a 16-bit negative value out of a 32-bit unsigned
-        // intermediate. Positive = wheel rotated forward/away from the
-        // user; that sign already reflects whatever scroll-direction
-        // preference the user has set system-wide (mouse wheel settings,
-        // or a touchpad driver's own "reverse scrolling" toggle) —
-        // forwarded through unmodified into scrollAppearance's existing
-        // up=negative/down=positive convention, so forward/positive
-        // decreases the offset, matching every other scroll entry point
-        // (the rail's own drag/track-click below included) without this
-        // code re-deciding direction.
-        let highWord = UInt16(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
-        let notches = Double(Int16(bitPattern: highWord)) / 120.0
-        // 60px per notch — tuned by feel against a real wheel in the VM,
-        // not a derived value.
-        scrollAppearance(by: Int32((-notches * 60).rounded()))
-        return 0
-    }
-
-    // -- Appearance tab: scroll rail ---------------------------------------
-
-    // Reuses the exact gutter width buildAppearanceTab's caller already
-    // reserved for a scrollbar (see createPage's Appearance case) —
-    // spanning the page's own full visible height, flush against its right
-    // edge. Not tracked via trackAppearanceControl: every other control on
-    // this page scrolls with the content, but the rail itself is the thing
-    // doing the scrolling and must stay put.
-    private func createAppearanceScrollRail(page: HWND, pageWidth: Int32, pageHeight: Int32) {
-        let railWidth = GetSystemMetrics(SM_CXVSCROLL)
-        guard let rail = (Self.scrollRailClassName.withUnsafeBufferPointer { classNamePtr in
-            CreateWindowExW(
-                0, classNamePtr.baseAddress, nil,
-                DWORD(WS_CHILD | WS_VISIBLE),
-                pageWidth - railWidth, 0, railWidth, pageHeight,
-                page, nil, Self.hInstance, nil)
-        }) else {
-            fatalError("CreateWindowExW (scroll rail) failed with error \(GetLastError())")
-        }
-        appearanceScrollRail = rail
-    }
-
-    // Same three numbers SetScrollInfo used to receive before this control
-    // replaced the native scrollbar (content height, current scroll
-    // offset, and the page's own visible height — here just `visibleHeight`
-    // since the rail is always resized to exactly match it, see
-    // createAppearanceScrollRail/handleResize) — shared by the paint
-    // handler (draws the thumb) and the mouse-down handler (hit-tests
-    // against it) so painting and interaction can never disagree about
-    // where the thumb actually is.
-    private func railThumbRect(visibleHeight: Int32) -> RECT {
-        let railWidth = GetSystemMetrics(SM_CXVSCROLL)
-        let metrics = railMetrics(visibleHeight: visibleHeight)
-        guard metrics.maxScroll > 0 else {
-            // Nothing to scroll: a full-height thumb reads as "everything
-            // is already visible" rather than an oddly-floating short one
-            // sitting at the top of an otherwise-empty rail.
-            return RECT(left: 0, top: 0, right: railWidth, bottom: visibleHeight)
-        }
-        let thumbY = (metrics.travel * appearanceScrollY) / metrics.maxScroll
-        return RECT(left: 0, top: thumbY, right: railWidth, bottom: thumbY + metrics.thumbHeight)
-    }
-
-    // The thumb-to-content ratio railThumbRect maps the scroll offset
-    // through (offset -> thumb top) and handleScrollRailMouseMove maps
-    // back through (thumb top -> offset) — one place for the math so the
-    // two directions can't drift apart. `travel` is how far the thumb's
-    // top edge can move (rail height minus thumb height); it covers
-    // `maxScroll` pixels of content.
-    private func railMetrics(visibleHeight: Int32) -> (maxScroll: Int32, thumbHeight: Int32, travel: Int32) {
-        let contentHeight = max(appearanceContentHeight, visibleHeight)
-        let maxScroll = contentHeight - visibleHeight
-        let minThumbHeight: Int32 = 24
-        let thumbHeight = min(visibleHeight, max(minThumbHeight, visibleHeight * visibleHeight / contentHeight))
-        return (maxScroll, thumbHeight, visibleHeight - thumbHeight)
-    }
-
-    // hwnd here is always appearanceScrollRail itself (pomoppiScrollRailWndProc
-    // already guarded that before calling in) — threaded through as a
-    // parameter anyway rather than force-unwrapping the instance property
-    // again in every case below.
-    func handleScrollRailMessage(hwnd: HWND, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
-        switch Int32(message) {
-        case WM_PAINT:
-            handleScrollRailPaint(hwnd: hwnd)
-            return 0
-        case WM_LBUTTONDOWN:
-            handleScrollRailMouseDown(hwnd: hwnd, lParam: lParam)
-            return 0
-        case WM_MOUSEMOVE:
-            handleScrollRailMouseMove(hwnd: hwnd, lParam: lParam)
-            return 0
-        case WM_LBUTTONUP:
-            handleScrollRailMouseUp()
-            return 0
-        default:
-            return DefWindowProcW(hwnd, message, wParam, lParam)
-        }
-    }
-
-    // Builds a real DRAWITEMSTRUCT by hand and hands it to handleDrawItem
-    // exactly like a genuine WM_DRAWITEM would carry one — this control is
-    // its own window class rather than a stock owner-draw BUTTON (see
-    // pomoppiScrollRailWndProc's comment), so nothing generates that
-    // message for it automatically; building one here is simpler than
-    // teaching handleDrawItem a second, rail-specific entry point.
-    private func handleScrollRailPaint(hwnd: HWND) {
-        var paint = PAINTSTRUCT()
-        guard let hdc = BeginPaint(hwnd, &paint) else { return }
-        defer { EndPaint(hwnd, &paint) }
-        var clientRect = RECT()
-        GetClientRect(hwnd, &clientRect)
-        var drawItem = DRAWITEMSTRUCT()
-        drawItem.hwndItem = hwnd
-        drawItem.hDC = hdc
-        drawItem.rcItem = clientRect
-        withUnsafeMutablePointer(to: &drawItem) { ptr in
-            _ = handleDrawItem(lParam: LPARAM(Int(bitPattern: ptr)))
-        }
-    }
-
-    // WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP pack client-area coordinates
-    // into lParam as two signed 16-bit words (the GET_X_LPARAM/GET_Y_LPARAM
-    // macros, which don't import into Swift — see WidgetInput.swift's own
-    // logicalPoint for the same story); only Y matters here, the rail is a
-    // vertical strip with no horizontal hit-testing of its own.
-    private func railMouseY(fromLParam lParam: LPARAM) -> Int32 {
-        let raw = UInt32(truncatingIfNeeded: lParam)
-        return Int32(Int16(bitPattern: UInt16(truncatingIfNeeded: raw >> 16)))
-    }
-
-    // Hit-tests against the thumb rect painting already uses: inside it
-    // starts a drag (SetCapture so WM_MOUSEMOVE keeps arriving here even
-    // once the cursor wanders outside the rail's own narrow strip
-    // mid-drag), above/below it pages up/down exactly like SB_PAGEUP/
-    // SB_PAGEDOWN used to.
-    private func handleScrollRailMouseDown(hwnd: HWND, lParam: LPARAM) {
-        var clientRect = RECT()
-        GetClientRect(hwnd, &clientRect)
-        let visibleHeight = clientRect.bottom - clientRect.top
-        let y = railMouseY(fromLParam: lParam)
-        let thumb = railThumbRect(visibleHeight: visibleHeight)
-        if y >= thumb.top && y < thumb.bottom {
-            railDragging = true
-            railGrabOffset = y - thumb.top
-            SetCapture(hwnd)
-        } else if y < thumb.top {
-            scrollAppearance(by: -visibleHeight)
-        } else {
-            scrollAppearance(by: visibleHeight)
-        }
-    }
-
-    // The thumb follows the cursor, the way a native scrollbar's does:
-    // the point grabbed on mouse-down (railGrabOffset, measured from the
-    // thumb's top edge) stays under the cursor, and the thumb's new top
-    // edge maps back to a content offset through railMetrics' ratio. This
-    // used to pass the raw cursor delta straight into scrollAppearance as
-    // a content delta instead — which made the thumb fall behind the
-    // cursor by exactly the content/rail ratio on every drag, so a full
-    // top-to-bottom drag needed the cursor to travel the whole content
-    // height. Absolute rather than incremental so a cursor that wandered
-    // past the rail's ends (SetCapture keeps the moves coming) snaps
-    // straight back into sync once it returns, no accumulated drift;
-    // scrollAppearance's own clamp handles the out-of-range part.
-    private func handleScrollRailMouseMove(hwnd: HWND, lParam: LPARAM) {
-        guard railDragging else { return }
-        var clientRect = RECT()
-        GetClientRect(hwnd, &clientRect)
-        let metrics = railMetrics(visibleHeight: clientRect.bottom - clientRect.top)
-        guard metrics.travel > 0 else { return }
-        let thumbTop = railMouseY(fromLParam: lParam) - railGrabOffset
-        let target = (thumbTop * metrics.maxScroll) / metrics.travel
-        scrollAppearance(by: target - appearanceScrollY)
-    }
-
-    private func handleScrollRailMouseUp() {
-        guard railDragging else { return }
-        railDragging = false
-        ReleaseCapture()
-    }
-
-    // Painted through the exact same WM_DRAWITEM/handleDrawItem path as
-    // every other owner-drawn control on this tab, reusing
-    // drawSelectionBorder's "1px shadow / 2px highlight" grammar for the
-    // thumb rather than inventing new chrome.
-    private func drawScrollRail(drawItem: DRAWITEMSTRUCT) {
-        let hdc = drawItem.hDC
-        var rect = drawItem.rcItem
-        // COLOR_SCROLLBAR — the actual system scrollbar-track color,
-        // distinct from COLOR_BTNFACE/button-face gray — rather than the
-        // page's own background fill, which made the rail barely read as
-        // a scrollbar element at all. Flat fill only, no DrawEdge: the
-        // user's explicit ask was a plain gray track with no 3D bevel,
-        // leaving the raised-bevel treatment to the thumb alone below.
-        if let trackBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkScrollTrackHex) : GetSysColor(COLOR_SCROLLBAR)) {
-            FillRect(hdc, &rect, trackBrush)
-            DeleteObject(trackBrush)
-        }
-        var thumbRect = railThumbRect(visibleHeight: rect.bottom - rect.top)
-        // darkElevatedHex rather than darkBackgroundHex for the thumb —
-        // the plain background color would make it blend straight into
-        // the track it's meant to stand out against.
-        if let thumbBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: Self.darkElevatedHex) : GetSysColor(COLOR_BTNHIGHLIGHT)) {
-            FillRect(hdc, &thumbRect, thumbBrush)
-            DeleteObject(thumbBrush)
-        }
-        drawSelectionBorder(hdc: hdc, rect: thumbRect, isSelected: false)
-        drawScrollRailGrip(hdc: hdc, thumbRect: thumbRect)
-    }
-
-    // The classic Win32-era "something to grab here" decoration — three
-    // short horizontal bars centered in the thumb, the same drag-handle
-    // texture old toolbar handles/splitter bars used. Drawn in a shade
-    // darker than the thumb fill for contrast (COLOR_BTNSHADOW in light
-    // mode; darkBackgroundHex reused in dark mode since it's darker than
-    // the thumb's own darkElevatedHex fill). Skipped on a thumb too short
-    // to have room for it — in practice railThumbRect's own minThumbHeight
-    // (24px) never shrinks below this guard, so the grip is effectively
-    // unconditional today, but the guard stays in case that constant ever
-    // changes.
-    private func drawScrollRailGrip(hdc: HDC?, thumbRect: RECT) {
-        let thumbHeight = thumbRect.bottom - thumbRect.top
-        guard thumbHeight >= 20 else { return }
-        let thumbWidth = thumbRect.right - thumbRect.left
-        let lineWidth = max(4, thumbWidth / 2)
-        let lineLeft = thumbRect.left + (thumbWidth - lineWidth) / 2
-        let lineRight = lineLeft + lineWidth
-        let centerY = (thumbRect.top + thumbRect.bottom) / 2
-        let spacing: Int32 = 3
-        guard let gripBrush = CreateSolidBrush(isDarkMode ? Self.colorref(hex: WindowsTheme.darkBackgroundHex) : GetSysColor(COLOR_BTNSHADOW)) else { return }
-        for offset: Int32 in [-spacing, 0, spacing] {
-            var lineRect = RECT(left: lineLeft, top: centerY + offset, right: lineRight, bottom: centerY + offset + 1)
-            FillRect(hdc, &lineRect, gripBrush)
-        }
-        DeleteObject(gripBrush)
-    }
-
-    // Mirrors macOS's GeneralTab: Color scheme (moved in from Appearance,
-    // SETTINGS_PLAN.md S2 — it governs Pomoppi's own windows' chrome, never
-    // the widget), then widget behavior, the reverseTrayClick swap (added
-    // in Phase W2b), then startup checkboxes.
+    // Mirrors macOS's GeneralTab, same section order: how the widget
+    // behaves (Widget, Tray icon, Startup) first, then Pomoppi's own window
+    // chrome (Color scheme), then maintenance (Updates, Reset).
     private func buildGeneralTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        addLabel("Color scheme", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
-        y += addColorSchemePicker(in: page, x: Self.rowMargin, y: y)
-        addHint(
-            "Applies to Pomoppi's own windows. The widget's colors are under Appearance.",
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
-        y += lastHintHeight + Self.groupGap
-
+        y = addSectionHeader("Widget", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Keep the widget on top of other windows", in: page, checked: settings.alwaysOnTop,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -2564,18 +2219,17 @@ final class SettingsWindow {
             settingsStore.update { $0.alwaysOnTop = checked }
         }
         y += Self.rowHeight
-
         addCheckbox(
             "Pop to the front when a session ends", in: page, checked: settings.raiseOnEnd,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.raiseOnEnd = checked }
         }
-        y += Self.rowHeight + Self.groupGap
+        y += Self.rowHeight + Self.sectionGap
 
-        // macOS's copy says "menu bar icon" — adapted to "tray icon" here,
-        // the term this codebase's own TrayController already uses, since
-        // Windows has no menu bar.
+        // macOS says "menu bar icon"; Windows has no menu bar, and "tray
+        // icon" is what TrayController already calls it.
+        y = addSectionHeader("Tray icon", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Swap the tray icon's left and right clicks", in: page, checked: settings.reverseTrayClick,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -2585,8 +2239,9 @@ final class SettingsWindow {
         }
         y += Self.rowHeight
         trayClickHintLabel = addHint(Self.trayClickHintText(reversed: settings.reverseTrayClick), in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + Self.sectionGap
 
+        y = addSectionHeader("Startup", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Open Pomoppi when I log in", in: page, checked: settings.launchAtLogin,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -2594,7 +2249,6 @@ final class SettingsWindow {
             settingsStore.update { $0.launchAtLogin = checked }
         }
         y += Self.rowHeight
-
         addCheckbox(
             "Start without showing the widget", in: page, checked: settings.startHidden,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -2606,11 +2260,18 @@ final class SettingsWindow {
             "Launch at login only registers when Pomoppi is running as an installed app. \u{201C}Start hidden\u{201D} applies the next time Pomoppi launches.",
             in: page, x: Self.rowMargin, y: y, width: rowWidth
         )
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + Self.sectionGap
 
-        addLabel("Updates", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
+        y = addSectionHeader("Color scheme", in: page, y: y, width: rowWidth)
+        addColorSchemePicker(in: page, y: y)
+        y += Self.rowHeight
+        addHint(
+            "Applies to Pomoppi's own windows. The widget's colors are under Appearance.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
+        y += lastHintHeight + Self.sectionGap
 
+        y = addSectionHeader("Updates", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Automatically check for updates", in: page, checked: settings.checkForUpdates,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -2618,16 +2279,16 @@ final class SettingsWindow {
             settingsStore.update { $0.checkForUpdates = checked }
         }
         y += Self.rowHeight
+        addUpdateStatusRow(in: page, y: y)
+        y += Self.rowHeight
         addHint("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + 6
+        y += lastHintHeight + Self.sectionGap
 
-        y += addUpdateStatusRow(in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += Self.groupGap
-
-        addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 160, height: 24) { [weak self] in
+        y = addSectionHeader("Reset", in: page, y: y, width: rowWidth)
+        addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 160, height: Self.controlHeight) { [weak self] in
             self?.confirmResetToDefaults()
         }
-        y += 24
+        y += Self.rowHeight
         addHint(
             "Erases every setting and your whole session history, and puts Pomoppi back to how it shipped.",
             in: page, x: Self.rowMargin, y: y, width: rowWidth
@@ -2674,7 +2335,7 @@ final class SettingsWindow {
         // wires to re-apply the widget, global shortcuts, login item and
         // update checking live (no restart). Every control on this window
         // bakes its value in at creation though, so rebuild() tears the
-        // whole tab control/pages/footer down and puts them back at the
+        // whole tab control and its pages down and puts them back at the
         // fresh defaults.
         sessionLogger.eraseAllSync()
         settingsStore.reset()
@@ -2722,11 +2383,7 @@ final class SettingsWindow {
         lastHintHeight = 18
         updatesVersionLabel = nil
         updatesActionButton = nil
-        appearancePage = nil
-        appearanceContentHeight = 0
-        appearanceScrollY = 0
-        appearanceControlPositions = []
-        appearanceScrollRail = nil
+        pageScroll = [:]
         keysPage = nil
 
         // colorScheme may itself have just reset to "auto" — re-derive
@@ -2737,39 +2394,40 @@ final class SettingsWindow {
         applyTheme()
     }
 
-    // Mirrors macOS's SoundTab: a chime toggle, a Chime picker (selecting
-    // an option previews it immediately, no separate Play/Test button),
-    // and a ring-length stepper — ringSeconds governs the visual ring
-    // only, never audio (SPEC.md §4), so it stays enabled regardless of
-    // the checkbox, matching macOS's own ungating.
+    // Mirrors macOS's SoundTab: a Chime section (toggle, picker — selecting
+    // an option previews it, no separate Play/Test button) and a Ring
+    // section. ringSeconds governs the visual ring only, never audio
+    // (SPEC.md §4), so it stays enabled regardless of the checkbox.
     private func buildSoundTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
-        let checkboxY = Self.rowMargin
-        let chimeY = checkboxY + Self.rowHeight
-        let stepperY = chimeY + Self.rowHeight
+        var y = Self.rowMargin
 
-        addStepper(
-            "Keep ringing for (seconds)", in: page, value: Int32(settings.ringSeconds),
-            min: 0, max: 60, step: 5, x: Self.rowMargin, y: stepperY, labelWidth: 220
-        ) { [settingsStore] newValue in
-            settingsStore.update { $0.ringSeconds = Double(newValue) }
-        }
-
+        y = addSectionHeader("Chime", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Play a chime when a session ends", in: page, checked: settings.soundEnabled,
-            x: Self.rowMargin, y: checkboxY, width: rowWidth
+            x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.soundEnabled = checked }
         }
+        y += Self.rowHeight
+        addChimePicker(in: page, y: y, width: 250)
+        y += Self.rowHeight
+        addHint("Selecting a chime plays it.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += lastHintHeight + Self.sectionGap
 
-        let chimeLabelWidth: Int32 = 100
-        let chimePickerWidth: Int32 = 250
-        addLabel("Chime", in: page, x: Self.rowMargin, y: chimeY + 3, width: chimeLabelWidth)
-        let chimePickerX = Self.rowMargin + chimeLabelWidth + 8
-        addChimePicker(in: page, x: chimePickerX, y: chimeY, width: chimePickerWidth)
-
-        addHint("Selecting a chime plays it.", in: page, x: Self.rowMargin, y: stepperY + Self.rowHeight, width: rowWidth)
+        y = addSectionHeader("Ring", in: page, y: y, width: rowWidth)
+        addStepper(
+            "Keep ringing for (seconds)", in: page, value: Int32(settings.ringSeconds),
+            min: 0, max: 60, step: 5, y: y
+        ) { [settingsStore] newValue in
+            settingsStore.update { $0.ringSeconds = Double(newValue) }
+        }
+        y += Self.rowHeight
+        addHint(
+            "How long the widget keeps ringing when a session ends, with or without the chime.",
+            in: page, x: Self.rowMargin, y: y, width: rowWidth
+        )
     }
 
     // Mirrors macOS's KeysTab/ShortcutRow (SettingsView.swift): one row per
@@ -2783,18 +2441,14 @@ final class SettingsWindow {
         keysPage = page
         let bindings = settingsStore.get().shortcuts
         let rowWidth = width - 2 * Self.rowMargin
-        let labelWidth: Int32 = 300
-        let buttonWidth: Int32 = 140
         var y = Self.rowMargin
 
-        addLabel("Global shortcuts", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
-
+        y = addSectionHeader("Global shortcuts", in: page, y: y, width: rowWidth)
         for action in Shortcuts.actions {
-            addLabel(action.label, in: page, x: Self.rowMargin, y: y + 3, width: labelWidth)
+            addLabel(action.label, in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
             let button = addButton(
                 Shortcuts.displayWindows(bindings[action.id] ?? ""),
-                in: page, x: Self.rowMargin + labelWidth + 8, y: y, width: buttonWidth, height: 22
+                in: page, x: Self.controlX, y: y, width: 160, height: Self.controlHeight
             ) { [weak self] in
                 self?.toggleShortcutRecording(actionID: action.id)
             }
@@ -2805,26 +2459,25 @@ final class SettingsWindow {
             "These fire even while Pomoppi isn’t the frontmost app. A shortcut needs a modifier; two actions can’t share the same combo.",
             in: page, x: Self.rowMargin, y: y, width: rowWidth
         )
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + 6
 
-        // Wider than the shortcut recorder buttons above: "Restore Default
-        // Shortcuts" doesn't fit their fixed 140px, so this one sizes to
-        // its own text instead (same measureTextWidth addPickerGrid's label
-        // column already uses, not a second guessed constant).
+        // Sized to its own text: the recorder buttons' fixed width is too
+        // narrow for this label.
         let resetButtonWidth = measureTextWidth("Restore Default Shortcuts") + 24
-        addButton("Restore Default Shortcuts", in: page, x: Self.rowMargin, y: y, width: resetButtonWidth, height: 24) { [weak self] in
+        addButton("Restore Default Shortcuts", in: page, x: Self.rowMargin, y: y, width: resetButtonWidth, height: Self.controlHeight) { [weak self] in
             self?.resetShortcutsToDefaults()
         }
-        y += 24 + Self.groupGap
+        y += Self.rowHeight + Self.sectionGap
 
-        addLabel("While the widget is focused", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
-
+        // Action left, keys in the control column, same as macOS's
+        // LabeledContent rows.
+        y = addSectionHeader("While the widget is focused", in: page, y: y, width: rowWidth)
         for binding in Self.widgetKeyBindings {
-            addLabel(binding.keys, in: page, x: Self.rowMargin, y: y, width: 140)
-            addLabel(binding.action, in: page, x: Self.rowMargin + 148, y: y, width: rowWidth - 148)
-            y += 20
+            addLabel(binding.action, in: page, x: Self.rowMargin, y: y, width: Self.labelColumnWidth - 8)
+            addLabel(binding.keys, in: page, x: Self.controlX, y: y, width: rowWidth - Self.labelColumnWidth)
+            y += 22
         }
+        y += 4
         addHint("Fixed keys. They only fire while the widget window itself has focus.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
     }
 
@@ -2860,11 +2513,10 @@ final class SettingsWindow {
     private func buildDiaryTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
+        let valueWidth = rowWidth - Self.labelColumnWidth
         var y = Self.rowMargin
 
-        addLabel("Session history", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
-
+        y = addSectionHeader("Session history", in: page, y: y, width: rowWidth)
         addCheckbox(
             "Record every session", in: page, checked: settings.loggingEnabled,
             x: Self.rowMargin, y: y, width: rowWidth
@@ -2873,58 +2525,50 @@ final class SettingsWindow {
             self?.refreshAskForTaskHint(loggingEnabled: checked)
         }
         y += Self.rowHeight
-
-        sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        addLabel("History size", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth)
         y += Self.rowHeight
-
-        addButton("Erase History…", in: page, x: Self.rowMargin, y: y, width: 180, height: 24) { [weak self] in
+        addButton("Erase History…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.confirmEraseSessionLog()
         }
-        y += 24
+        y += Self.rowHeight
         addHint(
             "Pomoppi's own record of every session, kept on this computer. Erasing it can't be undone.",
             in: page, x: Self.rowMargin, y: y, width: rowWidth
         )
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + Self.sectionGap
 
-        addLabel("Export", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
-
-        diarySessionCountLabel = addLabel(
-            Self.sessionCountText(sessionLogger.allSessionsSync().count),
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
-        )
+        y = addSectionHeader("Export", in: page, y: y, width: rowWidth)
+        addLabel("Sessions recorded", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        diarySessionCountLabel = addLabel("\(sessionLogger.allSessionsSync().count)", in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth)
         y += Self.rowHeight
-
-        addButton("Export Diary…", in: page, x: Self.rowMargin, y: y, width: 140, height: 24) { [weak self] in
+        addButton("Export Diary…", in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.exportDiary()
         }
-        y += 24 + 4
+        y += Self.rowHeight
+        diaryExportStatusLabel = addHint("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += lastHintHeight + Self.sectionGap
 
-        diaryExportStatusLabel = addLabel("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += Self.rowHeight + Self.groupGap
-
-        addLabel("Sync to folder", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += 20
-
+        y = addSectionHeader("Sync to folder", in: page, y: y, width: rowWidth)
+        addLabel("Diary folder", in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        // Path ellipsis keeps a long path on one line, like macOS's
+        // head-truncated LabeledContent.
         diaryFolderLabel = addLabel(
             Self.folderDisplayText(settings.diaryFolderPath),
-            in: page, x: Self.rowMargin, y: y, width: rowWidth
+            in: page, x: Self.controlX, y: y + Self.labelNudge, width: valueWidth, pathEllipsis: true
         )
         y += Self.rowHeight
-
-        addButton("Choose…", in: page, x: Self.rowMargin, y: y, width: 100, height: 24) { [weak self] in
+        addButton("Choose…", in: page, x: Self.rowMargin, y: y, width: 100, height: Self.controlHeight) { [weak self] in
             self?.chooseDiaryFolder()
         }
-        let syncButton = addButton("Sync Now", in: page, x: Self.rowMargin + 108, y: y, width: 100, height: 24) { [weak self] in
+        let syncButton = addButton("Sync Now", in: page, x: Self.rowMargin + 108, y: y, width: 100, height: Self.controlHeight) { [weak self] in
             self?.syncDiaryNow()
         }
         diarySyncButton = syncButton
         // Matches macOS's `.disabled(viewModel.settings.diaryFolderPath.isEmpty)`.
         EnableWindow(syncButton, !settings.diaryFolderPath.isEmpty)
-        y += 24 + 4
-
-        diarySyncStatusLabel = addLabel("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += Self.rowHeight
+        diarySyncStatusLabel = addHint("", in: page, x: Self.rowMargin, y: y, width: rowWidth)
     }
 
     // MessageBoxW blocks the message loop until dismissed — same "modal,
@@ -2945,7 +2589,7 @@ final class SettingsWindow {
             setWindowText(label, Self.formatHistorySize(sessionLogger.fileSizeBytes()))
         }
         if let diarySessionCountLabel {
-            setWindowText(diarySessionCountLabel, Self.sessionCountText(sessionLogger.allSessionsSync().count))
+            setWindowText(diarySessionCountLabel, "\(sessionLogger.allSessionsSync().count)")
         }
     }
 
@@ -2955,21 +2599,17 @@ final class SettingsWindow {
         // which looks like the erase didn't work. Bytes below 1 KB, then
         // KB, then MB.
         if bytes < 1024 {
-            return "History size: \(bytes) bytes"
+            return "\(bytes) bytes"
         }
         let kb = Double(bytes) / 1024
         if kb < 1024 {
-            return "History size: \(Int(kb.rounded())) KB"
+            return "\(Int(kb.rounded())) KB"
         }
-        return "History size: \(String(format: "%.1f", kb / 1024)) MB"
-    }
-
-    private static func sessionCountText(_ count: Int) -> String {
-        "Sessions recorded: \(count)"
+        return "\(String(format: "%.1f", kb / 1024)) MB"
     }
 
     private static func folderDisplayText(_ path: String) -> String {
-        path.isEmpty ? "Diary folder: Not set" : "Diary folder: \(path)"
+        path.isEmpty ? "Not set" : path
     }
 
     private func exportDiary() {
@@ -3258,10 +2898,7 @@ final class SettingsWindow {
         SendMessageW(hwnd, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: font)), LPARAM(1))
     }
 
-    // `trackForScroll` opts this specific call into the Appearance page's
-    // own manual-scroll bookkeeping (see AppearanceControlPosition) — every
-    // other tab leaves it at the default `false` since only Appearance
-    // ever moves its children after creation. SS_NOPREFIX is always on:
+    // SS_NOPREFIX is always on:
     // STATIC text otherwise treats a bare '&' as an Alt-mnemonic marker —
     // consumed rather than drawn, with an underline moved onto whatever
     // character follows it — confirmed live via "Size & transparency"
@@ -3269,9 +2906,9 @@ final class SettingsWindow {
     // meant to carry a keyboard mnemonic, so this is unconditional rather
     // than something each call site has to remember to ask for.
     @discardableResult
-    private func addLabel(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 18, centered: Bool = false, trackForScroll: Bool = false) -> HWND {
+    private func addLabel(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, height: Int32 = 18, centered: Bool = false, pathEllipsis: Bool = false) -> HWND {
         let wide = Array(text.utf16) + [0]
-        let alignmentStyle: Int32 = (centered ? SS_CENTER : 0) | SS_NOPREFIX
+        let alignmentStyle: Int32 = (centered ? SS_CENTER : 0) | (pathEllipsis ? SS_PATHELLIPSIS : 0) | SS_NOPREFIX
         guard let label = (Self.staticClassName.withUnsafeBufferPointer { classNamePtr in
             wide.withUnsafeBufferPointer { textPtr in
                 CreateWindowExW(
@@ -3284,35 +2921,49 @@ final class SettingsWindow {
             fatalError("CreateWindowExW (label) failed with error \(GetLastError())")
         }
         applyDefaultFont(label)
-        if trackForScroll {
-            trackAppearanceControl(label, x: x, y: y)
-        }
         return label
     }
+
+    // A section's bold title, standing in for a macOS Form Section header.
+    // Returns the y where the section's first row starts.
+    private func addSectionHeader(_ text: String, in page: HWND, y: Int32, width: Int32) -> Int32 {
+        let label = addLabel(text, in: page, x: Self.rowMargin, y: y, width: width)
+        if let headerFont = Self.headerFont {
+            SendMessageW(label, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: headerFont)), LPARAM(1))
+        }
+        return y + Self.headerHeight
+    }
+
+    // DEFAULT_GUI_FONT in bold, built once for the process's lifetime (a
+    // font handed to WM_SETFONT must outlive the control, same as hintFont).
+    private static let headerFont: HFONT? = {
+        guard let stockFont = GetStockObject(DEFAULT_GUI_FONT) else { return nil }
+        var logFont = LOGFONTW()
+        guard GetObjectW(stockFont, Int32(MemoryLayout<LOGFONTW>.size), &logFont) != 0 else { return nil }
+        logFont.lfWeight = 700
+        return CreateFontIndirectW(&logFont)
+    }()
 
     // Windows' counterpart to macOS Form's `footer:` (SPEC.md §7's
     // hint-footer rule: every hint is a footer under its control, never a
     // disclosure, never a tooltip) — SETTINGS_PLAN.md's S4. Built on
-    // addLabel above (SS_NOPREFIX and optional scroll-tracking both come
-    // free), swaps in the smaller hintFont, and registers into hintLabels
+    // addLabel above (SS_NOPREFIX comes free), swaps in the smaller hintFont, and registers into hintLabels
     // so handleCtlColor knows to paint this one dimmer than an ordinary
     // label, in both themes. Height is measured, not guessed: some hints
     // in the target tab map (SETTINGS_PLAN.md) wrap to two lines at this
-    // window's row width and some don't, and this window's non-Appearance
-    // pages have no scroll to fall back on if a fixed guess undershoots —
-    // confirmed live (the General tab's Reset hint clipped clean off the
-    // bottom of the page under a first pass that used one flat height for
-    // every hint regardless of its own text). `lastHintHeight` is what the
+    // window's row width and some don't, and a fixed guess that
+    // undershoots clips the hint's last line (confirmed live on the General
+    // tab's Reset hint under a first pass with one flat height). `lastHintHeight` is what the
     // height came out to, for the call site's own y += bookkeeping right
     // after — the same "cache it on self, read it back" shape
     // opacityValueLabel/sessionHistorySizeLabel already use for a value a later
     // step needs, rather than turning every add* call site here into a
     // tuple destructure.
     @discardableResult
-    private func addHint(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32, trackForScroll: Bool = false) -> HWND {
+    private func addHint(_ text: String, in page: HWND, x: Int32, y: Int32, width: Int32) -> HWND {
         let height = Self.measuredHintHeight(text, width: width)
         lastHintHeight = height
-        let label = addLabel(text, in: page, x: x, y: y, width: width, height: height, trackForScroll: trackForScroll)
+        let label = addLabel(text, in: page, x: x, y: y, width: width, height: height)
         if let hintFont = Self.hintFont {
             SendMessageW(label, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: hintFont)), LPARAM(1))
         }
@@ -3373,7 +3024,7 @@ final class SettingsWindow {
     // text is the control's label, no separate STATIC needed.
     private func addCheckbox(
         _ text: String, in page: HWND, checked: Bool,
-        x: Int32, y: Int32, width: Int32, height: Int32 = 22,
+        x: Int32, y: Int32, width: Int32, height: Int32 = SettingsWindow.controlHeight,
         onToggle: @escaping (Bool) -> Void
     ) {
         let wide = Array(text.utf16) + [0]
@@ -3433,15 +3084,17 @@ final class SettingsWindow {
     // (arrows, or our own UDM_SETPOS32 calls) — but that sync is one-way,
     // reading the edit back after direct typing is on us (see
     // commitTypedStepperValue below).
+    // Label at rowMargin, edit + up-down in the shared control column.
     @discardableResult
     private func addStepper(
         _ label: String, in page: HWND, value: Int32, min: Int32, max: Int32, step: Int32,
-        x: Int32, y: Int32, labelWidth: Int32, editWidth: Int32 = 55, height: Int32 = 22,
+        y: Int32, editWidth: Int32 = 60,
         onChange: @escaping (Int32) -> Void
     ) -> (edit: HWND, upDown: HWND) {
-        addLabel(label, in: page, x: x, y: y + 3, width: labelWidth)
+        addLabel(label, in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
 
-        let editX = x + labelWidth + 8
+        let editX = Self.controlX
+        let height = Self.controlHeight
         guard let editHwnd = (Self.editClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 DWORD(WS_EX_CLIENTEDGE), classNamePtr.baseAddress, nil,
@@ -3569,15 +3222,12 @@ final class SettingsWindow {
     // SETTINGS_PLAN.md's T2 so TaskPromptDialog.swift can share them) is
     // the one thing every dark-aware owner-drawn surface below actually
     // needs.
-    // A little lighter than darkBackgroundHex — only used for the scroll
-    // rail's thumb, which needs to read as "sitting above" its own track
-    // rather than blending into it the way the flat background color would.
+    // A little lighter than darkBackgroundHex — raised bevel edges and the
+    // trackbar thumb, which need to read as "sitting above" the page.
     private static let darkElevatedHex = "#5A5A5A"
-    // The scroll rail's own track needs to read as distinct from the page
-    // body behind it (see drawScrollRail) the same way COLOR_SCROLLBAR
-    // reads as distinct from COLOR_BTNFACE in light mode — this sits
-    // between darkBackgroundHex and darkElevatedHex so the thumb still
-    // stands out on top of it.
+    // A recessed surface (tab strip's unselected tabs, up-down face,
+    // trackbar channel) — between darkBackgroundHex and darkElevatedHex so
+    // a thumb still stands out on top of it.
     private static let darkScrollTrackHex = "#3A3A3A"
     // drawBevel's own dark-mode shadow edge — near-black rather than a
     // mid-gray so a raised/sunken bevel still reads as a real 3D edge
@@ -3778,13 +3428,17 @@ final class SettingsWindow {
             Self.setControlDarkTheme(button, dark: isDarkMode)
         }
 
-        // RDW_ALLCHILDREN because a
-        // plain InvalidateRect on a page doesn't cascade to its own
-        // children, so every STATIC/BUTTON/owner-drawn control on it would
-        // otherwise keep showing its old-theme paint until something else
-        // happened to touch it individually.
+        // Each page's own WS_VSCROLL bar: "DarkMode_Explorer" is the same
+        // sub-app name Explorer uses for its dark scrollbars.
+        //
+        // RDW_ALLCHILDREN because a plain InvalidateRect on a page doesn't
+        // cascade to its own children, so every STATIC/BUTTON/owner-drawn
+        // control on it would otherwise keep showing its old-theme paint
+        // until something else happened to touch it individually. RDW_FRAME
+        // repaints the scrollbar, which lives in the page's non-client area.
         for page in pages {
-            RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN) | UINT(RDW_UPDATENOW))
+            Self.setControlDarkTheme(page, dark: isDarkMode)
+            RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_FRAME) | UINT(RDW_ALLCHILDREN) | UINT(RDW_UPDATENOW))
         }
     }
 
@@ -3917,11 +3571,9 @@ final class SettingsWindow {
         case WM_MOUSEWHEEL:
             return handleMouseWheel(wParam: wParam, lParam: lParam)
         case WM_GETMINMAXINFO:
-            // Floors a drag-resize at exactly clientWidth/clientHeight (the
-            // size every tab's content is proven to fit at, Appearance's
-            // own scroll excepted) — never a maximum, letting the window
-            // grow as large as Windows' own default track-size logic
-            // allows. Sent once during CreateWindowExW itself too, before
+            // Floors a drag-resize at clientWidth (controls sit at fixed x
+            // positions) and minClientHeight (every page scrolls) — never a
+            // maximum. Sent once during CreateWindowExW itself too, before
             // `shared` is assigned (pomoppiSettingsWndProc's guard falls
             // through to DefWindowProcW for that one), which is harmless:
             // the window is already created at exactly windowWidth/
@@ -3930,7 +3582,7 @@ final class SettingsWindow {
             guard let info = UnsafeMutablePointer<MINMAXINFO>(bitPattern: UInt(bitPattern: Int(lParam))) else {
                 return DefWindowProcW(hwnd, message, wParam, lParam)
             }
-            var minRect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.clientHeight)
+            var minRect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.minClientHeight)
             AdjustWindowRectEx(&minRect, Self.windowStyle, false, 0)
             info.pointee.ptMinTrackSize = POINT(x: minRect.right - minRect.left, y: minRect.bottom - minRect.top)
             return 0
