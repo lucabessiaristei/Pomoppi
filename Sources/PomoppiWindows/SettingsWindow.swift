@@ -393,7 +393,7 @@ final class SettingsWindow {
     // control's own change handler rather than their own.
     private var hintLabels: Set<HWND> = []
     private var trayClickHintLabel: HWND?
-    private var askForTaskHintLabel: HWND?
+    private var askForTitleCheckbox: HWND?
     // The Sound tab's chime row label and hint, grayed with the picker
     // while soundEnabled is off (refreshChimeEnabled).
     private var chimeLabel: HWND?
@@ -487,7 +487,7 @@ final class SettingsWindow {
         var title: String {
             switch self {
             case .general: return L.t("tab.general")
-            case .rhythm: return L.t("tab.rhythm")
+            case .rhythm: return L.t("tab.pomodoro")
             case .appearance: return L.t("tab.appearance")
             case .keys: return L.t("tab.keys")
             case .sound: return L.t("tab.sound")
@@ -575,10 +575,23 @@ final class SettingsWindow {
     // IDC_ARROW just below) — reconstruct via UnsafePointer<WCHAR>(bitPattern:).
     // Also used by TaskPromptDialog for its own titlebar.
     static func loadAppIcon(width: Int32, height: Int32) -> HICON? {
-        guard let handle = LoadImageW(hInstance, UnsafePointer<WCHAR>(bitPattern: 1), UINT(IMAGE_ICON), width, height, UINT(LR_DEFAULTCOLOR)) else {
-            return nil
+        if let handle = LoadImageW(hInstance, UnsafePointer<WCHAR>(bitPattern: 1), UINT(IMAGE_ICON), width, height, UINT(LR_DEFAULTCOLOR)) {
+            return HICON(bitPattern: Int(bitPattern: handle))
         }
-        return HICON(bitPattern: Int(bitPattern: handle))
+        // A plain `swift build` has no embedded icon resource: load the
+        // repo's own .ico instead, so dev builds show the right icon too.
+        let icoPath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // PomoppiWindows
+            .deletingLastPathComponent() // Sources
+            .deletingLastPathComponent()
+            .appendingPathComponent("assets")
+            .appendingPathComponent("pomoppi.ico")
+            .withUnsafeFileSystemRepresentation { String(cString: $0!) }
+            .replacingOccurrences(of: "/", with: "\\")
+        let handle = icoPath.withCString(encodedAs: UTF16.self) {
+            LoadImageW(nil, $0, UINT(IMAGE_ICON), width, height, UINT(LR_LOADFROMFILE))
+        }
+        return handle.flatMap { HICON(bitPattern: Int(bitPattern: $0)) }
     }
 
     // A normal titled window and a normal titled window's own child page —
@@ -1432,7 +1445,7 @@ final class SettingsWindow {
         case .general:
             buildGeneralTab(page: page, width: layoutWidth)
         case .rhythm:
-            buildRhythmTab(page: page, width: layoutWidth)
+            buildPomodoroTab(page: page, width: layoutWidth)
         case .appearance:
             buildAppearanceTab(page: page, width: layoutWidth)
         case .keys:
@@ -1446,16 +1459,23 @@ final class SettingsWindow {
         return page
     }
 
-    // -- General/Rhythm/Sound tab content --------------------------------------
+    // -- General/Pomodoro/Sound tab content --------------------------------------
 
-    // Mirrors macOS's RhythmTab (SettingsView.swift): Focus, Breaks,
-    // Automation.
-    private func buildRhythmTab(page: HWND, width: Int32) {
+    // Mirrors macOS's PomodoroTab (SettingsView.swift): Focus (length and
+    // how many focus sessions), Breaks, Auto-start.
+    private func buildPomodoroTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
-        y = addSectionHeader(L.t("rhythm.pomodoro.header"), in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("pomodoro.focus.header"), in: page, y: y, width: rowWidth)
+        addStepper(
+            L.t("pomodoro.focus.length.windows"), in: page, value: Int32(settings.focusMinutes),
+            min: 1, max: 180, step: 1, y: y
+        ) { [settingsStore] newValue in
+            settingsStore.update { $0.focusMinutes = Double(newValue) }
+        }
+        y += Self.rowHeight
         addStepper(
             L.t("tray.focusSessions"), in: page, value: Int32(settings.longBreakEvery),
             min: 2, max: 10, step: 1, y: y
@@ -1463,30 +1483,19 @@ final class SettingsWindow {
             settingsStore.update { $0.longBreakEvery = Int(newValue) }
         }
         y += Self.rowHeight
-        addHint(L.t("rhythm.pomodoro.footer"), in: page, y: &y, width: rowWidth)
+        addHint(L.t("pomodoro.focus.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
-        y = addSectionHeader(L.t("rhythm.focus.header"), in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("pomodoro.breaks.header"), in: page, y: y, width: rowWidth)
         addStepper(
-            L.t("rhythm.focus.label.windows"), in: page, value: Int32(settings.focusMinutes),
-            min: 1, max: 180, step: 1, y: y
-        ) { [settingsStore] newValue in
-            settingsStore.update { $0.focusMinutes = Double(newValue) }
-        }
-        y += Self.rowHeight
-        addHint(L.t("rhythm.focus.footer"), in: page, y: &y, width: rowWidth)
-        y += Self.sectionGap
-
-        y = addSectionHeader(L.t("rhythm.breaks.header"), in: page, y: y, width: rowWidth)
-        addStepper(
-            L.t("rhythm.breaks.shortLabel.windows"), in: page, value: Int32(settings.shortBreakMinutes),
+            L.t("pomodoro.breaks.short.windows"), in: page, value: Int32(settings.shortBreakMinutes),
             min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.shortBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
         addStepper(
-            L.t("rhythm.breaks.longLabel.windows"), in: page, value: Int32(settings.longBreakMinutes),
+            L.t("pomodoro.breaks.long.windows"), in: page, value: Int32(settings.longBreakMinutes),
             min: 1, max: 180, step: 1, y: y
         ) { [settingsStore] newValue in
             settingsStore.update { $0.longBreakMinutes = Double(newValue) }
@@ -1494,52 +1503,20 @@ final class SettingsWindow {
         y += Self.rowHeight
         y += Self.sectionGap
 
-        y = addSectionHeader(L.t("rhythm.automation.header"), in: page, y: y, width: rowWidth)
+        y = addSectionHeader(L.t("pomodoro.autoStart.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
-            L.t("rhythm.automation.autoStartBreaks"), in: page, checked: settings.autoStartBreaks,
+            L.t("pomodoro.autoStart.breaks"), in: page, checked: settings.autoStartBreaks,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.autoStartBreaks = checked }
         }
         y += Self.rowHeight
         addCheckbox(
-            L.t("rhythm.automation.autoStartFocus"), in: page, checked: settings.autoStartFocus,
+            L.t("pomodoro.autoStart.focus"), in: page, checked: settings.autoStartFocus,
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [settingsStore] checked in
             settingsStore.update { $0.autoStartFocus = checked }
         }
-        y += Self.rowHeight
-        addCheckbox(
-            L.t("rhythm.automation.askForTaskName"), in: page, checked: settings.askForTaskName,
-            x: Self.rowMargin, y: y, width: rowWidth
-        ) { [settingsStore] checked in
-            settingsStore.update { $0.askForTaskName = checked }
-        }
-        y += Self.rowHeight
-        askForTaskHintLabel = addHint(Self.askForTaskHintText(loggingEnabled: settings.loggingEnabled), in: page, y: &y, width: rowWidth)
-    }
-
-    // The askForTaskName hint's own two variants, keyed only on
-    // loggingEnabled — logging on makes the prompt mandatory regardless of
-    // this setting's own value (SPEC.md §5/§7's target tab map), so the
-    // hint describes that override rather than the setting's own current
-    // checked state. Shared by buildRhythmTab's initial paint and
-    // refreshAskForTaskHint's live update, same "one switch, not two
-    // drifting copies" shape as trayClickHintText above.
-    private static func askForTaskHintText(loggingEnabled: Bool) -> String {
-        loggingEnabled
-            ? L.t("rhythm.askForTask.hint.loggingOn")
-            : L.t("rhythm.askForTask.hint.loggingOff")
-    }
-
-    // Called from the Diary tab's own "Record every session" checkbox —
-    // it's what overrides askForTaskName, so its toggle is the other
-    // control this live hint has to react to, across pages, the same
-    // "controls bake their text in at creation" gap
-    // refreshTrayClickHint above exists for.
-    private func refreshAskForTaskHint(loggingEnabled: Bool) {
-        guard let askForTaskHintLabel else { return }
-        setWindowText(askForTaskHintLabel, Self.askForTaskHintText(loggingEnabled: loggingEnabled))
     }
 
     // -- Appearance tab content -----------------------------------------------
@@ -2539,7 +2516,7 @@ final class SettingsWindow {
         diarySyncStatusLabel = nil
         hintLabels = []
         trayClickHintLabel = nil
-        askForTaskHintLabel = nil
+        askForTitleCheckbox = nil
         chimeLabel = nil
         chimeHintLabel = nil
         updatesActionButton = nil
@@ -2695,8 +2672,19 @@ final class SettingsWindow {
             x: Self.rowMargin, y: y, width: rowWidth
         ) { [weak self, settingsStore] checked in
             settingsStore.update { $0.loggingEnabled = checked }
-            self?.refreshAskForTaskHint(loggingEnabled: checked)
+            if let box = self?.askForTitleCheckbox { EnableWindow(box, checked) }
         }
+        y += Self.rowHeight
+        // The title only ever ends up in the log, so it's asked only while
+        // recording (SPEC.md §5).
+        let askForTitle = addCheckbox(
+            L.t("diary.history.askForTitle"), in: page, checked: settings.askForTaskName,
+            x: Self.rowMargin, y: y, width: rowWidth
+        ) { [settingsStore] checked in
+            settingsStore.update { $0.askForTaskName = checked }
+        }
+        EnableWindow(askForTitle, settings.loggingEnabled)
+        askForTitleCheckbox = askForTitle
         y += Self.rowHeight
         addLabel(L.t("diary.history.size"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         sessionHistorySizeLabel = addLabel(Self.formatHistorySize(sessionLogger.fileSizeBytes()), in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
@@ -3245,11 +3233,12 @@ final class SettingsWindow {
     // BS_AUTOCHECKBOX toggles its own visual check state on click and fires
     // BN_CLICKED via WM_COMMAND (handleCommand below) — the button's own
     // text is the control's label, no separate STATIC needed.
+    @discardableResult
     private func addCheckbox(
         _ text: String, in page: HWND, checked: Bool,
         x: Int32, y: Int32, width: Int32, height: Int32 = SettingsWindow.controlHeight,
         onToggle: @escaping (Bool) -> Void
-    ) {
+    ) -> HWND {
         let wide = Array(text.utf16) + [0]
         guard let checkbox = (Self.buttonClassName.withUnsafeBufferPointer { classNamePtr in
             wide.withUnsafeBufferPointer { textPtr in
@@ -3265,6 +3254,7 @@ final class SettingsWindow {
         applyDefaultFont(checkbox)
         SendMessageW(checkbox, UINT(BM_SETCHECK), WPARAM(checked ? BST_CHECKED : BST_UNCHECKED), 0)
         checkboxes.append(CheckboxControl(hwnd: checkbox, onToggle: onToggle))
+        return checkbox
     }
 
     // A plain BS_PUSHBUTTON (unlike addCheckbox's BS_AUTOCHECKBOX, no

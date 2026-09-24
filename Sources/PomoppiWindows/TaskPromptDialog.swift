@@ -85,8 +85,7 @@ final class TaskPromptDialog {
     private static let hInstance = GetModuleHandleW(nil)
     private static var classRegistered = false
 
-    // ~340x150 client, per the plan — wide enough for the two-line
-    // mandatory hint, short enough to read as a small prompt rather than a
+    // ~340x150 client, per the plan — wide enough for a two-line hint, short enough to read as a small prompt rather than a
     // window in its own right.
     private static let clientWidth: Int32 = 340
     private static let clientHeight: Int32 = 150
@@ -121,15 +120,15 @@ final class TaskPromptDialog {
     // (WindowsTheme.resolveDarkMode) rather than read from a SettingsStore
     // here — this dialog stays a fixed, short-lived snapshot rather than
     // reacting live to a theme change mid-prompt, unlike SettingsWindow.
-    static func run(owner: HWND, mandatory: Bool, darkMode: Bool) -> TaskPromptResult {
+    static func run(owner: HWND, darkMode: Bool) -> TaskPromptResult {
         registerClassIfNeeded()
-        let dialog = TaskPromptDialog(owner: owner, mandatory: mandatory, darkMode: darkMode)
+        let dialog = TaskPromptDialog(owner: owner, darkMode: darkMode)
         current = dialog
         defer { current = nil }
         return dialog.runModal()
     }
 
-    private init(owner: HWND, mandatory: Bool, darkMode: Bool) {
+    private init(owner: HWND, darkMode: Bool) {
         self.owner = owner
         self.darkMode = darkMode
 
@@ -198,12 +197,12 @@ final class TaskPromptDialog {
             _ = DwmSetWindowAttribute(hwnd, DWORD(DWMWA_USE_IMMERSIVE_DARK_MODE.rawValue), &useDarkMode, DWORD(MemoryLayout<Int32>.size))
         }
 
-        buildControls(mandatory: mandatory)
+        buildControls()
     }
 
     // -- controls ---------------------------------------------------------
 
-    private func buildControls(mandatory: Bool) {
+    private func buildControls() {
         addLabel(L.t("prompt.task.title"), x: 16, y: 16, width: 308, height: 20)
 
         guard let edit = (Self.editClassName.withUnsafeBufferPointer { classNamePtr in
@@ -229,12 +228,8 @@ final class TaskPromptDialog {
         // control in this window for it to matter for.
         _ = SetWindowSubclass(edit, pomoppiTaskPromptEditSubclassProc, 1, 0)
 
-        // Same two strings macOS's promptForTaskName uses for
-        // alert.informativeText, mandatory vs. optional.
-        let hintText = mandatory
-            ? L.t("prompt.task.hint.mandatory")
-            : L.t("prompt.task.hint.optional")
-        addLabel(hintText, x: 16, y: 74, width: 308, height: 40)
+        // Same string macOS's promptForTaskName uses for informativeText.
+        addLabel(L.t("prompt.task.hint.optional"), x: 16, y: 74, width: 308, height: 40)
 
         // Same right-to-left order as macOS's NSAlert (Start added first,
         // ends up rightmost/default; Cancel to its left) — also this

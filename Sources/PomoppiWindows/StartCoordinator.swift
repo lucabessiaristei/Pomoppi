@@ -1,14 +1,10 @@
 // StartCoordinator.swift — the one place "start" actually happens for a
 // fresh (idle) session on Windows, a deliberate duplicate of macOS's
 // Sources/PomoppiApp/StartCoordinator.swift (Sources/PomoppiApp/ is
-// off-limits for this port, CLAUDE.md's invariant, and this port has
-// consistently duplicated small amounts of logic rather than sharing it —
-// tray clicks, picker previews, the login item, now this). Same gate, same
-// two-strictness-levels logic, TaskPromptDialog's Win32 modal standing in
-// for NSAlert. The "must ask" gate is stricter than askForTaskName alone:
-// once session logging is on, asking becomes mandatory regardless of that
-// toggle, because without a task name there's no good line to log
-// (SPEC.md §5).
+// off-limits for this port, CLAUDE.md's invariant). Same gate as macOS
+// (SPEC.md §5): the title prompt appears only when recording sessions and
+// askForTaskName are both on, since the title only ever ends up in the
+// log. The title is optional; Cancel doesn't start the timer.
 import PomoppiCore
 import WinSDK
 
@@ -25,8 +21,7 @@ enum StartCoordinator {
         }
 
         let settings = settingsStore.get()
-        let loggingMandatory = settings.loggingEnabled
-        guard settings.askForTaskName || loggingMandatory else {
+        guard settings.loggingEnabled, settings.askForTaskName else {
             return timer.start()
         }
 
@@ -43,14 +38,12 @@ enum StartCoordinator {
         }
 
         let darkMode = WindowsTheme.resolveDarkMode(colorScheme: settings.colorScheme)
-        switch TaskPromptDialog.run(owner: owner, mandatory: loggingMandatory, darkMode: darkMode) {
+        switch TaskPromptDialog.run(owner: owner, darkMode: darkMode) {
         case .started(let task):
             if !task.isEmpty { timer.setTask(task) }
             return timer.start()
         case .cancelled:
-            // A purely optional prompt still starts on cancel — only the
-            // logging-mandated ask actually blocks starting the timer.
-            return loggingMandatory ? state : timer.start()
+            return state
         }
     }
 }

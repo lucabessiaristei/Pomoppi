@@ -24,8 +24,13 @@ one.
   long break ending (or skipped) closes the pomodoro. Reset throws the
   current pomodoro away, log entries included. The widget's dots are
   display-only; the reset button is greyed out while idle.
-- **Settings: "Focus sessions"** replaces "Long break every N sessions"
-  (same saved value), at the top of Rhythm and in the tray menu.
+- **Settings: the "Rhythm" tab is now "Pomodoro"**: Focus (length and
+  "Focus sessions", which replaces "Long break every N sessions", same
+  saved value), Breaks, Auto-start. The tray submenu is "Focus sessions".
+- **The title prompt moved to Diary**: "Ask for a title when a pomodoro
+  starts", only while recording sessions; the title is optional and Cancel
+  doesn't start the timer.
+- **The title prompt always shows Pomoppi's icon**, dev builds included.
 - **Diary, redesigned** (`SPEC.md` §8b): Export writes the complete log as
   one file (Markdown, plain text, OpenDocument or JSON); Sync writes one
   short summary per pomodoro into `YYYY/MM/YYYY-MM-DD.md`. Both are
