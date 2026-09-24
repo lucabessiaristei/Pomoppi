@@ -200,14 +200,20 @@ self-crossing ring has no well-defined interior.
 pet 32x32      centred, y=23   (this is a hit region)
 time 7x11 @1x  centred (38 wide), y=62   (display only, not clickable)
 clock steppers 5x5 - and +, y=65, x=25 / x=88 (idle only, flush with the bar)
-cycle dots     y=78, 5x5 solid done / 5x5 ring pending, 2px gap, centred
+cycle dots     y=78, 5x5 solid done / 5x5 ring pending, 2px gap, centred (display only)
 progress bar   x=25, y=88, w=68, h=7, 1px ink border, fills as time is spent
 buttons 13x13  y=100, at x=25, 43, 62, 80 (row box = the bar's, 25..92)
 ```
 
-Only the **clock** carries `-`/`+` steppers. The dot row had a pair too and
-lost them: the dots are click-to-set on their own, and the steppers put two
-invisible hit regions on the ends of the row.
+Only the **clock** carries `-`/`+` steppers. The dot row is **display only**
+(2026-09-24): no click, no hover, no hit region at all. It shows the focus
+sessions done in the current pomodoro (§5); how many there are is set from the
+tray's `Focus sessions ▸` submenu (§9) and the Rhythm tab (§7), nowhere else.
+
+- **Reset is disabled while idle** (2026-09-24): drawn in the background token
+  (`mixHex(paper, ink, 0.3)`, the same colour as the background pattern), no
+  hit region (no hover, no press), and the `R` key / global shortcut do
+  nothing. It comes alive once a pomodoro has started.
 
 - Four buttons, left to right: `reset`, `play`/`pause`, `skip`, **heart**
   (settings). Reset and skip are separate buttons rather than one slot that
@@ -243,7 +249,6 @@ The widget is operated, not just watched:
 | Region | Action |
 |---|---|
 | the pet | drag surface, see below — no click action |
-| cycle dot *n* | `setLongBreakEvery(n + 1)`, clamped 2..10 |
 | clock - / + | `setFocusDuration(+/- 60s)`, clamped 60..5400 — stepped off `settings.focusMinutes`, never off the displayed `remainingMs` |
 
 The clock steppers are drawn whenever the timer is idle, not only on hover;
@@ -416,24 +421,45 @@ on Windows (via a hand-rolled Win32 modal), each prompting when
 `askForTaskName` is on, or unconditionally when `loggingEnabled` (§8), exactly
 as described below.
 
-Phases: `focus` → `shortBreak` → `focus` → … and every `longBreakEvery`
-completed focus sessions the break is a `longBreak` instead. `cycleIndex`
-counts completed focus sessions in the current set (0-based).
+**A pomodoro is the whole cycle** (redesigned 2026-09-24): `longBreakEvery`
+focus sessions ("Focus sessions" in the UI, 2..10), a `shortBreak` between
+each, then one `longBreak`. It starts when a focus starts from idle and ends
+when its long break ends (completed or skipped), which returns the timer to
+**idle**: the next pomodoro is started by the user, never by
+`autoStartFocus`. `cycleIndex` counts the focus sessions done in the current
+pomodoro; the widget's dots (§3) fill from it, **stay full through the long
+break**, and empty when the pomodoro ends. `pomodoroStartedAt` (the first
+focus's start) identifies the pomodoro and travels on every `phaseComplete`
+event, so §8 can group the log by pomodoro.
 
-`skip()` ends the current phase early and moves straight to the next one, in
-**either direction**: a break jumps into the focus session, a focus session is
-cut short and hands over to a `shortBreak`. Idle is the only phase with nothing
-to skip. Either direction bypasses `autoStartFocus`/`autoStartBreaks` — the user
-explicitly asked to move on now.
+**The task is the pomodoro's title**: one name for the whole cycle, kept
+across every focus and break in it and cleared only when the pomodoro ends or
+is reset. The prompt below therefore asks once per pomodoro.
 
-The abandoned phase is reported through `phaseComplete` with `completed: false`
-and the time **actually** spent, which is what makes §8 log it as a partial.
-A cut-short focus claims neither `cycleIndex` nor `completedToday`: a long break
-is earned by finishing sessions, not by skipping through them, so the slot stays
-open for the next one.
+`skip()` ends the current phase and moves on; it bypasses
+`autoStartFocus`/`autoStartBreaks` (the user asked to move on now), and is a
+no-op from idle:
+
+| Skipping | Logged as | Then |
+|---|---|---|
+| a focus | `completed: false`, actual duration | its dot fills; `shortBreak` starts, or the `longBreak` if it was the last focus |
+| a short break | `completed: false`, actual duration | the next focus starts |
+| the long break | `completed: false`, actual duration | the pomodoro ends: idle |
+
+A skipped focus **counts as done** for the dots (it is the user saying "this
+one is over"), but the log keeps it as stopped early with its real length. A
+focus skipped under a minute still fills its dot, is logged, and is left out
+of the diary and of `completedToday` (§8b): nothing worth a line happened.
+
+`reset()` **discards the current pomodoro**: timer to idle, dots emptied,
+title cleared, `completedToday` given back whatever this pomodoro added, and
+`onPomodoroDiscarded(pomodoroStartedAt)` fires so the shell erases every log
+entry of that pomodoro (§8). To keep a pomodoro but end it early, skip to the
+end instead. From idle, reset is a no-op.
 
 `requestStart()` opens the task prompt only when `askForTaskName` is on **and
-no task is set yet**. Prompting unconditionally meant naming a session ahead of
+no task is set yet**, which in practice means once, at the start of a
+pomodoro. Prompting unconditionally meant naming a session ahead of
 time (tray > Set task…) and then pressing play re-opened the same dialog on top
 of the name just typed, which made setting a task in advance pointless.
 **Native additionally makes the prompt mandatory** — regardless of
@@ -490,7 +516,7 @@ State object, pushed every 250ms while running and on every transition:
   ringing: boolean,
   remainingMs: number,   // clamped >= 0
   totalMs: number,       // duration of the current phase
-  cycleIndex: number,    // 0 .. longBreakEvery-1, completed focus sessions
+  cycleIndex: number,    // 0 .. longBreakEvery, focus sessions done this pomodoro
   completedToday: number,
   task: string,          // '' when unset
 }
@@ -669,9 +695,10 @@ what a brand-new install opens on.
 | | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
 | | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
 | | Reset | **Reset Pomoppi…** | "Also erases your session history." |
-| **Rhythm** | Focus | Default focus length | "Or click the clock on the widget." |
-| | Breaks | Short break; Long break; Long break every N sessions | "Or click the dots on the widget." |
-| | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each focus | live, on `askForTaskName`: logging on → "Always asks while session logging is on (Diary tab)."; logging off → "Leave the name blank to skip." |
+| **Rhythm** | Pomodoro | **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each, a long break at the end." |
+| | Focus | Default focus length | "Or click the clock on the widget." |
+| | Breaks | Short break; Long break | — |
+| | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each pomodoro | live, on `askForTaskName`: logging on → "Always asks while session logging is on (Diary tab)."; logging off → "Leave the name blank to skip." |
 | **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets, one row on macOS, two rows of 6 on Windows (B/W, Cocoa, Sakura, Lavender, Mint, Peach, Pine, Midnight, OLED, Amber, Cherry, LCD Green) + Ink / Paper | — |
 | | Size & transparency | Size (segmented); Opacity | — |
 | **Keys** | Global shortcuts | one recorder row per action | "Work from any app. Click one, then press a new combo that includes a modifier." |
@@ -762,14 +789,28 @@ Each entry:
   "startTime": "2026-09-19T09:15:00Z",
   "endTime": "2026-09-19T09:40:00Z",
   "durationMinutes": 25,
+  "durationSeconds": 1500,
+  "pomodoroStart": "2026-09-19T09:15:00Z",
   "completed": true
 }
 ```
 
+`durationSeconds` and `pomodoroStart` were added 2026-09-24 and are optional:
+entries written before then lack them and still decode. `durationSeconds`
+is the exact length (the diary shows `<1m` rather than `0m`; older entries
+fall back to `durationMinutes × 60`). `pomodoroStart` is the pomodoro the
+entry belongs to (§5); §8b groups by it. `completed: false` means stopped
+early: skipped, whatever its length.
+
+**Reset erases the pomodoro it discards** (§5): the shell calls
+`SessionLogger.discardPomodoro(startedAt:)`, which removes every entry with
+that `pomodoroStart` and remembers it, so an append for the same pomodoro
+that lands after the discard (appends are async) is dropped too.
+
 `day`/`month`/`year` sit alongside the full ISO8601 `startTime`/`endTime`
 (not derived from them by whatever reads the file) so trivial date
 filtering doesn't require every consumer to parse a timestamp first.
-`durationMinutes` is the *planned* length for a completed phase, the
+`durationMinutes`/`durationSeconds` are the *planned* length for a completed phase, the
 *actual* elapsed time for an aborted one — same distinction the old
 Obsidian format made between a session's target and its real length.
 
@@ -793,14 +834,11 @@ live in the per-user storage dir (`AppDelegate.storageDir()` /
 Windows' `storageDir()`), not inside the app bundle — an upgrade that just
 replaces the app leaves both untouched. A reinstall that wipes that
 directory, or the Diary tab's own "Erase History…," starts the log
-empty; the diary folder (§8b) keeps whatever `.md` files it already has,
-and the next sync simply continues from there — there's nothing to
-double-append (sync diffs each day's file by content, not a cursor) and
-nothing to skip (there's no cursor left to point at the wrong place).
-Restoring `sessions.json` from an older backup, or moving to a new
-machine and pointing at the same diary folder, works the same way: the
-next sync fills in whatever that folder is missing and leaves everything
-it already has alone. See §8b for why this is safe.
+empty; the diary folder (§8b) keeps whatever day files it already has
+(sync rewrites a day's file only for days present in the log, and never
+deletes one). Restoring `sessions.json` from an older backup, or moving
+to a new machine and pointing at the same diary folder, works the same
+way: sync regenerates every day the log covers.
 
 **What this replaced**: Electron/the original Swift rewrite wrote directly
 to an Obsidian daily note (`<vaultPath>/<dailyNoteFolder>/<date>.md`,
@@ -814,67 +852,87 @@ design did.
 
 ## 8b. Diary `[both]`
 
-**Added 2026-09-19**, on top of §8's JSON session log — the "read *this*
-JSON file and either sync it to a folder or export it" intent §8's
-closing note described. **Redesigned 2026-09-20**: one diary shape
-instead of two, and sync is now idempotent (no cursor) — both changes
-described below. Reads `SessionLogger.allSessionsSync()`; never writes to
-`sessions.json` itself.
+**Redesigned 2026-09-24**: Export and Sync are now **two different
+outputs** (they used to be one per-day shape through one code path).
+Both read `SessionLogger.allSessionsSync()`, never write `sessions.json`,
+and go through `DiaryExporter` (`PomoppiCore`).
 
-**One shape.** Every focus session (breaks are never part of a diary)
-becomes a `- HH:MM–HH:MM (Nm) — task` line — `stopped early` instead of
-just the duration for an aborted session — grouped into one
-`<dateKey>.md` file per day, each holding a `## Pomodoros` section.
-Export and Sync are just two different destinations for that same
-per-day content, both built from the same `DiaryExporter` code path so
-the two shapes can't drift apart: Export bundles every day's file into a
-single `.zip` (root of the archive, no wrapper folder); Sync writes those
-files straight into a user-chosen folder.
+**The model.** The log is grouped into **pomodoros** (§5) by
+`pomodoroStart`. Entries logged before that field existed are grouped by
+inference: a new pomodoro starts after a `longBreak` entry, after a gap of
+more than 30 minutes between one entry's end and the next one's start, or
+on a new calendar day. A pomodoro's **title** is its task (the most recent
+non-empty one among its entries); its day is its start's local day. A focus
+stopped early after less than a minute is left out of the diary entirely
+(still in the log and in the JSON export); a pomodoro with no focus left is
+dropped. Per pomodoro: *sessions* = focus sessions shown, *stopped early* =
+those with `completed: false`, *Focus* / *Breaks* = summed durations.
+Durations read `1h 32m`, `25m`, or `<1m` below a minute, never `0m`.
 
-Three sections in the merged Diary settings tab, top to bottom: Session
-history (moved from the old Log tab, §8), Export, Sync to folder.
+**Localized.** Diary text follows the app language (`L`, `LOCALIZATION_PLAN.md`):
+labels, plurals, weekday/month names. `PomoppiCore` stays free of the strings
+module: the shell passes a `DiaryText` (a lookup closure plus the locale).
+Switching language changes the next export, and the next sync rewrites
+every day file in the new language (they're Pomoppi's own files, below).
 
-**Export** — "Sessions recorded: N" plus an "Export Diary…" button (save
-dialog filtered to `.zip`: `NSSavePanel` on macOS, `GetSaveFileNameW` on
-Windows; default name `Pomoppi Diary.zip`). `DiaryExporter.exportZip(sessions:)`
-(`PomoppiCore`) builds the zip via `ZipWriter` (stored/uncompressed
-entries — see below). Stateless: safe to run repeatedly, always produces
-a fresh archive, no cursor to track.
+Three sections in the Diary settings tab, top to bottom: Session history
+(§8), Export, Sync to folder.
 
-**Sync** — incremental, idempotent merge into a user-chosen folder (a
-plain folder; Pomoppi never assumes it's specifically an Obsidian vault,
-an `SHBrowseForFolderW`/`NSOpenPanel` directory picker either way).
-`DiaryExporter.syncToFolder(_:sessions:)` takes the **whole** session log
-on every call — there's no cursor — and, per day, diffs the log against
-whatever `<dateKey>.md` already has: each existing `- ` line is
-identified by its own `HH:MM–HH:MM` clock-range key (not its full text),
-so a task renamed by hand afterward is recognized as the same session
-rather than duplicated. A missing session is inserted at its
-chronological position among the existing lines (by start clock — not
-just appended), and a day's file is only rewritten if that actually
-changed something. Everything else in the file — hand-written notes
-before/after the section, a later unrelated `## ` heading, any line this
-pass doesn't touch — survives byte-for-byte. Returns the number of lines
-actually added; throws on write failure (folder unmounted, permission
-lost, etc.) rather than swallowing it, so the tab can show "Sync failed."
-This is what makes the reinstall/upgrade paragraph in §8 safe: run sync
-against any session log, at any time, against any state the target
-folder happens to be in, and it converges rather than duplicating or
-skipping.
+**Export: the complete log, one file.** "Export Full Log…" opens a save
+dialog offering Markdown (`.md`, the default: `Pomoppi Diary.md`), plain
+text (`.txt`), OpenDocument text (`.odt`) and JSON (`.json`); the chosen
+type decides the format. Every day, every pomodoro, every focus and break
+with start–end clock, duration, and "stopped early" where it applies,
+headed "Pomoppi: full session log" so the file says what it is:
 
-**`ZipWriter`** (`PomoppiCore/ZipWriter.swift`) is a minimal, from-scratch
-ZIP writer — neither platform's Foundation exposes a zip API, and
-shelling out to `zip`/`Compress-Archive` isn't acceptable here. Stored
-(uncompressed) entries only, deterministic order (sorted by name); no
-directories, no general-purpose zip features beyond what one flat folder
-of tiny `.md` files needs.
+```
+# Pomoppi: full session log
+Exported 2026-09-24 15:02 · 3 pomodoros
 
-One settings field backs this (`Settings.swift`, `SettingsStore.swift` on
-Windows): `diaryFolderPath: String` (empty = not set yet, disables the
-Sync button). No cursor field — the old `diaryLastSyncedCount` (an index
-into the session log) is gone along with the design it supported; an old
-`settings.json` still carrying that key decodes fine, `JSONDecoder`
-ignoring unknown keys for free.
+## Thursday, 24 September 2026
+
+### 14:29 · writing spec
+4 sessions · 1 stopped early · Focus 1h 32m · Breaks 18m
+
+- 14:29–14:54 · Focus · 25m
+- 14:54–14:59 · Short break · 5m
+- 14:59–15:07 · Focus · 8m · stopped early
+```
+
+`.txt` is the same text without Markdown marks (underlined headings). `.odt`
+is the same structure as real headings and paragraphs, written with
+`ODTWriter` over `ZipWriter`: `mimetype` first and stored, then
+`META-INF/manifest.xml`, `content.xml`, `styles.xml`, no new dependency.
+`.json` is the raw log (`{"sessions": [...]}`, every entry, unfiltered).
+
+**Sync: one summarized file per day, nested by year and month.**
+`<folder>/YYYY/MM/YYYY-MM-DD.md`, one block per pomodoro, plain CommonMark
+(no front matter, no nested lists, nothing Obsidian- or Notes-specific):
+
+```
+## 14:29 · writing spec
+
+4 sessions · 1 stopped early
+
+Focus 1h 32m · Breaks 18m
+```
+
+"· 1 stopped early" is omitted when it's zero; with no title the heading is
+just the start time. The two lines are separate paragraphs so they don't
+run together in a renderer that ignores single line breaks. Day files are
+**entirely Pomoppi's**: sync regenerates each day the log covers and
+writes it only if the content changed (idempotent, full log, no cursor);
+hand edits inside them are overwritten. It never deletes anything, so the
+flat `<folder>/YYYY-MM-DD.md` files left by the old layout stay where they
+are, untouched. Returns how many day files were written; throws on a write
+failure so the tab can say "Sync failed."
+
+**`ZipWriter`** (`PomoppiCore/ZipWriter.swift`): minimal, from-scratch,
+stored entries only, **written in the order given** (ODT needs `mimetype`
+first). Its only caller is now `ODTWriter`.
+
+One settings field backs Sync: `diaryFolderPath: String` (empty = not set,
+Sync disabled).
 
 ## 9. Tray `[divergent]`
 
@@ -890,7 +948,7 @@ all — both were dropped in the rewrite, not merely deferred on one side —
 so neither's real tray menu has a `Set task…`/`Rename task…` row or a
 `Save snapshot to Desktop` row. What both platforms actually build
 (`TrayController.swift`, either one): `Start`/`Pause`, `Skip`, `Reset`,
-`Sessions per long break ▸`, `Show`/`Hide Pomoppi`, `Keep on top`,
+`Focus sessions ▸`, `Show`/`Hide Pomoppi`, `Keep on top`,
 `Settings…`, `Quit` — the diagram below minus those two rows.
 
 ```
@@ -899,7 +957,7 @@ Skip                        disabled while idle
 Reset                       disabled while idle
 Set task… / Rename task…    disabled during a break
 ────────
-Sessions per long break ▸   radio, 2..10
+Focus sessions ▸            radio, 2..10
 ────────
 Show / Hide Pomoppi
 Keep on top                 checkbox
@@ -914,9 +972,10 @@ Quit
 - `Skip` and `Reset` are **no-ops from idle** (§5), so they are disabled rather
   than looking live and doing nothing.
 - The task item's label follows the phase, and it is disabled during a break —
-  a task belongs to a focus session and is cleared when the phase ends, so there
+  a task belongs to a pomodoro (§5) and is cleared when it ends, so there
   is nothing to rename. See §5 for why `requestStart` no longer re-prompts.
-- `Sessions per long break` enumerates `Settings.LONG_BREAK_EVERY_MIN..MAX`, the
+- `Focus sessions` (renamed from "Sessions per long break" 2026-09-24, same
+  value, `longBreakEvery`) enumerates `Settings.LONG_BREAK_EVERY_MIN..MAX`, the
   same range the widget's dots and the settings form clamp to. Never hardcode
   the bounds here; three UIs offering different ranges is how they drift.
 - `Save snapshot to Desktop` carries `accelerator: <the snapshot binding>` with
@@ -1322,7 +1381,7 @@ as it already does for `loginItemError`, so the settings window can mark the
 row instead of failing silently. `unregisterAll` again on `will-quit`.
 
 The handlers do not second-guess the timer: `skip` and `reset` are no-ops from
-idle inside `lib/timer.js` (§5) and are simply forwarded, rather than gated
+idle (reset is also drawn disabled then, §3) inside `lib/timer.js` (§5) and are simply forwarded, rather than gated
 here into a third place that has to know the rule.
 
 ### In-app keys `[both]`

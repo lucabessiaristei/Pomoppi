@@ -1,207 +1,310 @@
-// DiaryExporter.swift — the Diary tab's export/sync logic (SPEC.md §8b),
-// shared by both platforms. Reads from SessionLogger's sessions.json and
-// writes plain Markdown into per-day `<dateKey>.md` files — either into a
-// user-chosen folder (Sync, e.g. an Obsidian vault, though Pomoppi doesn't
-// need to know that's what it is — just a folder to drop date-named .md
-// files into) or bundled into a single `.zip` (Export), both built from the
-// exact same per-day content so the two shapes never drift apart.
+// DiaryExporter.swift — the Diary tab's two outputs (SPEC.md §8b), shared
+// by both platforms. Both read SessionLogger's sessions.json and group it
+// into pomodoros; they then write different things:
 //
-// Both directions exclude breaks entirely (a diary is "what did I work
-// on", not a break-timing log) and include aborted focus sessions, marked
-// distinctly rather than dropped — an honest diary includes the sessions
-// given up on, not just the finished ones.
+// - Export: the complete log as one file (.md / .txt / .odt / .json), every
+//   focus and break listed under its pomodoro and day.
+// - Sync: one summarized Markdown file per day under <folder>/YYYY/MM/,
+//   one short block per pomodoro. Pomoppi owns these files: each day the
+//   log covers is regenerated and written only if it changed. Nothing is
+//   ever deleted, so the old flat <folder>/YYYY-MM-DD.md files survive.
 //
-// Redesigned 2026-09-20: dropped the old exportMarkdown single-file
-// snapshot and the diaryLastSyncedCount cursor. Sync is now idempotent —
-// every call walks the *whole* session log and, per day, diffs against
-// whatever's already on disk by each line's own "HH:MM–HH:MM" clock-range
-// key, so a restored backup or a freshly chosen folder simply gets filled
-// in rather than skipped or duplicated (see SPEC.md §8's reinstall/upgrade
-// paragraph).
+// Text is localized, but PomoppiCore can't import PomoppiStrings, so the
+// shell hands in a DiaryText (lookup + locale).
 import Foundation
 
-public enum DiaryExporter {
-    // -- shared formatting ------------------------------------------------
+public struct DiaryText {
+    public let locale: Locale
+    let lookup: (_ key: String, _ args: [String]) -> String
 
-    private static func focusEntries(_ sessions: [SessionLogEntry]) -> [SessionLogEntry] {
-        sessions.filter { $0.phase == "focus" }
+    public init(locale: Locale, lookup: @escaping (_ key: String, _ args: [String]) -> String) {
+        self.locale = locale
+        self.lookup = lookup
     }
 
-    private static func pad2(_ n: Int) -> String { String(format: "%02d", n) }
+    func t(_ key: String, _ args: CustomStringConvertible...) -> String {
+        lookup(key, args.map(\.description))
+    }
+}
 
-    private static func clockString(_ date: Date) -> String {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+public enum DiaryFormat: String, CaseIterable {
+    case markdown = "md"
+    case text = "txt"
+    case odt
+    case json
+
+    public var fileExtension: String { rawValue }
+}
+
+public enum DiaryExporter {
+    // A focus stopped early under this is left out of the diary (still in
+    // the log and the JSON export): nothing worth a line happened.
+    static let minimumFocusSeconds = 60
+    // Older entries carry no pomodoroStart; a gap longer than this between
+    // two of them starts a new pomodoro.
+    static let legacyGapSeconds: TimeInterval = 30 * 60
+
+    public struct Pomodoro: Equatable {
+        public let start: Date
+        public let title: String
+        public let entries: [SessionLogEntry]
+
+        var focus: [SessionLogEntry] { entries.filter { $0.phase == "focus" } }
+        public var sessions: Int { focus.count }
+        public var stoppedEarly: Int { focus.filter { !$0.completed }.count }
+        public var focusSeconds: Int { focus.reduce(0) { $0 + $1.seconds } }
+        public var breakSeconds: Int { entries.filter { $0.phase != "focus" }.reduce(0) { $0 + $1.seconds } }
+    }
+
+    // -- grouping -----------------------------------------------------------
+
+    static func isShown(_ entry: SessionLogEntry) -> Bool {
+        !(entry.phase == "focus" && !entry.completed && entry.seconds < minimumFocusSeconds)
+    }
+
+    // The log in pomodoros, oldest first. Entries with a pomodoroStart group
+    // by it; older ones by inference (after a long break, after a long gap,
+    // or on a new day). Pomodoros with no focus left to show are dropped.
+    public static func pomodoros(_ sessions: [SessionLogEntry], calendar: Calendar = .current) -> [Pomodoro] {
+        var groups: [[SessionLogEntry]] = []
+        var keyed: [Int64: Int] = [:]
+        var legacyGroup: Int?
+        var previous: SessionLogEntry?
+
+        for entry in sessions {
+            if let start = entry.pomodoroStart {
+                let key = pomodoroKey(start)
+                if let index = keyed[key] {
+                    groups[index].append(entry)
+                } else {
+                    keyed[key] = groups.count
+                    groups.append([entry])
+                }
+                legacyGroup = nil
+            } else if let previous, let current = legacyGroup,
+                      previous.phase != "longBreak",
+                      entry.startTime.timeIntervalSince(previous.endTime) <= legacyGapSeconds,
+                      calendar.isDate(previous.startTime, inSameDayAs: entry.startTime) {
+                // legacyGroup is only set while the previous entry was a
+                // legacy one too.
+                groups[current].append(entry)
+            } else {
+                legacyGroup = groups.count
+                groups.append([entry])
+            }
+            previous = entry
+        }
+
+        return groups.compactMap { group -> Pomodoro? in
+            let shown = group.filter(isShown)
+            guard shown.contains(where: { $0.phase == "focus" }), let first = group.first else { return nil }
+            let title = group.last(where: { !$0.task.isEmpty })?.task ?? ""
+            return Pomodoro(start: first.pomodoroStart ?? first.startTime, title: title, entries: shown)
+        }
+        .sorted { $0.start < $1.start }
+    }
+
+    static func dayKey(_ date: Date, calendar: Calendar) -> (year: Int, month: Int, day: Int) {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return (c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    static func byDay(_ pomodoros: [Pomodoro], calendar: Calendar) -> [(date: Date, pomodoros: [Pomodoro])] {
+        var order: [String] = []
+        var groups: [String: [Pomodoro]] = [:]
+        for pomodoro in pomodoros {
+            let d = dayKey(pomodoro.start, calendar: calendar)
+            let key = "\(d.year)-\(d.month)-\(d.day)"
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(pomodoro)
+        }
+        return order.compactMap { key in
+            guard let list = groups[key], let first = list.first else { return nil }
+            return (date: first.start, pomodoros: list)
+        }
+    }
+
+    // -- formatting -----------------------------------------------------------
+
+    static func pad2(_ n: Int) -> String { n < 10 ? "0\(n)" : "\(n)" }
+
+    static func clock(_ date: Date, calendar: Calendar) -> String {
+        let c = calendar.dateComponents([.hour, .minute], from: date)
         return "\(pad2(c.hour ?? 0)):\(pad2(c.minute ?? 0))"
     }
 
-    private static func dateKey(_ entry: SessionLogEntry) -> String {
-        "\(entry.year)-\(pad2(entry.month))-\(pad2(entry.day))"
+    // "1h 32m", "25m", "<1m": never "0m".
+    static func duration(_ seconds: Int, _ text: DiaryText) -> String {
+        let minutes = seconds / 60
+        if minutes < 1 { return text.t("diary.duration.lessThanMinute") }
+        if minutes < 60 { return text.t("diary.duration.minutes", minutes) }
+        return text.t("diary.duration.hoursMinutes", minutes / 60, minutes % 60)
     }
 
-    // "- 09:15–09:40 (25m) — writing spec" for a completed session,
-    // "- 09:15–09:27 (12m, stopped early) — writing spec" for an aborted
-    // one. Task omitted entirely (no "— ") when empty.
-    private static func lineFor(_ entry: SessionLogEntry) -> String {
-        let start = clockString(entry.startTime)
-        let end = clockString(entry.endTime)
-        let durationLabel = entry.completed ? "\(entry.durationMinutes)m" : "\(entry.durationMinutes)m, stopped early"
-        let taskPart = entry.task.isEmpty ? "" : " — \(entry.task)"
-        return "- \(start)–\(end) (\(durationLabel))\(taskPart)"
+    static func heading(_ pomodoro: Pomodoro, calendar: Calendar) -> String {
+        let time = clock(pomodoro.start, calendar: calendar)
+        return pomodoro.title.isEmpty ? time : "\(time) · \(pomodoro.title)"
     }
 
-    // Groups by day, preserving the array's own chronological order (it's
-    // append-only, never reordered) both within and across days.
-    private static func groupedByDay(_ entries: [SessionLogEntry]) -> [(dateKey: String, entries: [SessionLogEntry])] {
-        var order: [String] = []
-        var groups: [String: [SessionLogEntry]] = [:]
-        for entry in entries {
-            let key = dateKey(entry)
-            if groups[key] == nil { order.append(key) }
-            groups[key, default: []].append(entry)
+    static func sessionsLine(_ pomodoro: Pomodoro, _ text: DiaryText) -> String {
+        let count = pomodoro.sessions
+        var line = count == 1 ? text.t("diary.sessions.one") : text.t("diary.sessions.other", count)
+        if pomodoro.stoppedEarly > 0 {
+            line += " · " + text.t("diary.stoppedEarlyCount", pomodoro.stoppedEarly)
         }
-        return order.map { ($0, groups[$0] ?? []) }
+        return line
     }
 
-    private static let heading = "## Pomodoros"
-
-    // The "HH:MM–HH:MM" clock-range key at the front of one of this
-    // format's own "- " lines — the identity a day's file is diffed by,
-    // not the line's whole text, so editing the task portion of a line by
-    // hand afterward is recognized as the same session rather than
-    // duplicated on the next sync. Anything that isn't shaped like one of
-    // our own lines (a hand-written bullet, a blank line) returns nil and
-    // is simply left where it is, never touched.
-    private static func timeRangeKey(_ line: String) -> String? {
-        guard line.hasPrefix("- ") else { return nil }
-        let rest = line.dropFirst(2)
-        guard rest.count >= 11 else { return nil }
-        let key = String(rest.prefix(11))
-        let parts = key.components(separatedBy: "–")
-        guard parts.count == 2, isClockString(parts[0]), isClockString(parts[1]) else { return nil }
-        return key
+    static func totalsLine(_ pomodoro: Pomodoro, _ text: DiaryText) -> String {
+        text.t("diary.focusTotal", duration(pomodoro.focusSeconds, text))
+            + " · " + text.t("diary.breaksTotal", duration(pomodoro.breakSeconds, text))
     }
 
-    private static func isClockString(_ s: String) -> Bool {
-        guard s.count == 5 else { return false }
-        let colonIndex = s.index(s.startIndex, offsetBy: 2)
-        return s[colonIndex] == ":" && s.allSatisfy { $0.isNumber || $0 == ":" }
+    static func phaseName(_ phase: String, _ text: DiaryText) -> String {
+        switch phase {
+        case "focus": return text.t("tray.phase.focus")
+        case "shortBreak": return text.t("tray.phase.shortBreak")
+        case "longBreak": return text.t("tray.phase.longBreak")
+        default: return phase
+        }
     }
 
-    // One day's `## Pomodoros` section, merged with whatever's already
-    // there. Pure: takes the day's existing file content (or "" if there
-    // is none) and that day's focus sessions, returns the new content and
-    // how many lines were actually added — sync calls this with the real
-    // file on disk, export calls it with "" per day, so the zip's files
-    // are exactly what a fresh sync into an empty folder would write.
-    //
-    // Existing lines are never rewritten or reordered — only lines whose
-    // clock-range key isn't already present get inserted, each right
-    // before the first existing entry that starts later (so a session
-    // restored from an older backup lands where it chronologically
-    // belongs) or right after the last existing entry — never past
-    // whatever trailing content follows it (a blank separator, a later
-    // unrelated `## ` heading) — if it's the newest one seen so far.
-    // Everything outside the section, and every line inside it this
-    // function doesn't touch, survives byte-for-byte.
-    private static func dayContent(existing: String, entries: [SessionLogEntry]) -> (content: String, addedCount: Int) {
-        var lines = existing.isEmpty ? [] : existing.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
-        if !existing.isEmpty, let last = lines.last, last.isEmpty { lines.removeLast() }
-
-        var headingIndex = lines.firstIndex(of: heading)
-        if headingIndex == nil {
-            if !lines.isEmpty { lines.append("") }
-            lines.append(heading)
-            headingIndex = lines.count - 1
-        }
-        guard let headingIndex else { return (existing, 0) }
-
-        // The section runs until the next top-level heading, or EOF —
-        // never past a "## " that isn't ours, so other content in the
-        // same note (before or after) is left exactly where it was.
-        var sectionEnd = lines.count
-        for i in (headingIndex + 1)..<lines.count where lines[i].hasPrefix("## ") {
-            sectionEnd = i
-            break
-        }
-
-        func dashKey(_ i: Int) -> String? {
-            lines[i].hasPrefix("- ") ? timeRangeKey(lines[i]) : nil
-        }
-        var existingKeys = Set((headingIndex + 1..<sectionEnd).compactMap(dashKey))
-
-        // Sorted so a run backfilling several missing sessions inserts
-        // them in chronological order relative to each other, not just
-        // relative to whatever was already on disk.
-        let missing = entries
-            .map { ($0, "\(clockString($0.startTime))–\(clockString($0.endTime))") }
-            .filter { !existingKeys.contains($0.1) }
-            .sorted { $0.1 < $1.1 }
-
-        var addedCount = 0
-        for (entry, key) in missing {
-            guard !existingKeys.contains(key) else { continue }
-            let firstLater = (headingIndex + 1..<sectionEnd).first { dashKey($0).map { $0 > key } ?? false }
-            let insertIndex: Int
-            if let firstLater {
-                insertIndex = firstLater
-            } else {
-                let lastDash = (headingIndex + 1..<sectionEnd).last { dashKey($0) != nil }
-                insertIndex = (lastDash ?? headingIndex) + 1
-            }
-            lines.insert(lineFor(entry), at: insertIndex)
-            sectionEnd += 1
-            existingKeys.insert(key)
-            addedCount += 1
-        }
-
-        let content = lines.joined(separator: "\n") + "\n"
-        return (content, addedCount)
+    static func entryLine(_ entry: SessionLogEntry, _ text: DiaryText, calendar: Calendar) -> String {
+        var line = "\(clock(entry.startTime, calendar: calendar))–\(clock(entry.endTime, calendar: calendar))"
+            + " · \(phaseName(entry.phase, text)) · \(duration(entry.seconds, text))"
+        if !entry.completed { line += " · " + text.t("diary.stoppedEarly") }
+        return line
     }
 
-    // -- Sync: idempotent per-day merge, no cursor -------------------------
+    static func dayTitle(_ date: Date, _ text: DiaryText, calendar: Calendar) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = text.locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
 
-    // Every day present in `sessions` (not just newly logged ones) is
-    // considered on every call — there's no cursor to advance, so this is
-    // safe to call with the *whole* session log every time (SPEC.md §8's
-    // reinstall/upgrade paragraph): a session log restored from an older
-    // backup, or a diary folder switched to a fresh one, is simply filled
-    // in on the next sync rather than silently skipped or duplicated. A
-    // day's file is only written if a line was actually added to it —
-    // not merely because `dayContent` normalized its line endings or
-    // trailing newline, so a file the user hasn't got new sessions for is
-    // never rewritten at all.
-    // Returns the total number of lines added across every day touched;
-    // throws the first write failure hit (folder unmounted, permission
-    // lost, etc.) — there's no lingering cursor left to get out of sync.
+    // -- Sync -------------------------------------------------------------------
+
+    // One day's file: a block per pomodoro. The two summary lines are
+    // separate paragraphs so a renderer that ignores single line breaks
+    // doesn't run them together.
+    public static func dayFile(_ pomodoros: [Pomodoro], text: DiaryText, calendar: Calendar = .current) -> String {
+        pomodoros.map { pomodoro in
+            "## \(heading(pomodoro, calendar: calendar))\n\n\(sessionsLine(pomodoro, text))\n\n\(totalsLine(pomodoro, text))\n"
+        }.joined(separator: "\n")
+    }
+
+    // Regenerates every day the log covers into <folder>/YYYY/MM/YYYY-MM-DD.md,
+    // writing only files whose content changed. Returns how many were
+    // written; throws the first write failure.
     @discardableResult
-    public static func syncToFolder(_ folderURL: URL, sessions: [SessionLogEntry]) throws -> Int {
-        let focus = focusEntries(sessions)
-        guard !focus.isEmpty else { return 0 }
-        var totalAdded = 0
-        for (dateKey, dayEntries) in groupedByDay(focus) {
-            let fileURL = folderURL.appendingPathComponent("\(dateKey).md")
-            let existing = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
-            let (content, addedCount) = dayContent(existing: existing, entries: dayEntries)
-            guard addedCount > 0 else { continue }
-            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+    public static func syncToFolder(_ folderURL: URL, sessions: [SessionLogEntry], text: DiaryText, calendar: Calendar = .current) throws -> Int {
+        var written = 0
+        for (date, dayPomodoros) in byDay(pomodoros(sessions, calendar: calendar), calendar: calendar) {
+            let d = dayKey(date, calendar: calendar)
+            let dir = folderURL
+                .appendingPathComponent(String(d.year), isDirectory: true)
+                .appendingPathComponent(pad2(d.month), isDirectory: true)
+            let fileURL = dir.appendingPathComponent("\(d.year)-\(pad2(d.month))-\(pad2(d.day)).md")
+            let content = dayFile(dayPomodoros, text: text, calendar: calendar)
+            if (try? String(contentsOf: fileURL, encoding: .utf8)) == content { continue }
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
-            totalAdded += addedCount
+            written += 1
         }
-        return totalAdded
+        return written
     }
 
-    // -- Export: a .zip of exactly the files a fresh sync would write -----
+    // -- Export -----------------------------------------------------------------
 
-    // Calls the same `dayContent` sync uses, with "" as the "existing
-    // file" for every day — so the zip's per-day files are byte-identical
-    // to what syncing into an empty folder would produce, by construction
-    // rather than by keeping two formats in sync by hand. Entries sit at
-    // the zip root (no wrapper folder).
-    public static func exportZip(sessions: [SessionLogEntry]) -> Data {
-        let focus = focusEntries(sessions)
-        let entries = groupedByDay(focus).map { dateKey, dayEntries in
-            ZipWriter.Entry(name: "\(dateKey).md", data: Data(dayContent(existing: "", entries: dayEntries).content.utf8))
+    public static func export(
+        sessions: [SessionLogEntry], format: DiaryFormat, text: DiaryText,
+        now: Date = Date(), calendar: Calendar = .current
+    ) -> Data {
+        switch format {
+        case .json: return exportJSON(sessions)
+        case .odt: return ODTWriter.document(documentBlocks(sessions, text: text, now: now, calendar: calendar), date: now)
+        case .markdown: return Data(markdown(documentBlocks(sessions, text: text, now: now, calendar: calendar)).utf8)
+        case .text: return Data(plainText(documentBlocks(sessions, text: text, now: now, calendar: calendar)).utf8)
         }
-        return ZipWriter.zip(entries)
+    }
+
+    static func documentBlocks(_ sessions: [SessionLogEntry], text: DiaryText, now: Date, calendar: Calendar) -> [DocumentBlock] {
+        let all = pomodoros(sessions, calendar: calendar)
+        let d = dayKey(now, calendar: calendar)
+        let stamp = "\(d.year)-\(pad2(d.month))-\(pad2(d.day)) \(clock(now, calendar: calendar))"
+        let count = all.count == 1 ? text.t("diary.pomodoros.one") : text.t("diary.pomodoros.other", all.count)
+
+        var blocks: [DocumentBlock] = [
+            .title(text.t("diary.export.documentTitle")),
+            .paragraph(text.t("diary.export.documentSubtitle", stamp, count)),
+        ]
+        for (date, dayPomodoros) in byDay(all, calendar: calendar) {
+            blocks.append(.heading(dayTitle(date, text, calendar: calendar), level: 1))
+            for pomodoro in dayPomodoros {
+                blocks.append(.heading(heading(pomodoro, calendar: calendar), level: 2))
+                blocks.append(.paragraph(sessionsLine(pomodoro, text) + " · " + totalsLine(pomodoro, text)))
+                for entry in pomodoro.entries {
+                    blocks.append(.item(entryLine(entry, text, calendar: calendar)))
+                }
+            }
+        }
+        return blocks
+    }
+
+    // Items are grouped into one list; any other block gets a blank line
+    // around it.
+    static func markdown(_ blocks: [DocumentBlock]) -> String {
+        var out = ""
+        var previousWasItem = false
+        for block in blocks {
+            let isItem: Bool
+            let line: String
+            switch block {
+            case .title(let s): line = "# \(s)"; isItem = false
+            case .heading(let s, let level): line = String(repeating: "#", count: level + 1) + " \(s)"; isItem = false
+            case .paragraph(let s): line = s; isItem = false
+            case .item(let s): line = "- \(s)"; isItem = true
+            }
+            if !out.isEmpty { out += (isItem && previousWasItem) ? "\n" : "\n\n" }
+            out += line
+            previousWasItem = isItem
+        }
+        return out + "\n"
+    }
+
+    static func plainText(_ blocks: [DocumentBlock]) -> String {
+        var out = ""
+        var previousWasItem = false
+        for block in blocks {
+            let isItem: Bool
+            let text: String
+            switch block {
+            case .title(let s): text = s + "\n" + String(repeating: "=", count: s.count); isItem = false
+            case .heading(let s, let level):
+                text = level == 1 ? s + "\n" + String(repeating: "-", count: s.count) : s
+                isItem = false
+            case .paragraph(let s): text = s; isItem = false
+            case .item(let s): text = "  " + s; isItem = true
+            }
+            if !out.isEmpty { out += (isItem && previousWasItem) ? "\n" : "\n\n" }
+            out += text
+            previousWasItem = isItem
+        }
+        return out + "\n"
+    }
+
+    private struct LogFile: Encodable {
+        let sessions: [SessionLogEntry]
+    }
+
+    static func exportJSON(_ sessions: [SessionLogEntry]) -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return (try? encoder.encode(LogFile(sessions: sessions))) ?? Data("{\"sessions\":[]}".utf8)
     }
 }

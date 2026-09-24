@@ -38,7 +38,7 @@ final class ZipWriterTests: XCTestCase {
         XCTAssertEqual(entryCount, 1)
     }
 
-    func testMultipleEntriesAreOrderedByNameAndEachRoundTrips() {
+    func testMultipleEntriesKeepTheOrderGiven() {
         let entries = [
             ZipWriter.Entry(name: "2026-09-20.md", data: Data("later day".utf8)),
             ZipWriter.Entry(name: "2026-09-19.md", data: Data("earlier day".utf8)),
@@ -46,11 +46,10 @@ final class ZipWriterTests: XCTestCase {
         let data = ZipWriter.zip(entries)
         let bytes = [UInt8](data)
 
-        // First local entry (deterministic order: sorted by name) should
-        // be the earlier date, not insertion order.
+        // Insertion order, not name order: ODT needs `mimetype` first.
         let nameLength = u16(bytes, 26)
         let nameStart = 30
-        XCTAssertEqual(String(decoding: bytes[nameStart..<(nameStart + nameLength)], as: UTF8.self), "2026-09-19.md")
+        XCTAssertEqual(String(decoding: bytes[nameStart..<(nameStart + nameLength)], as: UTF8.self), "2026-09-20.md")
 
         let eocdOffset = bytes.count - 22
         XCTAssertEqual(u16(bytes, eocdOffset + 10), 2)

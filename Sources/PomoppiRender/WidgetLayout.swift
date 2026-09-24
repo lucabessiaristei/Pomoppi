@@ -76,6 +76,13 @@ public enum WidgetLayout {
         Array(zip(buttonIDs, buttonPositions()))
     }
 
+    // Reset is disabled while idle (SPEC.md §3): the renderer greys it out
+    // and both platforms' hit-testing skip it. The dot row is display-only
+    // and has no hit region at all.
+    public static func isButtonEnabled(_ id: String, state: TimerState) -> Bool {
+        id != "reset" || state.phase != .idle
+    }
+
     public static func dotCount(longBreakEvery: Int) -> Int {
         max(dotMin, min(dotMax, longBreakEvery))
     }
@@ -84,16 +91,6 @@ public enum WidgetLayout {
         let cycleLen = dotCount(longBreakEvery: longBreakEvery)
         let w = cycleLen * dotSize + (cycleLen - 1) * dotGap
         return (cycleLen, w, centreX(w))
-    }
-
-    // Which dot slot (if any) a logical x falls on.
-    public static func dotSlot(at lx: Int, longBreakEvery: Int) -> Int? {
-        let (count, _, dotsX) = dotGeometry(longBreakEvery: longBreakEvery)
-        let rel = lx - dotsX
-        guard rel >= 0 else { return nil }
-        let i = rel / dotPitch
-        guard i >= 0, i < count else { return nil }
-        return rel % dotPitch < dotSize ? i : nil
     }
 
     public static func clockSteppers() -> (y: Int, minusX: Int, plusX: Int) {

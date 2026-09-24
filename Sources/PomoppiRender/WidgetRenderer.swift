@@ -170,6 +170,12 @@ public enum WidgetRenderer {
         }
 
         for button in buttonLayout(state: state) {
+            // Reset has nothing to throw away while idle (SPEC.md §3): drawn
+            // in the background token, and hit-testing skips it.
+            if !WidgetLayout.isButtonEnabled(button.id, state: state) {
+                canvas.drawIcon(button.icon, button.x, WidgetLayout.buttonsY, mixHex(paper, ink, 0.3))
+                continue
+            }
             if interaction.pressedButton == button.id {
                 canvas.fillRect(button.x, WidgetLayout.buttonsY, WidgetLayout.buttonSize, WidgetLayout.buttonSize, ink)
                 canvas.drawIcon(button.icon, button.x, WidgetLayout.buttonsY, paper)

@@ -47,13 +47,12 @@ French, German (`en`, `it`, `es`, `fr`, `de`). Each file carries a
 - **Placeholders are positional `{0}`/`{1}`, not printf.** Translators can
   reorder them, and nothing in the app can crash on a mismatched format
   specifier. Substitution is a plain string replace in `Localization.swift`.
-- **Diary file content is never localized.** `DiaryExporter`'s
-  `## Pomodoros` heading and its `- HH:MM–HH:MM (Nm) — task` lines are a
-  *file format*, and sync is idempotent by comparing each day file's
-  content (`SPEC.md` §8b) — translating them would make every
-  previously-synced file read as changed and rewrite the user's whole
-  diary folder on a language switch. Fixed, English, permanently. Same
-  for `sessions.json`'s `phase` values.
+- **Diary file content is localized** (reversed 2026-09-24, user
+  decision; it was "never localized"). Export and Sync text follows the
+  app language through `DiaryText`, injected by the shell. Sync's day
+  files are Pomoppi's own and regenerated, so a language switch simply
+  rewrites them on the next sync. `sessions.json` stays language-neutral
+  (`phase` values etc. never change).
 - **`PomoppiCore` gains no dependency on the strings module.**
   `Shortcuts.swift`'s `ShortcutAction.label`/`hint` stay exactly as they
   are; the two shells look them up by action id

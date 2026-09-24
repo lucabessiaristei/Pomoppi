@@ -2,9 +2,9 @@
 // Neither platform's Foundation exposes a zip API, and shelling out to
 // `zip`/`Compress-Archive` isn't acceptable here — so this hand-rolls just
 // enough of the format: stored (uncompressed) entries only, no
-// directories, no extra fields beyond the UTF-8-name flag. Diary exports
-// are a handful of tiny per-day .md files; compression isn't worth the
-// code. `DiaryExporter.exportZip(sessions:)` is the only caller.
+// directories, no extra fields beyond the UTF-8-name flag. The only caller
+// is `ODTWriter` (the Diary's .odt export): a few small XML files, where
+// compression isn't worth the code, and `mimetype` must be stored anyway.
 import Foundation
 
 public enum ZipWriter {
@@ -17,12 +17,10 @@ public enum ZipWriter {
         }
     }
 
-    // Deterministic entry order (sorted by name), so the same session log
-    // always produces byte-identical zip bytes — everything else (CRCs,
-    // sizes, offsets) is already determined by the entries themselves;
-    // only the DOS timestamp below varies run to run.
+    // Entries are written in the order given: ODT requires `mimetype` to be
+    // the very first entry (SPEC.md §8b), so the caller owns the order.
     public static func zip(_ entries: [Entry], date: Date = Date()) -> Data {
-        let sorted = entries.sorted { $0.name < $1.name }
+        let sorted = entries
         let (dosTime, dosDate) = dosDateTime(date)
         var body = Data()
         var centralDirectory = Data()
