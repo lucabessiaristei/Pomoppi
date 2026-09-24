@@ -58,6 +58,58 @@ public struct SemVer: Comparable {
     }
 }
 
+// One downloadable file attached to a release, as `/releases/latest`
+// reports it. `size` comes from the API rather than the download's
+// Content-Length, so a progress bar is determinate from the first byte.
+// `sha256` is GitHub's own per-asset `digest` ("sha256:<hex>") with the
+// prefix dropped and lowercased; nil when the release predates digests or
+// the field is anything else. It proves the bytes arrived intact, not who
+// published them (same trust root as the check itself, SPEC.md §15).
+public struct ReleaseAsset: Equatable {
+    public let name: String
+    public let downloadURL: URL
+    public let size: Int
+    public let sha256: String?
+
+    public init(name: String, downloadURL: URL, size: Int, sha256: String?) {
+        self.name = name
+        self.downloadURL = downloadURL
+        self.size = size
+        self.sha256 = sha256
+    }
+}
+
+// Which installer the running app wants. The extension alone tells the
+// platforms apart, so the `_macOS`/`_Windows` name suffixes (added for
+// humans after 0.3.0) are deliberately not required: 0.3.0's own
+// `Pomoppi-0.3.0.pkg` / `Pomoppi-Setup-0.3.0.exe` match too.
+public enum UpdatePlatform {
+    case macOS
+    case windows
+
+    public static var current: UpdatePlatform {
+        #if os(Windows)
+        return .windows
+        #else
+        return .macOS
+        #endif
+    }
+
+    var assetPrefix: String {
+        switch self {
+        case .macOS: return "pomoppi-"
+        case .windows: return "pomoppi-setup-"
+        }
+    }
+
+    var assetExtension: String {
+        switch self {
+        case .macOS: return ".pkg"
+        case .windows: return ".exe"
+        }
+    }
+}
+
 public enum UpdateChecker {
     // -- the endpoint (constants/documentation — R6 does the actual fetch) --
 
@@ -78,25 +130,77 @@ public enum UpdateChecker {
 
     // -- parsing --------------------------------------------------------------
 
-    private struct ReleaseResponse: Codable {
+    private struct ReleaseResponse: Decodable {
         let tagName: String
         let htmlURL: String
+        let assets: [AssetResponse]?
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
             case htmlURL = "html_url"
+            case assets
         }
     }
 
-    // Decodes GitHub's releases-API JSON shape, keeping only the two
-    // fields Pomoppi needs. Returns nil rather than throwing on
+    // Every field optional so one odd asset entry is skipped by
+    // `releaseAsset` below instead of failing the whole release decode.
+    private struct AssetResponse: Decodable {
+        let name: String?
+        let state: String?
+        let size: Int?
+        let digest: String?
+        let browserDownloadURL: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name, state, size, digest
+            case browserDownloadURL = "browser_download_url"
+        }
+
+        // Only fully "uploaded" assets survive: while CI is still attaching
+        // a file GitHub lists it as "starter", and its URL would 404.
+        var releaseAsset: ReleaseAsset? {
+            guard state == "uploaded",
+                  let name = name,
+                  let size = size, size > 0,
+                  let urlString = browserDownloadURL,
+                  let url = URL(string: urlString) else { return nil }
+            return ReleaseAsset(name: name, downloadURL: url, size: size, sha256: UpdateChecker.sha256Hex(fromDigest: digest))
+        }
+    }
+
+    // "sha256:<64 hex>" -> lowercase hex; anything else (absent, another
+    // algorithm, malformed) -> nil, which callers treat as "size check only".
+    static func sha256Hex(fromDigest digest: String?) -> String? {
+        guard let digest = digest else { return nil }
+        let prefix = "sha256:"
+        guard digest.lowercased().hasPrefix(prefix) else { return nil }
+        let hex = digest.dropFirst(prefix.count).lowercased()
+        guard hex.count == 64, hex.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return hex
+    }
+
+    // Decodes GitHub's releases-API JSON shape, keeping only the fields
+    // Pomoppi needs. Returns nil rather than throwing on
     // malformed/empty/field-missing JSON (including a 404's own
     // `{"message": "Not Found", ...}` body) — this needs to be safe to
-    // call on garbage input, not just well-formed responses.
-    public static func parseLatestRelease(_ data: Data) -> (tag: String, pageURL: URL)? {
+    // call on garbage input, not just well-formed responses. A missing
+    // `assets` array is just an empty one. `assets` keeps API order and
+    // only the entries whose `state` is "uploaded".
+    public static func parseLatestRelease(_ data: Data) -> (tag: String, pageURL: URL, assets: [ReleaseAsset])? {
         guard let response = try? JSONDecoder().decode(ReleaseResponse.self, from: data),
               let url = URL(string: response.htmlURL) else { return nil }
-        return (response.tagName, url)
+        return (response.tagName, url, (response.assets ?? []).compactMap { $0.releaseAsset })
+    }
+
+    // First asset, in API order, whose name starts with the platform's
+    // prefix and ends with its extension, case-insensitively. nil is
+    // normal: a release is published before CI finishes attaching its
+    // installers, and for that window the UI falls back to the release page.
+    public static func matchingAsset(in assets: [ReleaseAsset], for platform: UpdatePlatform = .current) -> ReleaseAsset? {
+        assets.first { asset in
+            let name = asset.name.lowercased()
+            return name.hasPrefix(platform.assetPrefix) && name.hasSuffix(platform.assetExtension)
+        }
     }
 
     // -- comparison -------------------------------------------------------------
@@ -113,7 +217,9 @@ public enum UpdateChecker {
     // -- orchestration ------------------------------------------------------------
 
     public enum CheckResult: Equatable {
-        case updateAvailable(tag: String, pageURL: URL)
+        // `asset` is the running platform's installer, nil when the release
+        // has none (yet).
+        case updateAvailable(tag: String, pageURL: URL, asset: ReleaseAsset?)
         case noUpdate
     }
 
@@ -127,6 +233,7 @@ public enum UpdateChecker {
     // genuinely failed check.
     public static func checkForUpdate(
         currentVersion: String,
+        platform: UpdatePlatform = .current,
         fetch: @escaping Fetch,
         completion: @escaping (CheckResult) -> Void
     ) {
@@ -138,7 +245,10 @@ public enum UpdateChecker {
                 completion(.noUpdate)
                 return
             }
-            completion(.updateAvailable(tag: release.tag, pageURL: release.pageURL))
+            completion(.updateAvailable(
+                tag: release.tag,
+                pageURL: release.pageURL,
+                asset: matchingAsset(in: release.assets, for: platform)))
         }
     }
 }

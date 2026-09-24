@@ -116,7 +116,7 @@ final class TrayController: NSObject, NSMenuDelegate {
         // Only present at all when a check has actually resolved to a newer
         // release — no greyed-out "no
         // update" placeholder item the rest of the time.
-        if case .updateAvailable(let tag, _) = updateChecker.latestResult {
+        if case .updateAvailable(let tag, _, _) = updateChecker.latestResult {
             menu.addItem(makeItem(title: "Update available: \(tag)", action: #selector(handleOpenUpdatePage)))
             menu.addItem(.separator())
         }
@@ -244,7 +244,7 @@ final class TrayController: NSObject, NSMenuDelegate {
     @objc private func handleQuit() { onQuitRequested() }
 
     @objc private func handleOpenUpdatePage() {
-        guard case .updateAvailable(_, let pageURL) = updateChecker.latestResult else { return }
+        guard case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult else { return }
         NSWorkspace.shared.open(pageURL)
     }
 

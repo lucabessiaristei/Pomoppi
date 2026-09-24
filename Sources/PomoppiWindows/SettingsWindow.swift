@@ -967,7 +967,7 @@ final class SettingsWindow {
     // shouldn't flash straight past "Checking…".
     private func refreshUpdateStatus() {
         guard let updatesActionButton else { return }
-        if case .updateAvailable(let tag, _) = updateChecker.latestResult, manualCheckState != .checking {
+        if case .updateAvailable(let tag, _, _) = updateChecker.latestResult, manualCheckState != .checking {
             setWindowText(updatesActionButton, "Update available: \(tag) — Download")
             EnableWindow(updatesActionButton, true)
             return
@@ -991,7 +991,7 @@ final class SettingsWindow {
     // The action button's own click — either opens the release page (when
     // an update is already known) or kicks off an explicit check.
     private func handleUpdateActionClick() {
-        if case .updateAvailable(_, let pageURL) = updateChecker.latestResult, manualCheckState != .checking {
+        if case .updateAvailable(_, let pageURL, _) = updateChecker.latestResult, manualCheckState != .checking {
             Self.openURL(pageURL)
             return
         }
