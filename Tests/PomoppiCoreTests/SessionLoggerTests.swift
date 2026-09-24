@@ -165,44 +165,59 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertEqual(logger.allSessionsSync().count, 1)
     }
 
-    // moveLegacyEntriesOut() is the one-time cleanup that moves entries with
-    // no pomodoroStart out of sessions.json into sessions-legacy.json next
-    // to it, leaving only entries a pomodoro can be built from behind.
-    func testMoveLegacyEntriesOutArchivesEntriesWithNoPomodoroStart() async throws {
+    // A pre-0.4.0 log (no "version") loses its entries without a
+    // pomodoroStart once and gets stamped; from then on nothing is removed,
+    // not even an entry that somehow lacks the field.
+    func testMigrateLegacyLogDeletesOnceThenNeverAgain() async throws {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        func entry(_ task: String, pomodoro: String?) -> String {
+            let extra = pomodoro.map { ", \"pomodoroStart\": \"\($0)\"" } ?? ""
+            return "{\"phase\": \"focus\", \"task\": \"\(task)\", \"day\": 19, \"month\": 9, \"year\": 2026, "
+                + "\"startTime\": \"2026-09-19T09:00:00Z\", \"endTime\": \"2026-09-19T09:25:00Z\", "
+                + "\"durationMinutes\": 25, \"completed\": true\(extra)}"
+        }
+        let url = dir.appendingPathComponent("sessions.json")
+        let legacy = "{\"sessions\": [" + [
+            entry("old 1", pomodoro: nil),
+            entry("new", pomodoro: "2026-09-19T09:00:00Z"),
+            entry("old 2", pomodoro: nil),
+        ].joined(separator: ", ") + "]}"
+        try legacy.write(to: url, atomically: true, encoding: .utf8)
+
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+        let removed = await logger.migrateLegacyLog()
+        XCTAssertEqual(removed, 2)
+        XCTAssertEqual(logger.allSessionsSync().map(\.task), ["new"])
+        let stamped = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        XCTAssertEqual(stamped["version"] as? Int, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("sessions-legacy.json").path))
+
+        // A versioned file is never cleaned, even with an entry lacking the field.
+        let versioned = "{\"version\": 2, \"sessions\": [" + entry("kept", pomodoro: nil) + "]}"
+        try versioned.write(to: url, atomically: true, encoding: .utf8)
+        let removedAgain = await logger.migrateLegacyLog()
+        XCTAssertEqual(removedAgain, 0)
+        XCTAssertEqual(logger.allSessionsSync().map(\.task), ["kept"])
+    }
+
+    func testNewAndErasedLogsAreVersionedSoTheyAreNeverMigrated() async throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("sessions.json")
         let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
 
-        let pomodoroStart = Date(timeIntervalSince1970: 1_758_267_300)
-        _ = await logger.logSession(makeEntry(task: "legacy 1"))
-        _ = await logger.logSession(makeEntry(phase: .shortBreak, task: "legacy 2"))
-        _ = await logger.logSession(makeEntry(task: "current", pomodoroStart: pomodoroStart))
-        XCTAssertEqual(logger.allSessionsSync().count, 3)
+        _ = await logger.logSession(makeEntry(task: "fresh"))
+        var json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        XCTAssertEqual(json["version"] as? Int, 2)
+        let removed = await logger.migrateLegacyLog()
+        XCTAssertEqual(removed, 0)
+        XCTAssertEqual(logger.allSessionsSync().count, 1)
 
-        let moved = await logger.moveLegacyEntriesOut()
-        XCTAssertEqual(moved, 2)
-
-        let remaining = logger.allSessionsSync()
-        XCTAssertEqual(remaining.count, 1)
-        XCTAssertEqual(remaining[0].task, "current")
-
-        struct DecodedLogFile: Decodable { let sessions: [SessionLogEntry] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let legacyData = try Data(contentsOf: dir.appendingPathComponent("sessions-legacy.json"))
-        let legacyFile = try decoder.decode(DecodedLogFile.self, from: legacyData)
-        XCTAssertEqual(legacyFile.sessions.count, 2)
-        XCTAssertEqual(Set(legacyFile.sessions.map(\.task)), ["legacy 1", "legacy 2"])
-
-        // A second call is a no-op: nothing left to move, and the archive
-        // keeps exactly what the first call put there (append, not
-        // overwrite, so a second run must not double it up).
-        let secondMoved = await logger.moveLegacyEntriesOut()
-        XCTAssertEqual(secondMoved, 0)
-
-        let legacyDataAfterSecondRun = try Data(contentsOf: dir.appendingPathComponent("sessions-legacy.json"))
-        let legacyFileAfterSecondRun = try decoder.decode(DecodedLogFile.self, from: legacyDataAfterSecondRun)
-        XCTAssertEqual(legacyFileAfterSecondRun.sessions.count, 2)
+        logger.eraseAllSync()
+        json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        XCTAssertEqual(json["version"] as? Int, 2)
     }
 
     // An old-format sessions.json (written before durationSeconds/
@@ -233,33 +248,5 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertNil(sessions[0].durationSeconds)
         XCTAssertNil(sessions[0].pomodoroStart)
         XCTAssertEqual(sessions[0].seconds, 25 * 60, "falls back to durationMinutes x 60")
-    }
-
-    // Entries logged before pomodoroStart existed are moved to
-    // sessions-legacy.json (appended), and a second run is a no-op.
-    func testMoveLegacyEntriesOutArchivesEntriesWithNoPomodoroStart() async throws {
-        let dir = makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
-
-        let pomodoroStart = Date(timeIntervalSince1970: 1_758_267_300)
-        _ = await logger.logSession(makeEntry(task: "legacy 1"))
-        _ = await logger.logSession(makeEntry(phase: .shortBreak, task: "legacy 2"))
-        _ = await logger.logSession(makeEntry(task: "current", pomodoroStart: pomodoroStart))
-        XCTAssertEqual(logger.allSessionsSync().count, 3)
-
-        let moved = await logger.moveLegacyEntriesOut()
-        XCTAssertEqual(moved, 2)
-        XCTAssertEqual(logger.allSessionsSync().map(\.task), ["current"])
-
-        struct DecodedLogFile: Decodable { let sessions: [SessionLogEntry] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let legacyURL = dir.appendingPathComponent("sessions-legacy.json")
-        XCTAssertEqual(try decoder.decode(DecodedLogFile.self, from: Data(contentsOf: legacyURL)).sessions.map(\.task), ["legacy 1", "legacy 2"])
-
-        let movedAgain = await logger.moveLegacyEntriesOut()
-        XCTAssertEqual(movedAgain, 0)
-        XCTAssertEqual(try decoder.decode(DecodedLogFile.self, from: Data(contentsOf: legacyURL)).sessions.count, 2)
     }
 }

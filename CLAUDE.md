@@ -179,9 +179,10 @@ were removed; their history is in git.
   code path. Export = the complete log in one file the user picks the
   format of (`.md`/`.txt`/`.odt`/`.json`); Sync = one summarized block per
   pomodoro in `<folder>/YYYY/MM/YYYY-MM-DD.md`, files Pomoppi fully owns and
-  regenerates. Both group by pomodoro (`pomodoroStart` in the log; older
-  entries without it are moved to `sessions-legacy.json` at launch, never
-  guessed). Sync stays idempotent and full-log: no cursor, no
+  regenerates. Both group by pomodoro (`pomodoroStart` in the log; pre-0.4.0
+  entries without it are deleted once by `migrateLegacyLog()`, never
+  guessed). `sessions.json` carries `"version": 2`; a versioned log is never
+  cleaned automatically, so don't add any other automatic deletion. Sync stays idempotent and full-log: no cursor, no
   `diaryLastSyncedCount`, and it never deletes (old flat `<dateKey>.md`
   files stay). Diary text is localized through `DiaryText`; don't make
   `PomoppiCore` import `PomoppiStrings` to get it.
