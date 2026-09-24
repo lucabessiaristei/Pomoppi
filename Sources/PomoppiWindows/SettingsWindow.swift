@@ -386,6 +386,14 @@ final class SettingsWindow {
     private var diarySyncButton: HWND?
     private var diarySyncStatusLabel: HWND?
 
+    // The General tab's Updates section own version/check-for-updates row
+    // (release/update plan, phase R6b; moved off the page-wide footer strip
+    // into here) — same "cache the label/button, update in place" pattern
+    // as sessionHistorySizeLabel/the diary labels above, mirrors macOS's
+    // UpdateStatusRow.
+    private var updatesVersionLabel: HWND?
+    private var updatesActionButton: HWND?
+
     // Hint footers created via addHint (SETTINGS_PLAN.md's S4) —
     // handleCtlColor looks a painted STATIC up here to decide whether it
     // gets the dimmed hint text color instead of the ordinary one, in
@@ -401,15 +409,9 @@ final class SettingsWindow {
     // addHint's comment for why this beats a tuple return here).
     private var lastHintHeight: Int32 = 18
 
-    // The footer strip under the tab control, visible on every tab
-    // (release/update plan, phase R6b) — mirrors macOS's UpdateFooter.
-    // Direct children of `hwnd` itself, not any one page (see createFooter's
-    // own comment for why that's fine for WM_COMMAND/WM_CTLCOLOR* dispatch).
-    private var footerVersionLabel: HWND?
-    private var footerActionButton: HWND?
     // The manual "Check for updates" button's own little state machine —
     // separate from updateChecker.latestResult, same split as macOS's
-    // UpdateFooter (@State manualState alongside @ObservedObject
+    // UpdateStatusRow (@State manualState alongside @ObservedObject
     // updateChecker): a background check resolving to .updateAvailable
     // always takes priority once this is back at .idle, but a check
     // in-flight or just-resolved through *this* button has to keep showing
@@ -534,18 +536,16 @@ final class SettingsWindow {
     // handleMessage) — a smaller window with no scrollbar anywhere but
     // Appearance would make some controls on other tabs unreachable.
     private static let clientWidth: Int32 = 560
-    // The footer strip (release/update plan, phase R6b) is additional room
-    // below the tab control, not a bite taken out of the original budget —
-    // every tab's own content keeps exactly the vertical space it was
-    // already proven to fit in. The base grew from 480 to 552 in
-    // SETTINGS_PLAN.md's S4: the Keys tab's own two new hints (after
-    // "Global shortcuts" and after "While the widget is focused") pushed
-    // its always-visible, never-scrolling content past the old 480 —
-    // confirmed live, the second hint clipped clean off the bottom of the
-    // page under the old budget. General/Rhythm/Sound/Diary all still fit
-    // with room to spare at the new height; only Keys was actually tight.
-    private static let footerHeight: Int32 = 28
-    private static let clientHeight: Int32 = 552 + footerHeight
+    // The base grew from 480 to 552 in SETTINGS_PLAN.md's S4: the Keys
+    // tab's own two new hints (after "Global shortcuts" and after "While
+    // the widget is focused") pushed its always-visible, never-scrolling
+    // content past the old 480 — confirmed live, the second hint clipped
+    // clean off the bottom of the page under the old budget. No footer
+    // strip carve-out anymore (release/update plan's version/check-for-
+    // updates row moved into the General tab's own Updates section) — the
+    // full 552 is tab content again, General included: its own new row
+    // still fits with room to spare at this height.
+    private static let clientHeight: Int32 = 552
 
     // WS_THICKFRAME (aka WS_SIZEBOX) is what makes the window user-
     // resizable — shared between window creation and WM_GETMINMAXINFO's
@@ -753,9 +753,8 @@ final class SettingsWindow {
         // is about to create.
         isDarkMode = resolveDarkMode()
         setUpTabsAndPages()
-        createFooter()
         applyTheme()
-        updateChecker.onUpdate = { [weak self] in self?.refreshUpdateFooter() }
+        updateChecker.onUpdate = { [weak self] in self?.refreshUpdateStatus() }
     }
 
     // -- tab control + pages -------------------------------------------------
@@ -763,12 +762,10 @@ final class SettingsWindow {
     private func setUpTabsAndPages() {
         var clientRect = RECT()
         GetClientRect(hwnd, &clientRect)
-        // The tab control (and, through TCM_ADJUSTRECT below, every page)
-        // stops footerHeight short of the bottom, leaving room for the
-        // version/update strip createFooter() adds there — see
-        // clientHeight's own comment for why that's extra room, not a bite
-        // out of any tab's existing layout.
-        let tabAreaHeight = clientRect.bottom - clientRect.top - Self.footerHeight
+        // No footer strip anymore (see clientHeight's own comment) — the
+        // tab control (and, through TCM_ADJUSTRECT below, every page) gets
+        // the full client height.
+        let tabAreaHeight = clientRect.bottom - clientRect.top
 
         guard let tab = (Self.tabClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
@@ -835,9 +832,8 @@ final class SettingsWindow {
         guard let tab = tabControl else { return }
         var clientRect = RECT()
         GetClientRect(hwnd, &clientRect)
-        let tabAreaHeight = clientRect.bottom - clientRect.top - Self.footerHeight
+        let tabAreaHeight = clientRect.bottom - clientRect.top
         SetWindowPos(tab, nil, 0, 0, clientRect.right - clientRect.left, tabAreaHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
-        repositionFooter(clientRect: clientRect)
 
         var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: tabAreaHeight)
         withUnsafeMutablePointer(to: &displayRect) { rectPtr in
@@ -877,78 +873,67 @@ final class SettingsWindow {
         }
     }
 
-    // -- update footer (release/update plan, phase R6b) -----------------------
+    // -- update status row (release/update plan, phase R6b) -------------------
 
-    // The version/update line under the tab strip, visible on every tab —
-    // mirrors macOS's UpdateFooter. Direct children of `hwnd` itself, not
-    // any one page: WM_COMMAND/WM_CTLCOLORSTATIC/WM_CTLCOLORBTN all arrive
-    // at pomoppiSettingsWndProc directly that way, with no page-forwarding
-    // needed (pomoppiSettingsPageWndProc's own forwarding only exists for a
-    // *page's* own children — see its comment).
-    private func createFooter() {
-        var clientRect = RECT()
-        GetClientRect(hwnd, &clientRect)
-        footerVersionLabel = addLabel(
-            "Pomoppi \(pomoppiVersion) ·", in: hwnd,
-            x: Self.rowMargin, y: clientRect.bottom - Self.footerHeight + 6, width: 140)
-        footerActionButton = addButton(
-            "Check for updates", in: hwnd,
-            x: Self.rowMargin + 140, y: clientRect.bottom - Self.footerHeight + 3,
-            width: clientRect.right - clientRect.left - Self.rowMargin - 140, height: 20
+    // The General tab's Updates section own version/check-for-updates row —
+    // mirrors macOS's UpdateStatusRow. Built as part of buildGeneralTab like
+    // any other control on that page (moved off the page-wide footer strip
+    // this used to be), so WM_COMMAND/WM_CTLCOLORSTATIC/WM_CTLCOLORBTN all
+    // arrive already forwarded through pomoppiSettingsPageWndProc the same
+    // way every other General tab control's do — no separate dispatch path
+    // needed anymore. Returns the row's own height for the call site's y +=
+    // bookkeeping, same shape as addColorSchemePicker/addChimePicker.
+    @discardableResult
+    private func addUpdateStatusRow(in page: HWND, x: Int32, y: Int32, width: Int32) -> Int32 {
+        // Label sits 3px lower than the button — the same small nudge
+        // createFooter used to vertically center an 18px label text
+        // against a 20px button, confirmed live.
+        updatesVersionLabel = addLabel("Pomoppi \(pomoppiVersion) ·", in: page, x: x, y: y + 3, width: 140)
+        updatesActionButton = addButton(
+            "Check for updates", in: page,
+            x: x + 140, y: y,
+            width: width - 140, height: 20
         ) { [weak self] in
-            self?.handleFooterActionClick()
+            self?.handleUpdateActionClick()
         }
-        refreshUpdateFooter()
+        refreshUpdateStatus()
+        return 22
     }
 
-    // Repositions the footer's own children to track the bottom of a
-    // resized window — same "absolute positions, just moved" idea as every
-    // other SetWindowPos in handleResize, not a real layout system.
-    private func repositionFooter(clientRect: RECT) {
-        let y = clientRect.bottom - Self.footerHeight
-        let width = clientRect.right - clientRect.left
-        if let footerVersionLabel {
-            SetWindowPos(footerVersionLabel, nil, Self.rowMargin, y + 6, 140, 18, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
-        }
-        if let footerActionButton {
-            SetWindowPos(footerActionButton, nil, Self.rowMargin + 140, y + 3, width - Self.rowMargin - 140, 20, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
-        }
-    }
-
-    // Redraws the footer's action control from updateChecker.latestResult
-    // and this window's own manualCheckState — called after either one
-    // changes (a background check resolving while this window is open, via
+    // Redraws the action control from updateChecker.latestResult and this
+    // window's own manualCheckState — called after either one changes (a
+    // background check resolving while this window is open, via
     // updateChecker.onUpdate, or the button's own click-driven state
-    // machine below). Priority order mirrors macOS's UpdateFooter.actionView:
+    // machine below). Priority order mirrors macOS's UpdateStatusRow.actionView:
     // an update found in the background wins over "Check for updates"/
     // "Up to date"/"Couldn't check", but never mid-check — a click
     // shouldn't flash straight past "Checking…".
-    private func refreshUpdateFooter() {
-        guard let footerActionButton else { return }
+    private func refreshUpdateStatus() {
+        guard let updatesActionButton else { return }
         if case .updateAvailable(let tag, _) = updateChecker.latestResult, manualCheckState != .checking {
-            setWindowText(footerActionButton, "Update available: \(tag) — Download")
-            EnableWindow(footerActionButton, true)
+            setWindowText(updatesActionButton, "Update available: \(tag) — Download")
+            EnableWindow(updatesActionButton, true)
             return
         }
         switch manualCheckState {
         case .idle:
-            setWindowText(footerActionButton, "Check for updates")
-            EnableWindow(footerActionButton, true)
+            setWindowText(updatesActionButton, "Check for updates")
+            EnableWindow(updatesActionButton, true)
         case .checking:
-            setWindowText(footerActionButton, "Checking…")
-            EnableWindow(footerActionButton, false)
+            setWindowText(updatesActionButton, "Checking…")
+            EnableWindow(updatesActionButton, false)
         case .upToDate:
-            setWindowText(footerActionButton, "Up to date")
-            EnableWindow(footerActionButton, false)
+            setWindowText(updatesActionButton, "Up to date")
+            EnableWindow(updatesActionButton, false)
         case .failed:
-            setWindowText(footerActionButton, "Couldn't check — try again")
-            EnableWindow(footerActionButton, true)
+            setWindowText(updatesActionButton, "Couldn't check — try again")
+            EnableWindow(updatesActionButton, true)
         }
     }
 
-    // The footer button's own click — either opens the release page (when
+    // The action button's own click — either opens the release page (when
     // an update is already known) or kicks off an explicit check.
-    private func handleFooterActionClick() {
+    private func handleUpdateActionClick() {
         if case .updateAvailable(_, let pageURL) = updateChecker.latestResult, manualCheckState != .checking {
             Self.openURL(pageURL)
             return
@@ -968,7 +953,7 @@ final class SettingsWindow {
             manualCheckRevertPending = false
         }
         manualCheckState = .checking
-        refreshUpdateFooter()
+        refreshUpdateStatus()
         updateChecker.checkExplicitly { [weak self] result in
             guard let self else { return }
             switch result {
@@ -981,7 +966,7 @@ final class SettingsWindow {
             case .failure:
                 self.manualCheckState = .failed
             }
-            self.refreshUpdateFooter()
+            self.refreshUpdateStatus()
         }
     }
 
@@ -2634,7 +2619,10 @@ final class SettingsWindow {
         }
         y += Self.rowHeight
         addHint("Checks lucabessiaristei/Pomoppi on GitHub roughly once a day.", in: page, x: Self.rowMargin, y: y, width: rowWidth)
-        y += lastHintHeight + Self.groupGap
+        y += lastHintHeight + 6
+
+        y += addUpdateStatusRow(in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += Self.groupGap
 
         addButton("Reset Pomoppi…", in: page, x: Self.rowMargin, y: y, width: 160, height: 24) { [weak self] in
             self?.confirmResetToDefaults()
@@ -2706,8 +2694,6 @@ final class SettingsWindow {
         }
         if let tabControl { DestroyWindow(tabControl) }
         for page in pages { DestroyWindow(page) }
-        if let footerVersionLabel { DestroyWindow(footerVersionLabel) }
-        if let footerActionButton { DestroyWindow(footerActionButton) }
 
         tabControl = nil
         pages = []
@@ -2734,8 +2720,8 @@ final class SettingsWindow {
         trayClickHintLabel = nil
         askForTaskHintLabel = nil
         lastHintHeight = 18
-        footerVersionLabel = nil
-        footerActionButton = nil
+        updatesVersionLabel = nil
+        updatesActionButton = nil
         appearancePage = nil
         appearanceContentHeight = 0
         appearanceScrollY = 0
@@ -2748,7 +2734,6 @@ final class SettingsWindow {
         // held, same order the constructor uses.
         isDarkMode = resolveDarkMode()
         setUpTabsAndPages()
-        createFooter()
         applyTheme()
     }
 
@@ -3801,16 +3786,6 @@ final class SettingsWindow {
         for page in pages {
             RedrawWindow(page, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN) | UINT(RDW_UPDATENOW))
         }
-
-        // Not under any page (see createFooter's own comment), so the loop
-        // above's RDW_ALLCHILDREN cascade never reaches these two — same
-        // reason they need their own explicit redraw here.
-        if let footerVersionLabel {
-            RedrawWindow(footerVersionLabel, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW))
-        }
-        if let footerActionButton {
-            RedrawWindow(footerActionButton, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_UPDATENOW))
-        }
     }
 
     // WM_SETTINGCHANGE is broadcast to every top-level window for any of a
@@ -3963,13 +3938,14 @@ final class SettingsWindow {
             handleResize()
             return 0
         case WM_TIMER:
-            // The footer's own "Up to date" -> idle auto-revert, 5s after a
-            // manual check resolves to no update — see checkForUpdatesNow.
+            // The Updates row's own "Up to date" -> idle auto-revert, 5s
+            // after a manual check resolves to no update — see
+            // checkForUpdatesNow.
             if wParam == Self.manualCheckRevertTimerID {
                 KillTimer(hwnd, Self.manualCheckRevertTimerID)
                 manualCheckRevertPending = false
                 manualCheckState = .idle
-                refreshUpdateFooter()
+                refreshUpdateStatus()
             }
             return 0
         case WM_KEYDOWN, WM_SYSKEYDOWN:
