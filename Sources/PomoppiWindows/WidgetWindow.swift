@@ -76,8 +76,8 @@ final class WidgetWindow {
     private(set) var isShown = false
     private var fade: Double = 0
     private var onFadedOut: (() -> Void)?
-    private static let fadeInMs: Double = 220
-    private static let fadeOutMs: Double = 180
+    private static let fadeInMs: Double = 350
+    private static let fadeOutMs: Double = 250
 
     private static let timerID: UINT_PTR = 1
     private static let frameIntervalMs: UINT = 16 // ~60fps, same target cadence as WidgetPixelView's frame timer.

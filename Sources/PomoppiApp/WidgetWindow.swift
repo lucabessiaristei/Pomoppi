@@ -107,6 +107,7 @@ final class WidgetWindow: NSWindow {
     // running while the tray menu is tracking. Starting a new fade cancels
     // the running one, completion included.
     private var fadeTimer: Timer?
+    private var fadeBegan: CFTimeInterval?
 
     // Single entry point for every "bring the widget to front" caller
     // (tray, shortcut, raiseOnEnd, launch). No temporary level bumps — a
@@ -144,13 +145,19 @@ final class WidgetWindow: NSWindow {
     private func fade(to target: CGFloat, duration: TimeInterval, easeOut: Bool, completion: (() -> Void)?) {
         fadeTimer?.invalidate()
         let start = alphaValue
-        let began = CACurrentMediaTime()
+        // The clock starts on the first tick, not now: at launch the main
+        // thread is still busy for a moment, and a clock started here had
+        // already run out by the first tick, so the widget just popped in.
+        fadeBegan = nil
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             guard let self else {
                 timer.invalidate()
                 return
             }
-            let progress = min(1, (CACurrentMediaTime() - began) / duration)
+            let now = CACurrentMediaTime()
+            let began = self.fadeBegan ?? now
+            self.fadeBegan = began
+            let progress = min(1, (now - began) / duration)
             // Ease-out for appearing, ease-in for disappearing.
             let eased = easeOut ? 1 - (1 - progress) * (1 - progress) : progress * progress
             self.alphaValue = start + (target - start) * CGFloat(eased)
@@ -163,8 +170,8 @@ final class WidgetWindow: NSWindow {
         fadeTimer = timer
     }
 
-    private static let fadeInDuration: TimeInterval = 0.22
-    private static let fadeOutDuration: TimeInterval = 0.18
+    private static let fadeInDuration: TimeInterval = 0.35
+    private static let fadeOutDuration: TimeInterval = 0.25
 
     override var canBecomeKey: Bool { true }
 }
