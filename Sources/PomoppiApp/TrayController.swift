@@ -110,7 +110,7 @@ final class TrayController: NSObject, NSMenuDelegate {
         let state = timer.getState()
         let settings = settingsStore.get()
         let idle = state.phase == .idle
-        let widgetVisible = widgetWindow.isVisible
+        let widgetVisible = widgetWindow.isShown
 
         let menu = NSMenu()
 
@@ -230,7 +230,7 @@ final class TrayController: NSObject, NSMenuDelegate {
     @objc private func handleReset() { timer.reset() }
 
     @objc private func handleToggleVisibility() {
-        if widgetWindow.isVisible { widgetWindow.hide() } else { widgetWindow.raise() }
+        if widgetWindow.isShown { widgetWindow.hide() } else { widgetWindow.raise() }
     }
 
     @objc private func handleToggleAlwaysOnTop() {

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import PomoppiCore
 import PomoppiRender
 
@@ -86,7 +87,7 @@ final class WidgetWindow: NSWindow {
         // Only stomps the live value while actually on screen — while
         // hidden (or mid-fade-out on the way there) alphaValue is owned by
         // hide()'s animation, not the opacity slider.
-        if isVisible { alphaValue = settingsOpacity }
+        if isShown { alphaValue = settingsOpacity }
 
         let newSize = NSSize(
             width: WidgetLayout.canvasWidth * settings.scale,
@@ -96,40 +97,62 @@ final class WidgetWindow: NSWindow {
         }
     }
 
+    // Whether the widget is showing or on its way in. isVisible stays true
+    // through a fade-out, so toggles read this instead: a second toggle
+    // mid-fade-out brings it back rather than fading out again.
+    private(set) var isShown = false
+    // Bumped by every raise()/hide(), so a fade-out that gets interrupted
+    // by a raise() never orders the window out when it finishes.
+    private var fadeGeneration = 0
+
     // Single entry point for every "bring the widget to front" caller
-    // (later phases: tray right-click, raiseOnEnd, a second launch). No
-    // temporary level bumps, no timers — a raise is not sticky by design.
-    // Fades in from 0 to the opacity setting rather than snapping straight
-    // to visible.
+    // (tray, shortcut, raiseOnEnd, launch). No temporary level bumps, no
+    // timers — a raise is not sticky by design. Fades in from wherever the
+    // alpha is: 0 when hidden, the current value mid-fade, so raising an
+    // already visible widget (raiseOnEnd) never blinks.
     func raise() {
-        alphaValue = 0
+        fadeGeneration += 1
+        if !isVisible { alphaValue = 0 }
+        isShown = true
         orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         makeKey()
         makeFirstResponder(pixelView)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.fadeDuration
+            context.duration = Self.fadeInDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.animator().alphaValue = self.settingsOpacity
         }
     }
 
     // The show/hide counterpart to raise(): fades to transparent, then
-    // actually orders the window out once the animation finishes, and
-    // restores alphaValue for next time — orderOut(nil) alone would just
-    // vanish the widget instantly.
-    func hide() {
-        guard isVisible else { return }
+    // orders the window out and restores alphaValue for next time.
+    // `completion` runs once it's gone (or right away if it already was),
+    // which is how quitting waits for the fade.
+    func hide(completion: (() -> Void)? = nil) {
+        guard isVisible, isShown else {
+            completion?()
+            return
+        }
+        isShown = false
+        fadeGeneration += 1
+        let generation = fadeGeneration
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.fadeDuration
+            context.duration = Self.fadeOutDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             self.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             guard let self else { return }
-            self.orderOut(nil)
-            self.alphaValue = self.settingsOpacity
+            if self.fadeGeneration == generation {
+                self.orderOut(nil)
+                self.alphaValue = self.settingsOpacity
+            }
+            completion?()
         })
     }
 
-    private static let fadeDuration: TimeInterval = 0.12
+    private static let fadeInDuration: TimeInterval = 0.22
+    private static let fadeOutDuration: TimeInterval = 0.18
 
     override var canBecomeKey: Bool { true }
 }
