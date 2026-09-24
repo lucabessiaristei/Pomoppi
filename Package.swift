@@ -25,26 +25,32 @@ let swiftSettings: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 // target there needs that test guarded or split out first, which is out of
 // scope for this phase. PomoppiApp (the macOS AppKit/SwiftUI shell) stays
 // out of the Windows branch too, unrelated to any of the above.
+// PomoppiStrings (the generated UI string catalog, LOCALIZATION_PLAN.md) is
+// shared: both shells depend on it, PomoppiCore deliberately doesn't.
 #if os(Windows)
 let targets: [Target] = [
     .target(name: "PomoppiCore", swiftSettings: swiftSettings),
     .target(name: "PomoppiSprites", swiftSettings: swiftSettings),
     .target(name: "PomoppiRender", dependencies: ["PomoppiCore", "PomoppiSprites"], swiftSettings: swiftSettings),
+    .target(name: "PomoppiStrings", swiftSettings: swiftSettings),
     // winmm isn't in MSVC's default link set (unlike kernel32/user32/gdi32/...)
     // — PlaySoundW (ChimePlayer.swift) needs it linked explicitly.
-    .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites"], exclude: ["Pomoppi.exe.manifest", "Pomoppi.rc"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("winmm")]),
+    .executableTarget(name: "PomoppiWindows", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiSprites", "PomoppiStrings"], exclude: ["Pomoppi.exe.manifest", "Pomoppi.rc"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("winmm")]),
     .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
+    .testTarget(name: "PomoppiStringsTests", dependencies: ["PomoppiStrings"], swiftSettings: swiftSettings),
 ]
 #else
 let targets: [Target] = [
     .target(name: "PomoppiCore", swiftSettings: swiftSettings),
     .target(name: "PomoppiSprites", swiftSettings: swiftSettings),
     .target(name: "PomoppiRender", dependencies: ["PomoppiCore", "PomoppiSprites"], swiftSettings: swiftSettings),
-    .executableTarget(name: "PomoppiApp", dependencies: ["PomoppiCore", "PomoppiRender"], swiftSettings: swiftSettings),
+    .target(name: "PomoppiStrings", swiftSettings: swiftSettings),
+    .executableTarget(name: "PomoppiApp", dependencies: ["PomoppiCore", "PomoppiRender", "PomoppiStrings"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiCoreTests", dependencies: ["PomoppiCore"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiSpritesTests", dependencies: ["PomoppiSprites"], swiftSettings: swiftSettings),
     .testTarget(name: "PomoppiRenderTests", dependencies: ["PomoppiRender"], swiftSettings: swiftSettings),
+    .testTarget(name: "PomoppiStringsTests", dependencies: ["PomoppiStrings"], swiftSettings: swiftSettings),
 ]
 #endif
 
