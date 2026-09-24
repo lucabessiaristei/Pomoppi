@@ -1455,6 +1455,17 @@ final class SettingsWindow {
         let rowWidth = width - 2 * Self.rowMargin
         var y = Self.rowMargin
 
+        y = addSectionHeader(L.t("rhythm.pomodoro.header"), in: page, y: y, width: rowWidth)
+        addStepper(
+            L.t("tray.focusSessions"), in: page, value: Int32(settings.longBreakEvery),
+            min: 2, max: 10, step: 1, y: y
+        ) { [settingsStore] newValue in
+            settingsStore.update { $0.longBreakEvery = Int(newValue) }
+        }
+        y += Self.rowHeight
+        addHint(L.t("rhythm.pomodoro.footer"), in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
+
         y = addSectionHeader(L.t("rhythm.focus.header"), in: page, y: y, width: rowWidth)
         addStepper(
             L.t("rhythm.focus.label.windows"), in: page, value: Int32(settings.focusMinutes),
@@ -1481,14 +1492,6 @@ final class SettingsWindow {
             settingsStore.update { $0.longBreakMinutes = Double(newValue) }
         }
         y += Self.rowHeight
-        addStepper(
-            L.t("rhythm.breaks.everyLabel.windows"), in: page, value: Int32(settings.longBreakEvery),
-            min: 2, max: 10, step: 1, y: y
-        ) { [settingsStore] newValue in
-            settingsStore.update { $0.longBreakEvery = Int(newValue) }
-        }
-        y += Self.rowHeight
-        addHint(L.t("rhythm.breaks.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
         y = addSectionHeader(L.t("rhythm.automation.header"), in: page, y: y, width: rowWidth)
@@ -2673,9 +2676,11 @@ final class SettingsWindow {
     // Mirrors macOS's merged DiaryTab (SettingsView.swift, SPEC.md §8/§8b),
     // three sections top to bottom: Session history (moved verbatim from
     // the old Log tab — enable toggle, live history-size readout, "Erase
-    // History" with a real confirmation), Export (now a `.zip` of
-    // per-day files, DiaryExporter.exportZip), Sync to folder (idempotent,
-    // no cursor, DiaryExporter.syncToFolder). All three read
+    // History" with a real confirmation), Export (the complete log as one
+    // file — Markdown/plain text/OpenDocument text/JSON, chosen in the save
+    // dialog — via DiaryExporter.export), Sync to folder (idempotent,
+    // regenerates one summarized Markdown file per day under
+    // <folder>/YYYY/MM/, via DiaryExporter.syncToFolder). All three read
     // `sessionLogger.allSessionsSync()` directly; none of this ever
     // writes to sessions.json itself.
     private func buildDiaryTab(page: HWND, width: Int32) {
@@ -2715,7 +2720,9 @@ final class SettingsWindow {
             self?.exportDiary()
         }
         diaryExportStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 152, y: y, width: rowWidth - 152)
-        y += Self.rowHeight + Self.sectionGap
+        y += Self.rowHeight
+        addHint(L.t("diary.export.footer"), in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader(L.t("diary.sync.header"), in: page, y: y, width: rowWidth)
         addLabel(L.t("diary.sync.folder"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
@@ -2737,6 +2744,8 @@ final class SettingsWindow {
         // Matches macOS's `.disabled(viewModel.settings.diaryFolderPath.isEmpty)`.
         EnableWindow(syncButton, !settings.diaryFolderPath.isEmpty)
         diarySyncStatusLabel = addStatusLabel(in: page, x: Self.rowMargin + 220, y: y, width: rowWidth - 220)
+        y += Self.rowHeight
+        addHint(L.t("diary.sync.footer"), in: page, y: &y, width: rowWidth)
     }
 
     // MessageBoxW blocks the message loop until dismissed — same "modal,
@@ -2782,12 +2791,19 @@ final class SettingsWindow {
         path.isEmpty ? L.t("diary.sync.notSet") : path
     }
 
+    // Shared by both Export and Sync, same shape as macOS's own
+    // computed property: PomoppiCore can't import PomoppiStrings, so the
+    // shell hands in a lookup closure plus the locale.
+    private var diaryText: DiaryText {
+        DiaryText(locale: Locale(identifier: L.current), lookup: { key, args in L.t(key, args: args) })
+    }
+
     private func exportDiary() {
-        guard let path = promptDiaryExportPath() else { return }
+        guard let (path, format) = promptDiaryExportPath() else { return }
         let url = URL(fileURLWithPath: path)
-        let zipData = DiaryExporter.exportZip(sessions: sessionLogger.allSessionsSync())
+        let data = DiaryExporter.export(sessions: sessionLogger.allSessionsSync(), format: format, text: diaryText)
         do {
-            try zipData.write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
             if let diaryExportStatusLabel {
                 setWindowText(diaryExportStatusLabel, L.t("diary.export.success", url.lastPathComponent))
             }
@@ -2819,9 +2835,9 @@ final class SettingsWindow {
         let allSessions = sessionLogger.allSessionsSync()
         let folderURL = URL(fileURLWithPath: settings.diaryFolderPath)
         do {
-            let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions)
+            let written = try DiaryExporter.syncToFolder(folderURL, sessions: allSessions, text: diaryText)
             if let diarySyncStatusLabel {
-                setWindowText(diarySyncStatusLabel, written == 0 ? L.t("diary.sync.upToDate") : L.t(written == 1 ? "diary.sync.added.one" : "diary.sync.added.other", written))
+                setWindowText(diarySyncStatusLabel, written == 0 ? L.t("diary.sync.upToDate") : L.t(written == 1 ? "diary.sync.updated.one" : "diary.sync.updated.other", written))
             }
         } catch {
             if let diarySyncStatusLabel {
@@ -2839,20 +2855,37 @@ final class SettingsWindow {
     // lpstrDefExt if they typed none) — same "caller-owned buffer" shape as
     // ChooseColorW's lpCustColors, just stack-local here since nothing
     // needs it to outlive this one call.
-    private func promptDiaryExportPath() -> String? {
+    // Returns the chosen path and the DiaryFormat picked via the filter
+    // dropdown (nFilterIndex is 1-based, in DiaryFormat.allCases order:
+    // Markdown/plain text/OpenDocument text/JSON). GetSaveFileNameW doesn't
+    // rewrite the extension when the filter selection changes without a
+    // matching lpstrDefExt round-trip, so the extension is checked and
+    // appended by hand if it doesn't match the picked format.
+    private func promptDiaryExportPath() -> (path: String, format: DiaryFormat)? {
         var pathBuffer = [UInt16](repeating: 0, count: 260)
-        for (index, unit) in Array("Pomoppi Diary.zip".utf16).enumerated() {
+        for (index, unit) in Array("Pomoppi Diary.md".utf16).enumerated() {
             pathBuffer[index] = unit
         }
         // Double-NUL-terminated filter pairs, the OPENFILENAMEW convention:
         // display string, then pattern, repeated, ending in an extra NUL.
-        let filter = Array("Zip archive (*.zip)\0*.zip\0\0".utf16)
-        let defExt = Array("zip".utf16) + [0]
+        let filterText = DiaryFormat.allCases.map { format -> String in
+            let label: String
+            switch format {
+            case .markdown: label = L.t("diary.format.markdown")
+            case .text: label = L.t("diary.format.text")
+            case .odt: label = L.t("diary.format.odt")
+            case .json: label = L.t("diary.format.json")
+            }
+            return "\(label)\0*.\(format.fileExtension)\0"
+        }.joined() + "\0"
+        let filter = Array(filterText.utf16)
+        let defExt = Array("md".utf16) + [0]
 
         var dialog = OPENFILENAMEW()
         dialog.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
         dialog.hwndOwner = hwnd
         dialog.Flags = DWORD(OFN_OVERWRITEPROMPT) | DWORD(OFN_HIDEREADONLY)
+        dialog.nFilterIndex = 1
 
         let picked = filter.withUnsafeBufferPointer { filterPtr in
             defExt.withUnsafeBufferPointer { defExtPtr in
@@ -2866,7 +2899,14 @@ final class SettingsWindow {
             }
         }
         guard picked else { return nil }
-        return pathBuffer.withUnsafeBufferPointer { String(decodingCString: $0.baseAddress!, as: UTF16.self) }
+        var path = pathBuffer.withUnsafeBufferPointer { String(decodingCString: $0.baseAddress!, as: UTF16.self) }
+        let allFormats = DiaryFormat.allCases
+        let index = Int(dialog.nFilterIndex) - 1
+        let format = (index >= 0 && index < allFormats.count) ? allFormats[index] : .markdown
+        if !path.lowercased().hasSuffix(".\(format.fileExtension)") {
+            path += ".\(format.fileExtension)"
+        }
+        return (path, format)
     }
 
     // SHBrowseForFolderW (shell32) is the folder-only counterpart to

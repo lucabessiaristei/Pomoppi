@@ -321,7 +321,7 @@ final class TrayController {
             for n in WidgetLayout.dotMin...WidgetLayout.dotMax {
                 appendItem(built, Self.longBreakBaseID + Int32(n), "\(n)", checked: n == settings.longBreakEvery)
             }
-            appendSubmenu(menu, built, L.t("tray.sessionsPerLongBreak"))
+            appendSubmenu(menu, built, L.t("tray.focusSessions"))
         }
         appendSeparator(menu)
 
