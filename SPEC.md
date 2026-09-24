@@ -1408,7 +1408,7 @@ place.
 **Distribution.** GitHub Releases
 (`github.com/lucabessiaristei/Pomoppi/releases`) is the one channel, for
 both platforms: a macOS `.pkg` (`Scripts/make-pkg.js`, via `pkgbuild`) and
-a Windows installer plus a plain zip (`Scripts/make-windows-app.js
+a Windows installer (`Scripts/make-windows-app.js
 --installer`, `Scripts/pomoppi.iss` via Inno Setup). Both are built and
 attached to the release by `.github/workflows/macos.yml` /
 `windows.yml` on `release: published`, each gated by

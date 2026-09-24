@@ -36,7 +36,7 @@ git fetch <bundle> main && git reset --hard FETCH_HEAD   # sync committed histor
 call "<path from vswhere>\VC\Auxiliary\Build\vcvarsall.bat" arm64   # load the MSVC environment first — swift build's linker needs it
 swift build                                      # debug build
 swift test                                       # PomoppiCoreTests + PomoppiSpritesTests only
-node Scripts\make-windows-app.js                 # release build + dist\Pomoppi-win\ + .zip
+node Scripts\make-windows-app.js --installer     # release build + dist\Pomoppi-win\ + Setup .exe
 ```
 
 Settings persist to `%APPDATA%\Pomoppi\settings.json` (`AppStorage.swift`).
@@ -123,9 +123,9 @@ were removed; their history is in git.
 | `Sources/PomoppiWindows/TaskPromptDialog.swift` | Win32 modal dialog for the task-name prompt: `WS_POPUP \| WS_CAPTION \| WS_SYSMENU`, owned by the widget so it always sits above it without needing `WS_EX_TOPMOST`; contents are a title static, a single-line edit with cue banner, a hint static (toggled live based on `loggingEnabled`), and Start/Cancel buttons; keyboard handling intercepts Return/Escape on `WM_KEYDOWN` before `IsDialogMessageW` to avoid a beep; re-entrancy is guarded by `isShowing` |
 | `Sources/PomoppiWindows/WindowsTheme.swift` | Extracted theme/dark-mode logic (`SystemUsesLightTheme` registry read, `resolveDarkMode()`, dark-mode hex constants `darkBackgroundHex`/`darkTextHex`); shared by both `TaskPromptDialog.swift` (for consistent modal chrome) and `SettingsWindow.swift` |
 | `Sources/PomoppiWindows/Pomoppi.exe.manifest` | Win32 application manifest (Common Controls v6 + per-monitor-v2 DPI awareness) — wired in as of Phase W8, shipped as an external side-by-side manifest (`Pomoppi.exe.manifest` next to `Pomoppi.exe`) rather than linker-embedded |
-| `Scripts/make-windows-app.js` | Builds a release binary and assembles `dist/Pomoppi-win/` + `dist/Pomoppi-win.zip` — this platform's `Scripts/make-app.js` equivalent. Runs on Windows only (locates MSVC via `vswhere.exe`, needs `-products *` to see a Build-Tools-only install). Its `--installer` flag additionally compiles `Scripts/pomoppi.iss` into `dist/Pomoppi-Setup-<version>_Windows.exe` |
+| `Scripts/make-windows-app.js` | Builds a release binary and assembles `dist/Pomoppi-win/` (what the installer packs) — this platform's `Scripts/make-app.js` equivalent. Runs on Windows only (locates MSVC via `vswhere.exe`, needs `-products *` to see a Build-Tools-only install). Its `--installer` flag additionally compiles `Scripts/pomoppi.iss` into `dist/Pomoppi-Setup-<version>_Windows.exe` |
 | `Scripts/pomoppi.iss` | Inno Setup script: per-user install (`{autopf}\Pomoppi`, no UAC), `CloseApplications=yes` for a silent auto-close-and-upgrade over a running instance (`AppMutex` deliberately not used — it only blocks with a dialog, no auto-close capability; `CloseApplications`'s RestartManager integration is what does the real work). Compiled by `Scripts/make-windows-app.js --installer` via `ISCC.exe` (`SPEC.md` §15) |
-| `.github/workflows/windows.yml` | Release-only CI (`workflow_dispatch` + `release: published`, never a per-commit gate) producing x64 release artifacts via `make-windows-app.js --installer` on a `windows-latest` runner — both the `.zip` and the Inno Setup `Pomoppi-Setup-*.exe`; only the Setup `.exe` is attached to a release, the zip stays a workflow artifact. Verified end to end by the v0.3.0 release (`release: published`, both platforms green) |
+| `.github/workflows/windows.yml` | Release-only CI (`workflow_dispatch` + `release: published`, never a per-commit gate) producing x64 release artifacts via `make-windows-app.js --installer` on a `windows-latest` runner — the Inno Setup `Pomoppi-Setup-*.exe`, attached to the release. Verified end to end by the v0.3.0 release (`release: published`, both platforms green) |
 
 ## Invariants that keep getting broken
 

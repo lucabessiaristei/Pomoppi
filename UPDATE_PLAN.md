@@ -5,7 +5,9 @@
 `UpdateInstallState.swift`, tests; green on the Mac and in the VM. S6b and
 S6d: both installers relaunch Pomoppi after updating over a running copy,
 verified by hand on the Mac and in the VM (see each phase's result below).
-**Next: S6c and S6e**, the in-app side on each platform.
+**Next: S6c and S6e**, the in-app side on each platform. **It ships as
+v0.3.5** (`node Scripts/set-version.js 0.3.5` at release time, per
+`RELEASING.md`).
 v0.3.0 is released (first run of the `release: published` pipeline,
 green on both platforms), so there is a real release to update to.
 Build order: S6a, then (S6b, S6c) and (S6d, S6e) in parallel, each

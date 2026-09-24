@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 // Scripts/make-windows-app.js — builds the SPM package in release mode and
-// assembles a distributable Windows app folder + zip. Hand-rolled: no
-// packager, no MSI installer.
+// assembles the Windows app folder the Inno Setup installer packs.
+// Hand-rolled: no packager, no MSI.
 //
 // **This script must run ON a Windows machine** — Swift does not cross-compile
 // from macOS to Windows. It requires the Swift toolchain + MSVC (Build Tools
 // or Visual Studio) installed, and will be invoked by GitHub Actions
 // windows-latest runners or the project's Windows dev VM.
 //
-// Destination defaults to dist/Pomoppi-win/ (relative to repo root), and
-// the script also produces dist/Pomoppi-win.zip. Pass --installer to also
-// build a setup .exe via Inno Setup (Scripts/pomoppi.iss) — the zip stays
-// the default/no-flag output either way (some chat apps block .exe
-// attachments outright, so it's kept as the fallback distribution path).
+// Destination defaults to dist/Pomoppi-win/ (relative to repo root). Pass
+// --installer to also build the setup .exe via Inno Setup
+// (Scripts/pomoppi.iss), the only thing users get. The folder alone is for
+// a quick dev run; an installer never manages a copy run from there.
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync, execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const { readVersion } = require('./version');
 
@@ -36,7 +35,6 @@ const installerRequested = rawArgs.includes('--installer');
 const positionalArgs = rawArgs.filter((a) => a !== '--installer');
 
 const destFolder = path.resolve(positionalArgs[0] || path.join(REPO_ROOT, 'dist', 'Pomoppi-win'));
-const destZip = path.join(path.dirname(destFolder), `${path.basename(destFolder)}.zip`);
 
 function logSection(msg) {
   console.log(`\n${msg}`);
@@ -446,7 +444,7 @@ function findIsccPath() {
 }
 
 // Compiles Scripts/pomoppi.iss via ISCC.exe into a setup .exe next to the
-// zip (dist/), reusing the exact contents already assembled at destFolder
+// app folder (dist/), reusing the exact contents already assembled at destFolder
 // rather than having the .iss script rebuild or re-locate anything itself.
 function buildInstaller(destFolder) {
   logSection('Building installer (ISCC.exe)...');
@@ -479,26 +477,6 @@ function buildInstaller(destFolder) {
   return setupExe;
 }
 
-// Create a zip file of the destFolder's *contents* (not a wrapper folder).
-// Use PowerShell Compress-Archive.
-function createZip(sourceFolder, zipPath) {
-  logSection('Creating zip archive...');
-
-  // Use PowerShell to create a zip of the folder's contents
-  const psCommand = `Compress-Archive -Path '${sourceFolder}\\*' -DestinationPath '${zipPath}' -Force`;
-
-  try {
-    execSync(`powershell -Command "${psCommand}"`, {
-      stdio: 'inherit',
-    });
-  } catch (err) {
-    console.error(`Failed to create zip: ${err.message}`);
-    process.exit(1);
-  }
-
-  console.log(`  → ${zipPath}`);
-}
-
 function main() {
   const vsPath = findVsInstallPath();
   const vcvarsallBat = findVcvarsallBat(vsPath);
@@ -514,18 +492,15 @@ function main() {
   const hasIcon = copyIconIfPresent(destFolder);
   copySwiftRuntimeDlls(destFolder, dumpbinPath, path.join(destFolder, `${APP_NAME}.exe`));
 
-  createZip(destFolder, destZip);
-
   const setupExe = installerRequested ? buildInstaller(destFolder) : null;
 
   console.log('\n' + '='.repeat(70));
   console.log('Success! Windows app assembled.');
   console.log('='.repeat(70));
   console.log(`\nFolder: ${destFolder}`);
-  console.log(`Zip:    ${destZip}`);
   if (setupExe) console.log(`Setup:  ${setupExe}`);
   console.log(`Icon:   ${hasIcon ? 'embedded in Pomoppi.exe, and copied loose alongside it' : 'not included (add assets/pomoppi.ico to include it)'}`);
-  console.log(`\nTo distribute: send ${destZip} or unzip it and send the folder contents.`);
+  if (!setupExe) console.log('\nPass --installer to build the setup .exe users actually get.');
 }
 
 main();
