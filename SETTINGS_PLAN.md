@@ -448,15 +448,16 @@ not a side effect; S4's hint is what explains it.
   area with `GetForegroundWindow` matching the prompt's own `hwnd`; the
   widget keeps animating behind the modal (`GetMessageW`'s `nil` hwnd
   filter already covers this — the owner's `WM_TIMER` isn't gated on
-  being enabled). **One piece not landed here:** `SettingsWindow.swift`
-  itself switching to `WindowsTheme` (this phase's design also asked for
-  that, "have both the dialog and `SettingsWindow` use it") — S4 landed
-  concurrently in the same file and the two sets of edits were
-  interleaved on disk in a way that wasn't safe to split into this
-  commit. `SettingsWindow.swift` still carries its own private
-  `darkBackgroundHex`/`darkTextHex`/`darkBackgroundBrush` and
-  `resolveDarkMode()`; a follow-up should point it at `WindowsTheme`
-  instead, now that S4 has settled.
+  being enabled). This phase's design also asked for `SettingsWindow.swift`
+  itself to switch to `WindowsTheme` ("have both the dialog and
+  `SettingsWindow` use it") — not landed in this commit, since S4 was
+  editing the same file concurrently and the two sets of edits were
+  interleaved on disk in a way that wasn't safe to split into this one.
+  **Done in S4 instead** (`ad73d2d`): every `darkBackgroundHex`/
+  `darkTextHex`/`darkBackgroundBrush` reference in `SettingsWindow.swift`
+  now points at `WindowsTheme`, and `resolveDarkMode()` there is a
+  one-line delegate to `WindowsTheme.resolveDarkMode(colorScheme:)` —
+  no private duplicates left.
 - **T3 — Docs.** `SPEC.md` §5's "**Windows has no prompt at all**"
   paragraph and §0b's "Task-name prompt" ledger row both flip to the
   shipped behavior; `CLAUDE.md`'s Windows file map gains
