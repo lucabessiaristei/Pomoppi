@@ -88,6 +88,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public static let frameStyles = ["ziggy", "scallopy", "splotchy", "wavey"]
     public static let backgroundIDs = ["grid", "luna"]
     public static let chimeIDs = ["classic", "chord", "jingle", "soft"]
+    public static let languageIDs = ["en"]
     public static let colorSchemeIDs = ["auto", "light", "dark"]
 
     public static let defaults = PomoppiSettings(

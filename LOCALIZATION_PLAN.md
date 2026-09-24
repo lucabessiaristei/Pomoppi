@@ -4,13 +4,16 @@ A self-contained handoff for making Pomoppi speak more than English. Read
 this first for *why* things are the shape they are; once L5 lands,
 `SPEC.md` §16 is the behavior contract.
 
-**Status as of 2026-09-24: L0 next.** Its gates are cleared: the settings
-overhaul shipped in v0.3.0, the in-app update in v0.3.5.
+**Status as of 2026-09-24: L0 in progress.** Infrastructure is in:
+`PomoppiStrings` target + `PomoppiStringsTests` (Package.swift edit
+approved by the user), `refresh-strings.js`, `Localization.swift`,
+`Localization/en.json`. The extraction sweep is running: macOS shell
+first, then Windows reusing the same keys (one key per string and
+meaning, no per-platform duplicates).
 
-**One open item before L2**: the language roster below is seeded with
-English + Italian. Confirm the full list before translation content
-starts — adding a language later costs one JSON file and a `node
-refresh-strings`, but translating the wrong set costs a translator's pass.
+**Roster confirmed 2026-09-24:** English (source), Italian, Spanish,
+French, German (`en`, `it`, `es`, `fr`, `de`). Each file carries a
+`language.name` key with the language's own name.
 
 ## Locked decisions — do not re-derive or re-litigate these
 
