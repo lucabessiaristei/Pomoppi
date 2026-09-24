@@ -1817,16 +1817,15 @@ final class SettingsWindow {
 
     // -- Appearance tab: theme presets ----------------------------------------
 
-    // Mirrors macOS's ThemePresetPicker: a plain two-color swatch (paper
-    // fill + ink dot) per preset, no PixelCanvas involved since there's no
-    // art to preview here, just the two colors themselves. Same flow-layout
-    // shape as addPickerGrid, just with a smaller/plainer card.
-    @discardableResult
     // Fixed column count spread across the full content width: the first
     // column sits on the left margin, the last ends on the right one, with
     // even spacing between (the same right edge every labeled row uses).
     private static let themePresetColumns: Int32 = 6
 
+    // Mirrors macOS's ThemePresetPicker: a plain two-color swatch (paper
+    // fill + ink dot) per preset, no PixelCanvas involved since there's no
+    // art to preview here, just the two colors themselves.
+    @discardableResult
     private func addThemePresetGrid(in page: HWND, x: Int32, y: Int32, availableWidth: Int32) -> Int32 {
         let swatchSize: Int32 = 36
         let gap: Int32 = 10
