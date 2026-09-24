@@ -52,11 +52,11 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Rhythm/Appearance/Keys/Sound/Diary | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Pomodoro/Appearance/Keys/Sound/Diary | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
-| Task-name prompt | `NSAlert` via `StartCoordinator.swift`, on when `askForTaskName` or forced by `loggingEnabled` (§5) | Win32 modal via `TaskPromptDialog.swift`, same gate and behavior — part of the settings overhaul's Part B |
+| Title prompt | `NSAlert` via `StartCoordinator.swift`, shown when `loggingEnabled` and `askForTaskName` are both on (§5); always Pomoppi's icon | Win32 modal via `TaskPromptDialog.swift`, same gate and behavior — part of the settings overhaul's Part B |
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
@@ -208,7 +208,7 @@ buttons 13x13  y=100, at x=25, 43, 62, 80 (row box = the bar's, 25..92)
 Only the **clock** carries `-`/`+` steppers. The dot row is **display only**
 (2026-09-24): no click, no hover, no hit region at all. It shows the focus
 sessions done in the current pomodoro (§5); how many there are is set from the
-tray's `Focus sessions ▸` submenu (§9) and the Rhythm tab (§7), nowhere else.
+tray's `Focus sessions ▸` submenu (§9) and the Pomodoro tab (§7), nowhere else.
 
 - **Reset is disabled while idle** (2026-09-24): drawn in the background token
   (`mixHex(paper, ink, 0.3)`, the same colour as the background pattern), no
@@ -400,7 +400,7 @@ opened once for the process's life — no WAV header involved, since
 `waveOut` already knows the format out of band, and only one `WAVEHDR` is
 ever outstanding so a new play always cuts the previous one off. See
 `ChimePlayer.swift`, one per platform. The Sound tab's Chime picker
-(Rhythm-style segmented control on macOS, individually-clickable
+(Pomodoro-tab-style segmented control on macOS, individually-clickable
 segmented buttons on Windows, both built from `chimeIDs`) plays the
 selected pack's focus-end sound immediately on selection — "tap it, hear
 it" — regardless of `soundEnabled`, since this is a preview, not the real
@@ -417,9 +417,7 @@ Phase transitions, `skip()`'s bidirectional semantics, wall-clock timing
 both platforms — same `PomodoroTimer` (`PomoppiCore`), driven identically.
 Both macOS and Windows implement the task-name prompt:
 `StartCoordinator.swift` on macOS (via `NSAlert`), `TaskPromptDialog.swift`
-on Windows (via a hand-rolled Win32 modal), each prompting when
-`askForTaskName` is on, or unconditionally when `loggingEnabled` (§8), exactly
-as described below.
+on Windows (via a hand-rolled Win32 modal), each prompting as described below.
 
 **A pomodoro is the whole cycle** (redesigned 2026-09-24): `longBreakEvery`
 focus sessions ("Focus sessions" in the UI, 2..10), a `shortBreak` between
@@ -457,19 +455,17 @@ title cleared, `completedToday` given back whatever this pomodoro added, and
 entry of that pomodoro (§8). To keep a pomodoro but end it early, skip to the
 end instead. From idle, reset is a no-op.
 
-`requestStart()` opens the task prompt only when `askForTaskName` is on **and
-no task is set yet**, which in practice means once, at the start of a
-pomodoro. Prompting unconditionally meant naming a session ahead of
-time (tray > Set task…) and then pressing play re-opened the same dialog on top
-of the name just typed, which made setting a task in advance pointless.
-**Native additionally makes the prompt mandatory** — regardless of
-`askForTaskName`'s stored value — whenever `loggingEnabled` is true: a
-logged session with no task name isn't a useful line to have recorded, so
-that alone forces the ask rather than silently skipping it (before the
-2026-09-19 session-log redesign, this also required a configured Obsidian
-vault; there's no vault concept left to check). Cancelling that forced
-prompt leaves the timer idle instead of starting; cancelling the ordinary,
-optional prompt still starts the timer.
+`requestStart()` opens the **title prompt** ("What are you working on?")
+only when **`loggingEnabled` and `askForTaskName` are both on** (Diary tab,
+§7) **and no title is set yet**, which in practice means once, at the start
+of a pomodoro. The title only ever ends up in the log (§8), so there is no
+point asking while nothing is recorded. The title is optional: left blank,
+the pomodoro is logged untitled (the diary heading is just its start time).
+Cancel leaves the timer idle. (Until 2026-09-24 logging made the prompt
+mandatory and the toggle lived in the timing tab; both are gone.) The prompt
+always shows Pomoppi's icon, dev builds included: an unbundled `swift run`
+loads `assets/AppIcon.icns`, a Windows `swift build` without the embedded
+resource loads `assets/pomoppi.ico`.
 
 Timing is **wall-clock based**, not tick-accumulated: store `endsAt`
 (epoch ms) and derive `remainingMs = endsAt - Date.now()`. On pause store
@@ -589,9 +585,8 @@ with defaults (and the bad file renamed `settings.json.bak`).
   soundEnabled: true,
   chime: 'classic',                 // one of PomoppiSettings.chimeIDs -- see §4
   ringSeconds: 5,
-  askForTaskName: true,             // prompt for a task when starting focus; native additionally
-                                     // forces this on (regardless of the stored value) whenever
-                                     // loggingEnabled is true -- see §5
+  askForTaskName: true,             // ask for the pomodoro's title when it starts; only while
+                                     // loggingEnabled is also on -- see §5 (Diary tab toggle)
 
   shortcuts: { ... },               // the schema's one nested object -- see §13
 }
@@ -678,7 +673,7 @@ never a child of the job and booting out cannot kill it.
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. Six
-tabs, left to right: **General, Rhythm, Appearance, Keys, Sound, Diary**.
+tabs, left to right: **General, Pomodoro, Appearance, Keys, Sound, Diary**. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
 `General` is `Window` renamed and moved first — `Window` was a grab-bag
 naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
@@ -695,10 +690,9 @@ what a brand-new install opens on.
 | | *(Language — added by `LOCALIZATION_PLAN.md` L3/L4, not by this section)* | | |
 | | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
 | | Reset | **Reset Pomoppi…** | "Also erases your session history." |
-| **Rhythm** | Pomodoro | **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each, a long break at the end." |
-| | Focus | Default focus length | "Or click the clock on the widget." |
+| **Pomodoro** | Focus | Length; **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each session, a long break at the end. Or click the clock on the widget." |
 | | Breaks | Short break; Long break | — |
-| | Automation | Start breaks automatically; Start the next focus automatically; Ask what I'm working on before each pomodoro | live, on `askForTaskName`: logging on → "Always asks while session logging is on (Diary tab)."; logging off → "Leave the name blank to skip." |
+| | Auto-start | Start breaks automatically; Start the next focus automatically | — |
 | **Appearance** | Roommate / Window edge / Background / Theme | card pickers; 12 theme presets, one row on macOS, two rows of 6 on Windows (B/W, Cocoa, Sakura, Lavender, Mint, Peach, Pine, Midnight, OLED, Amber, Cherry, LCD Green) + Ink / Paper | — |
 | | Size & transparency | Size (segmented); Opacity | — |
 | **Keys** | Global shortcuts | one recorder row per action | "Work from any app. Click one, then press a new combo that includes a modifier." |
@@ -706,7 +700,7 @@ what a brand-new install opens on.
 | | While the widget is focused | static key list | — |
 | **Sound** | Chime | Play a chime when a session ends; Chime picker (disabled while the chime is off) | "Click a chime to hear it." |
 | | Ring | ring length (always enabled: the ring is visual) | "Visual only, so it rings even with the chime off." |
-| **Diary** | Session history | Record every session; History size; **Erase History…** | "Stored only on this computer." |
+| **Diary** | Session history | Record every session; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); History size; **Erase History…** | "Stored only on this computer." |
 | | Export | Sessions recorded; Export Diary… | — |
 | | Sync to folder | Diary folder; Choose…; Sync Now | — |
 

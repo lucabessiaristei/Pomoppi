@@ -17,8 +17,8 @@ struct SettingsView: View {
             Tab(L.t("tab.general"), systemImage: "macwindow", value: "general") {
                 GeneralTab(viewModel: viewModel)
             }
-            Tab(L.t("tab.rhythm"), systemImage: "timer", value: "rhythm") {
-                RhythmTab(viewModel: viewModel)
+            Tab(L.t("tab.pomodoro"), systemImage: "timer", value: "rhythm") {
+                PomodoroTab(viewModel: viewModel)
             }
             Tab(L.t("tab.appearance"), systemImage: "paintpalette", value: "appearance") {
                 AppearanceTab(viewModel: viewModel)
@@ -139,51 +139,40 @@ private extension View {
     }
 }
 
-// MARK: - Rhythm
+// MARK: - Pomodoro
 
-private struct RhythmTab: View {
+private struct PomodoroTab: View {
     @ObservedObject var viewModel: SettingsViewModel
 
     var body: some View {
         Form {
             Section {
                 Stepper(
-                    L.t("rhythm.focusSessions.stepper", viewModel.settings.longBreakEvery),
+                    L.t("pomodoro.focus.lengthStepper", Int(viewModel.settings.focusMinutes)),
+                    value: viewModel.binding(\.focusMinutes), in: 1...180, step: 1)
+                Stepper(
+                    L.t("pomodoro.focus.sessionsStepper", viewModel.settings.longBreakEvery),
                     value: viewModel.binding(\.longBreakEvery), in: 2...10)
             } header: {
-                Text(L.t("rhythm.pomodoro.header"))
+                Text(L.t("pomodoro.focus.header"))
             } footer: {
-                Text(L.t("rhythm.pomodoro.footer"))
+                Text(L.t("pomodoro.focus.footer"))
             }
             Section {
                 Stepper(
-                    L.t("rhythm.focus.stepper", Int(viewModel.settings.focusMinutes)),
-                    value: viewModel.binding(\.focusMinutes), in: 1...180, step: 1)
-            } header: {
-                Text(L.t("rhythm.focus.header"))
-            } footer: {
-                Text(L.t("rhythm.focus.footer"))
-            }
-            Section {
-                Stepper(
-                    L.t("rhythm.breaks.shortStepper", Int(viewModel.settings.shortBreakMinutes)),
+                    L.t("pomodoro.breaks.shortStepper", Int(viewModel.settings.shortBreakMinutes)),
                     value: viewModel.binding(\.shortBreakMinutes), in: 1...180, step: 1)
                 Stepper(
-                    L.t("rhythm.breaks.longStepper", Int(viewModel.settings.longBreakMinutes)),
+                    L.t("pomodoro.breaks.longStepper", Int(viewModel.settings.longBreakMinutes)),
                     value: viewModel.binding(\.longBreakMinutes), in: 1...180, step: 1)
             } header: {
-                Text(L.t("rhythm.breaks.header"))
+                Text(L.t("pomodoro.breaks.header"))
             }
             Section {
-                Toggle(L.t("rhythm.automation.autoStartBreaks"), isOn: viewModel.binding(\.autoStartBreaks))
-                Toggle(L.t("rhythm.automation.autoStartFocus"), isOn: viewModel.binding(\.autoStartFocus))
-                Toggle(L.t("rhythm.automation.askForTaskName"), isOn: viewModel.binding(\.askForTaskName))
+                Toggle(L.t("pomodoro.autoStart.breaks"), isOn: viewModel.binding(\.autoStartBreaks))
+                Toggle(L.t("pomodoro.autoStart.focus"), isOn: viewModel.binding(\.autoStartFocus))
             } header: {
-                Text(L.t("rhythm.automation.header"))
-            } footer: {
-                Text(viewModel.settings.loggingEnabled
-                    ? L.t("rhythm.askForTask.hint.loggingOn")
-                    : L.t("rhythm.askForTask.hint.loggingOff"))
+                Text(L.t("pomodoro.autoStart.header"))
             }
         }
         .settingsForm()
@@ -689,6 +678,10 @@ private struct DiaryTab: View {
         Form {
             Section {
                 Toggle(L.t("diary.history.record"), isOn: viewModel.binding(\.loggingEnabled))
+                // The title only ever ends up in the log, so it's asked
+                // only while recording (SPEC.md §5).
+                Toggle(L.t("diary.history.askForTitle"), isOn: viewModel.binding(\.askForTaskName))
+                    .disabled(!viewModel.settings.loggingEnabled)
                 LabeledContent(L.t("diary.history.size"), value: Self.formattedSize(historySizeBytes))
                 Button(L.t("diary.history.erase"), role: .destructive) {
                     showingEraseConfirmation = true

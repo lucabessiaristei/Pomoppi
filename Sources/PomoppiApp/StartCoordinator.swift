@@ -4,14 +4,10 @@ import PomoppiStrings
 
 // The one place "start" actually happens for a fresh (idle) session, used
 // by the widget's play button, the tray menu, and the startPause global
-// shortcut alike, so the task-name prompt only has to be wired once —
-// mirrors requestStart() in main.js. The "must ask" gate is stricter here
-// than askForTaskName alone: once session logging is on, asking becomes
-// mandatory regardless of that toggle, because without a task name
-// there's no good line to log. (Before the 2026-09-19 session-log
-// redesign, this also required a configured Obsidian vault — that check
-// is gone along with vaultPath itself; logging is meaningful the moment
-// it's turned on now, no vault to point it at first.)
+// shortcut alike, so the title prompt only has to be wired once. It appears
+// only when recording sessions and askForTaskName are both on, since the
+// title only ever ends up in the log (SPEC.md §5). The title is optional;
+// Cancel doesn't start the timer.
 enum StartCoordinator {
     static func requestStart(timer: PomodoroTimer, settingsStore: SettingsStore) {
         let state = timer.getState()
@@ -21,20 +17,14 @@ enum StartCoordinator {
         }
 
         let settings = settingsStore.get()
-        let loggingMandatory = settings.loggingEnabled
-        guard settings.askForTaskName || loggingMandatory else {
+        guard settings.loggingEnabled, settings.askForTaskName else {
             timer.start()
             return
         }
 
-        switch promptForTaskName(mandatory: loggingMandatory) {
-        case .started(let task):
+        if case .started(let task) = promptForTaskName() {
             if !task.isEmpty { timer.setTask(task) }
             timer.start()
-        case .cancelled:
-            // A purely optional prompt still starts on cancel — only the
-            // logging-mandated ask actually blocks starting the timer.
-            if !loggingMandatory { timer.start() }
         }
     }
 
@@ -43,13 +33,12 @@ enum StartCoordinator {
         case cancelled
     }
 
-    private static func promptForTaskName(mandatory: Bool) -> PromptResult {
+    private static func promptForTaskName() -> PromptResult {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = L.t("prompt.task.title")
-        alert.informativeText = mandatory
-            ? L.t("prompt.task.hint.mandatory")
-            : L.t("prompt.task.hint.optional")
+        alert.informativeText = L.t("prompt.task.hint.optional")
+        alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: L.t("common.start"))
         alert.addButton(withTitle: L.t("common.cancel"))
 

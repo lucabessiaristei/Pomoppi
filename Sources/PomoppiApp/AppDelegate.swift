@@ -34,6 +34,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // trade for a menu-bar-style widget (SPEC.md §9b). WillFinish so
         // SwiftUI's App lifecycle doesn't flash a Dock icon first.
         NSApp.setActivationPolicy(.accessory)
+        useRepoIconWhenUnbundled()
+    }
+
+    // A `swift run` build is a loose binary with no bundle icon, so alerts
+    // (the title prompt, confirmations) would show a generic one. Use the
+    // repo's own icon then; a real Pomoppi.app already has it.
+    private func useRepoIconWhenUnbundled() {
+        guard Bundle.main.bundleURL.pathExtension != "app" else { return }
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // PomoppiApp
+            .deletingLastPathComponent() // Sources
+            .deletingLastPathComponent()
+        if let icon = NSImage(contentsOf: repoRoot.appendingPathComponent("assets/AppIcon.icns")) {
+            NSApp.applicationIconImage = icon
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
