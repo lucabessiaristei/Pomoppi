@@ -139,7 +139,7 @@ final class DiaryExporterTests: XCTestCase {
         ]
         let pomodoro = DiaryExporter.Pomodoro(start: date(hour: 9, minute: 0), title: "t", entries: entries)
         let output = DiaryExporter.dayFile([pomodoro], text: diaryText, calendar: utcCalendar)
-        XCTAssertTrue(output.contains("2 sessions\n\n"))
+        XCTAssertTrue(output.contains("2 focus sessions\n\n"))
         XCTAssertFalse(output.contains("stopped early"))
     }
 
@@ -148,7 +148,7 @@ final class DiaryExporterTests: XCTestCase {
         let pomodoro = DiaryExporter.Pomodoro(start: date(hour: 9, minute: 0), title: "t", entries: entries)
         let output = DiaryExporter.dayFile([pomodoro], text: diaryText, calendar: utcCalendar)
         XCTAssertTrue(output.contains("1 focus session\n\n"))
-        XCTAssertFalse(output.contains("1 sessions"))
+        XCTAssertFalse(output.contains("1 focus sessions"))
     }
 
     func testDurationBelowAMinuteRendersAsLessThanOneMinuteNeverZero() {
