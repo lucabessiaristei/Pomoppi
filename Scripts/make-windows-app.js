@@ -189,6 +189,23 @@ function compileResourceCmd() {
   return { rcCmd, linkerArg: ` -Xlinker "${resOutput}"` };
 }
 
+// The real release output folder (.build\<triple>\release), straight from
+// SwiftPM. .build\release is only a convenience symlink SwiftPM tries to
+// create after each build, and on Windows that can fail (confirmed live: "unable
+// to create symbolic link ... code: 512") while the build itself succeeds.
+function releaseBinPath(vcvarsallBat, arch) {
+  const cmd =
+    `call "${vcvarsallBat}" ${arch} >nul` +
+    ` && swift build -c release --package-path "${REPO_ROOT}" --show-bin-path`;
+  const output = execFileSync('cmd.exe', ['/c', cmd], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    windowsVerbatimArguments: true,
+  });
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1];
+}
+
 // Build the release binary with MSVC environment loaded via vcvarsall.bat.
 // Pass -Xlinker flags to produce a GUI app (no console window), plus the
 // compiled icon+version resource (see compileResourceCmd below) —
@@ -196,6 +213,7 @@ function compileResourceCmd() {
 // loose file dropped alongside it.
 function buildReleaseBinary(vcvarsallBat, arch) {
   logSection('Building release binary (swift build -c release with MSVC environment)...');
+  const binDir = releaseBinPath(vcvarsallBat, arch);
 
   // SwiftPM's incremental build only hashes the -Xlinker flag *string*, not
   // the .res file's contents it points at — a re-run with an unchanged
@@ -203,7 +221,7 @@ function buildReleaseBinary(vcvarsallBat, arch) {
   // pomoppi.ico) silently reuses the stale linked exe instead of relinking.
   // Deleting the previous output first forces llbuild's own
   // output-must-exist check to redo the link step for real, every time.
-  const previousBinary = path.join(REPO_ROOT, '.build', 'release', 'PomoppiWindows.exe');
+  const previousBinary = path.join(binDir, 'PomoppiWindows.exe');
   if (fs.existsSync(previousBinary)) fs.rmSync(previousBinary);
 
   const { rcCmd, linkerArg } = compileResourceCmd();
@@ -230,7 +248,7 @@ function buildReleaseBinary(vcvarsallBat, arch) {
     process.exit(1);
   }
 
-  const binary = path.join(REPO_ROOT, '.build', 'release', 'PomoppiWindows.exe');
+  const binary = path.join(binDir, 'PomoppiWindows.exe');
   if (!fs.existsSync(binary)) {
     console.error(`Expected release binary at ${binary} but it doesn't exist.`);
     process.exit(1);
