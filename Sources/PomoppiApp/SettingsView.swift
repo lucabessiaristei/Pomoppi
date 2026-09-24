@@ -504,7 +504,7 @@ private struct UpdateStatusRow: View {
         // An update found in the background takes priority over whatever
         // the manual-check state machine below is doing, except mid-check
         // (so a click doesn't flash straight past "Checking…").
-        if case .updateAvailable(let tag, let pageURL) = updateChecker.latestResult, manualState != .checking {
+        if case .updateAvailable(let tag, let pageURL, _) = updateChecker.latestResult, manualState != .checking {
             Button("Update available: \(tag) — Download") {
                 NSWorkspace.shared.open(pageURL)
             }

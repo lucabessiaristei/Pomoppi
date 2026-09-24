@@ -1,6 +1,9 @@
 # Pomoppi in-app update — plan and status
 
-**Status as of 2026-09-24: not started. This is the next piece of work.**
+**Status as of 2026-09-24: S6a code written (`ReleaseAsset`/`UpdatePlatform`
+in `UpdateChecker.swift`, `SHA256.swift`, `UpdateInstallState.swift`, tests),
+authored without a Swift toolchain. Its exit (`swift test` on the Mac,
+`swift build` + `swift test` in the VM) is still to run before S6b-S6e start.**
 v0.3.0 is released (first run of the `release: published` pipeline,
 green on both platforms), so there is a real release to update to.
 Build order: S6a, then (S6b, S6c) and (S6d, S6e) in parallel, each

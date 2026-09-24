@@ -152,7 +152,7 @@ final class TrayController {
                 // here.
                 DestroyWindow(window.hwnd)
             case .openUpdatePage:
-                guard case .updateAvailable(_, let pageURL) = window.updateChecker?.latestResult else { return }
+                guard case .updateAvailable(_, let pageURL, _) = window.updateChecker?.latestResult else { return }
                 Self.openURL(pageURL)
             }
             return
@@ -318,7 +318,7 @@ final class TrayController {
         // Only present at all when a check has actually resolved to a newer
         // release — no greyed-out "no
         // update" placeholder item the rest of the time.
-        if case .updateAvailable(let tag, _) = window.updateChecker?.latestResult {
+        if case .updateAvailable(let tag, _, _) = window.updateChecker?.latestResult {
             appendItem(menu, .openUpdatePage, "Update available: \(tag)")
             appendSeparator(menu)
         }
