@@ -9,6 +9,7 @@
 // Return/Escape handling, Tab order, work-area clamping, the hidden-widget
 // centering path and the isShowing re-entrancy guard.
 import Foundation
+import PomoppiStrings
 import WinSDK
 
 // WNDPROC can't capture, so it dispatches through whichever prompt is
@@ -203,7 +204,7 @@ final class TaskPromptDialog {
     // -- controls ---------------------------------------------------------
 
     private func buildControls(mandatory: Bool) {
-        addLabel("What are you working on?", x: 16, y: 16, width: 308, height: 20)
+        addLabel(L.t("prompt.task.title"), x: 16, y: 16, width: 308, height: 20)
 
         guard let edit = (Self.editClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
@@ -231,16 +232,16 @@ final class TaskPromptDialog {
         // Same two strings macOS's promptForTaskName uses for
         // alert.informativeText, mandatory vs. optional.
         let hintText = mandatory
-            ? "Session logging is on, so this session needs a task name to log a useful line."
-            : "Optional — leave blank to skip."
+            ? L.t("prompt.task.hint.mandatory")
+            : L.t("prompt.task.hint.optional")
         addLabel(hintText, x: 16, y: 74, width: 308, height: 40)
 
         // Same right-to-left order as macOS's NSAlert (Start added first,
         // ends up rightmost/default; Cancel to its left) — also this
         // window's own Tab order (edit -> Cancel -> Start -> wraps), which
         // reads left to right on screen.
-        cancelButton = addButton("Cancel", x: 156, y: 114, width: 80, height: 26)
-        startButton = addButton("Start", x: 244, y: 114, width: 80, height: 26, isDefault: true)
+        cancelButton = addButton(L.t("common.cancel"), x: 156, y: 114, width: 80, height: 26)
+        startButton = addButton(L.t("common.start"), x: 244, y: 114, width: 80, height: 26, isDefault: true)
 
         if darkMode {
             Self.applyDarkExplorerTheme(cancelButton)
@@ -258,7 +259,7 @@ final class TaskPromptDialog {
     // SetFocus(editHwnd) has focus here, which is an acceptable trade for
     // a control that's actually visible.
     private func applyCueBanner(_ edit: HWND) {
-        var wide = Array("Task or project name".utf16) + [0]
+        var wide = Array(L.t("prompt.task.placeholder").utf16) + [0]
         wide.withUnsafeMutableBufferPointer { buf in
             guard let base = buf.baseAddress else { return }
             _ = SendMessageW(edit, UINT(EM_SETCUEBANNER), WPARAM(0), LPARAM(Int(bitPattern: base)))
