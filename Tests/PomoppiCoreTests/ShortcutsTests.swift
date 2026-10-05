@@ -30,6 +30,13 @@ final class ShortcutsTests: XCTestCase {
         XCTAssertEqual(result["toggleWidget"], Shortcuts.defaults["toggleWidget"])
     }
 
+    func testValidateDropsUnknownIDsLikeTheRetiredSnapshotAction() {
+        let result = Shortcuts.validate(["snapshot": "Alt+Shift+S", "skip": "Command+Shift+K"])
+        XCTAssertNil(result["snapshot"])
+        XCTAssertEqual(result["skip"], "Command+Shift+K")
+        XCTAssertEqual(Set(result.keys), Set(Shortcuts.actionIDs))
+    }
+
     func testValidateResolvesConflictsInActionTableOrder() {
         // toggleWidget comes before startPause in the action table, so if
         // both end up bound to the same combo, startPause loses it.

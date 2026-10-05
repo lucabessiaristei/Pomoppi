@@ -1152,7 +1152,7 @@ final class SettingsWindow {
     }
 
     // Win32's NSWorkspace.shared.open(_:) equivalent.
-    private static func openURL(_ url: URL) {
+    static func openURL(_ url: URL) {
         let operation = Array("open".utf16) + [0]
         let target = Array(url.absoluteString.utf16) + [0]
         _ = operation.withUnsafeBufferPointer { opPtr in
@@ -2692,10 +2692,7 @@ final class SettingsWindow {
         let actionKey: String
     }
 
-    // Mirrors macOS's widgetKeyBindings (SettingsView.swift), minus the T
-    // (name-what-you're-working-on) and P (SVG snapshot) rows — neither
-    // feature exists on Windows yet, so listing their keys here would be
-    // informational noise about nothing actually bound.
+    // Mirrors macOS's widgetKeyBindings (SettingsView.swift).
     private static let widgetKeyBindings: [WidgetKeyBinding] = [
         WidgetKeyBinding(keys: "Space / Return", actionKey: "shortcut.startPause.label"),
         WidgetKeyBinding(keys: "S", actionKey: "shortcut.skip.label"),

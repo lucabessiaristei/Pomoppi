@@ -58,7 +58,7 @@ not a plan.
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
 | Title prompt | `NSAlert` via `StartCoordinator.swift`, shown when `loggingEnabled` and `askForTaskName` are both on (§5); always Pomoppi's icon | Win32 modal via `TaskPromptDialog.swift`, same gate and behavior — part of the settings overhaul's Part B |
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
-| SVG snapshot | **None.** Dropped in the native rewrite; the `snapshot` shortcut exists in `Shortcuts.swift` but has no handler (§14) | Same — the shortcut ID exists but is deliberately never registered (`main.swift`) |
+| SVG snapshot | **None.** Dropped in the native rewrite, and its `snapshot` shortcut id with it (§14) | Same |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
 | Update check and in-app update | A tray item ("Update available: `<tag>`", opens the General tab) shown only when one exists; the General tab's Updates row shows the version, check states, and Update (download, verify, open the `.pkg` in Installer.app; postinstall relaunches) (§15) | Same tray item and row (Win32 children of the General page, `WM_TIMER` auto-revert). Update runs the Setup `.exe` with `/SILENT`; Inno closes and relaunches Pomoppi. Only an Inno-installed copy offers Update, others get the release page. Endpoint, cadence, verification and opt-out identical (§15) |
 
@@ -1377,14 +1377,13 @@ some other app, so the global set is the one that matters — but a global
 binding is a scarce, machine-wide resource, so it stays small, is fully
 rebindable, and every one of them can be switched off.
 
-**Two things below don't actually exist on either platform, not just
-Windows**: the `snapshot` action (id + default accelerator only —
-`Shortcuts.swift` defines it, but neither `AppDelegate.swift` nor
-`main.swift` registers a handler for it, since the SVG-snapshot feature
-itself was dropped, §14) and the in-app `T`/`P` rows (task-rename-while-
-running and SVG-snapshot) — neither key does anything on macOS either;
-Windows' own Keys-tab documentation explicitly lists this as why they're
-left out there too. Everything else in this section is real and shared.
+**The `snapshot` action and the in-app `T`/`P` keys don't exist on either
+platform.** The SVG-snapshot feature was dropped (§14), and the
+task-rename-while-running key went with the pomodoro redesign (§5), so the
+`snapshot` shortcut id is gone from `Shortcuts.swift` and neither key is
+listed in the Shortcuts tab. A `"snapshot"` entry left in an old
+`settings.json` is dropped on load (`Shortcuts.validate` ignores unknown
+ids). Everything in this section is real and shared.
 
 ### Global shortcuts `[both]`
 
@@ -1400,17 +1399,16 @@ rendering with a real click-to-record UI on both platforms — see §7).
 | `skip` | skip the phase | `⌥⇧K` |
 | `reset` | reset the phase | `⌥⇧R` |
 | `toggleOnTop` | flip `alwaysOnTop` | `⌥⇧T` |
-| `snapshot` | write an SVG to the Desktop (§14) | `⌥⇧S` |
 | `openSettings` | open the settings window | `⌥⇧,` |
 
 Defaults are all `Alt+Shift+…`: `⌥⇧` is close to unused by macOS itself and by
 most apps, and keeping one prefix for the whole set makes them learnable as a
-group rather than seven unrelated facts.
+group rather than six unrelated facts.
 
 `shortcuts` is persisted as `{ [id]: accelerator }` — the settings schema's only
 nested object, which is why `validate()` runs `SHORTCUTS.validate` over it and
 why a caller changing one binding sends **the whole object**: `Settings.set`
-merges shallowly, so a partial patch would drop the other six.
+merges shallowly, so a partial patch would drop the other five.
 
 Normalisation, in `shortcuts.normalize`:
 
@@ -1450,9 +1448,7 @@ has focus:
 | `Space` / `Enter` | start / pause |
 | `S` | skip |
 | `R` | reset |
-| `T` | set or rename the task |
 | `O` | keep on top |
-| `P` | save an SVG snapshot |
 | `,` (or `⌘,`) | settings |
 | `Esc` | dismiss the ring if it is ringing, otherwise hide the widget |
 | `↑` / `↓` | focus length ±1 min, only while the clock steppers are visible |
@@ -1469,13 +1465,12 @@ cannot back out of without also losing the window is a trap.
 ## 14. Snapshots (SVG) `[legacy]`
 
 **Not implemented on either platform.** The `snapshot` global-shortcut id
-and its default `Alt+Shift+S` accelerator still exist in
-`PomoppiCore/Shortcuts.swift` (so validation/normalization has a slot for
-it), but no handler is ever registered for it in `AppDelegate.swift` or
-`main.swift`, and `renderer/draw.js`'s recorder-pattern design described
-below has no Swift equivalent — there is no SVG export code anywhere in
-this codebase. Kept for intent only, in case this is revisited; nothing
-below is currently true of either native app.
+and its `Alt+Shift+S` default were removed from `PomoppiCore/Shortcuts.swift`
+too (a stale `"snapshot"` entry in a saved `settings.json` is ignored on
+load), and `renderer/draw.js`'s recorder-pattern design described below has
+no Swift equivalent — there is no SVG export code anywhere in this
+codebase. Kept for intent only, in case this is revisited; nothing below is
+currently true of either native app.
 
 `Save snapshot to Desktop` — tray item (§9), global shortcut, or `P` on the
 focused widget — writes the widget **exactly as drawn** to
@@ -1598,6 +1593,18 @@ release installer:
   installs, and relaunches it (the `WizardSilent` `[Run]` entry). Only an
   Inno-installed copy (`unins000.exe` next to the exe) offers Update; any
   other copy gets the release page.
+
+**Launch alert.** The first background check after launch (~10 s in) may
+raise one alert — "Pomoppi `<tag>` is available", buttons **Update** /
+**Later** — when it finds an update and no install is already under way. The
+24h rechecks and the manual Check never do, and it shows at most once per
+launch; nothing is remembered across launches, so "Later" just means it asks
+again next launch. If a focus or break is running the alert adds that
+updating will close Pomoppi and the session under way won't be recorded.
+Update opens Settings on the General tab (as the tray item does) and starts
+the update; on Windows a copy Inno didn't install shows **Open release
+page** instead and opens it. macOS uses an `NSAlert` with the app icon;
+Windows uses `TaskDialogIndirect` (`UpdateAlert.swift`).
 
 If a focus or break is running, Update confirms first ("A session is in
 progress. Pomoppi will close to finish updating."), since a session cut

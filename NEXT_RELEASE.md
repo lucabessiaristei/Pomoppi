@@ -6,7 +6,14 @@ Running list of what has landed on `main` since v0.4.0 (released
 
 ## Changes
 
-(nothing yet)
+- **Update alert at launch**: when the first check after launch finds a
+  newer release, an alert offers Update / Later (with a note that a running
+  session will be interrupted); Update opens Settings on General and starts
+  the update. Windows copies not installed with Setup get "Open release
+  page". Only that first check asks, once per launch (`SPEC.md` §15).
+- **The widget-keys list no longer shows `T` and `P`**, which did nothing;
+  the dead `snapshot` shortcut is gone from the shortcut table (a leftover
+  entry in an old `settings.json` is ignored) (`SPEC.md` §13, §14).
 
 ## To verify
 

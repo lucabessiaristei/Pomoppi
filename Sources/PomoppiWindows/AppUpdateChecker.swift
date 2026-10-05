@@ -91,6 +91,11 @@ final class AppUpdateChecker {
     // Set by main.swift: whether a focus or break is under way, so the
     // Updates row can confirm before an install closes the app mid-session.
     var isSessionActive: () -> Bool = { false }
+    // Set by main.swift: the launch-time "update available" alert (SPEC.md
+    // §15), handed the release tag and its page. Fired at most once per
+    // launch, and only by the first background check.
+    var onLaunchUpdateAvailable: ((String, URL) -> Void)?
+    private var launchAlertOffered = false
     private lazy var installer: UpdateInstaller = {
         let installer = UpdateInstaller(post: { [weak self] work in self?.postToMainThread(work) })
         installer.onStateChange = { [weak self] state in
@@ -147,7 +152,7 @@ final class AppUpdateChecker {
         switch id {
         case Self.initialTimerID:
             KillTimer(hwnd, Self.initialTimerID)
-            runBackgroundCheck()
+            runBackgroundCheck(offersLaunchAlert: true)
             SetTimer(hwnd, Self.recurringTimerID, UINT(24 * 60 * 60 * 1000), nil)
         case Self.recurringTimerID:
             runBackgroundCheck()
@@ -158,10 +163,18 @@ final class AppUpdateChecker {
 
     // The silent path: any fetch failure or unparseable response folds into
     // .noUpdate via checkForUpdate's own contract, so a background failure
-    // never changes what the tray/settings footer show.
-    private func runBackgroundCheck() {
+    // never changes what the tray/settings footer show. Only the first check
+    // after launch may raise the alert, never a 24h recheck.
+    private func runBackgroundCheck(offersLaunchAlert: Bool = false) {
         UpdateChecker.checkForUpdate(currentVersion: currentVersion, fetch: fetch) { [weak self] result in
-            self?.postToMainThread { self?.latestResult = result }
+            self?.postToMainThread {
+                guard let self else { return }
+                self.latestResult = result
+                guard offersLaunchAlert, !self.launchAlertOffered, !self.installState.isBusy,
+                      case .updateAvailable(let tag, let pageURL, _) = result else { return }
+                self.launchAlertOffered = true
+                self.onLaunchUpdateAvailable?(tag, pageURL)
+            }
         }
     }
 

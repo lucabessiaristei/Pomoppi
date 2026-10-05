@@ -47,6 +47,10 @@ final class AppUpdateChecker: ObservableObject {
     // Set by AppDelegate: whether a focus or break is under way, so the
     // Updates row can confirm before an install quits the app mid-session.
     var isSessionActive: () -> Bool = { false }
+    // Set by AppDelegate: the launch-time "update available" alert (SPEC.md
+    // §15), handed the release tag. Fired at most once per launch, and only
+    // by the first background check.
+    var onLaunchUpdateAvailable: ((String) -> Void)?
     // Set by AppDelegate: see UpdateInstaller.onInstallerRunningChange.
     var onInstallerRunningChange: ((Bool) -> Void)? {
         get { installer.onInstallerRunningChange }
@@ -59,6 +63,7 @@ final class AppUpdateChecker: ObservableObject {
     private let fetch: UpdateChecker.Fetch
     private var initialTimer: Timer?
     private var recurringTimer: Timer?
+    private var launchAlertOffered = false
 
     init(currentVersion: String = pomoppiVersion, fetch: @escaping UpdateChecker.Fetch = URLSessionUpdateFetch.fetch) {
         self.currentVersion = currentVersion
@@ -93,7 +98,7 @@ final class AppUpdateChecker: ObservableObject {
     func start() {
         stop()
         initialTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
-            self?.runBackgroundCheck()
+            self?.runBackgroundCheck(offersLaunchAlert: true)
             self?.scheduleRecurring()
         }
     }
@@ -113,10 +118,18 @@ final class AppUpdateChecker: ObservableObject {
 
     // The silent path: any fetch failure or unparseable response folds into
     // .noUpdate via checkForUpdate's own contract, so a background failure
-    // never changes what the tray/settings footer show.
-    private func runBackgroundCheck() {
+    // never changes what the tray/settings footer show. Only the first check
+    // after launch may raise the alert, never a 24h recheck.
+    private func runBackgroundCheck(offersLaunchAlert: Bool = false) {
         UpdateChecker.checkForUpdate(currentVersion: currentVersion, fetch: fetch) { [weak self] result in
-            DispatchQueue.main.async { self?.latestResult = result }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.latestResult = result
+                guard offersLaunchAlert, !self.launchAlertOffered, !self.installState.isBusy,
+                      case .updateAvailable(let tag, _, _) = result else { return }
+                self.launchAlertOffered = true
+                self.onLaunchUpdateAvailable?(tag)
+            }
         }
     }
 

@@ -21,7 +21,6 @@ public enum Shortcuts {
         ShortcutAction(id: "skip", label: "Skip phase", hint: "Ends the current phase early. No-op while idle.", defaultAccelerator: "Alt+Shift+K"),
         ShortcutAction(id: "reset", label: "Reset phase", hint: "Puts the current phase back to full. No-op while idle.", defaultAccelerator: "Alt+Shift+R"),
         ShortcutAction(id: "toggleOnTop", label: "Keep on top", hint: "Toggles whether the widget floats above other windows.", defaultAccelerator: "Alt+Shift+T"),
-        ShortcutAction(id: "snapshot", label: "Save SVG snapshot", hint: "Writes the widget exactly as drawn to the Desktop.", defaultAccelerator: "Alt+Shift+S"),
         ShortcutAction(id: "openSettings", label: "Open settings", hint: "", defaultAccelerator: "Alt+Shift+,"),
     ]
 

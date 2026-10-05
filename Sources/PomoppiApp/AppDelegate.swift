@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         widgetWindow = WidgetWindow(
             timer: timer, settingsStore: settingsStore,
             onOpenSettingsRequested: { [unowned self] in self.showSettingsWindow() })
+        updateChecker.onLaunchUpdateAvailable = { [unowned self] in self.offerLaunchUpdate(tag: $0) }
         updateChecker.onInstallerRunningChange = { [unowned self] in self.widgetWindow.yieldLevel($0) }
 
         settingsOpenerWindow = Self.makeSettingsOpenerWindow(model: settingsOpenerModel)
@@ -143,6 +144,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         settingsOpenerModel.requestOpen()
     }
 
+    // The once-per-launch "update available" alert (SPEC.md §15). Update opens
+    // Settings on General (the same remembered tab the tray item sets, so the
+    // Updates row shows the progress) and starts the download.
+    private func offerLaunchUpdate(tag: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L.t("updates.alert.title", tag)
+        if updateChecker.isSessionActive() {
+            alert.informativeText = L.t("updates.sessionActive.message")
+        }
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: L.t("updates.update"))
+        alert.addButton(withTitle: L.t("updates.alert.later"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        UserDefaults.standard.set("general", forKey: "pomoppi.settingsTab")
+        showSettingsWindow()
+        updateChecker.startUpdate()
+    }
+
     // A window that's never ordered onto screen, whose sole purpose is
     // giving `SettingsOpenerView` a spot in the scene graph so its
     // `\.openSettings` environment action is populated.
@@ -165,10 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // -- global shortcuts -----------------------------------------------------
 
     // One handler per Shortcuts action id, mirroring the tray item or
-    // in-app key each shortcut stands in for. "snapshot" has no handler —
-    // there's no snapshot feature yet (later phase) — so a binding for it
-    // is simply never registered with the OS rather than registered as a
-    // no-op, leaving that combo free until the feature exists.
+    // in-app key each shortcut stands in for.
     private lazy var shortcutHandlers: [String: () -> Void] = [
         "toggleWidget": { [unowned self] in
             self.widgetWindow.isShown ? self.widgetWindow.hide() : self.widgetWindow.raise()
@@ -188,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // Unregisters and rebinds every non-empty shortcut only when the table
     // actually changed — globalShortcut is a system-wide resource, and
-    // re-registering seven hotkeys on every settings write that has nothing
+    // re-registering six hotkeys on every settings write that has nothing
     // to do with shortcuts would needlessly churn it (same reasoning as
     // WidgetWindow's idempotent always-on-top setter).
     private func registerGlobalShortcuts() {

@@ -84,11 +84,9 @@ widgetWindow.updateChecker = updateChecker
 
 // One handler per Shortcuts action id, mirroring the tray item or in-app key
 // each shortcut stands in for — same 6 ids as AppDelegate.shortcutHandlers
-// (macOS), "snapshot" excluded (no snapshot feature yet, so its binding is
-// simply never registered with the OS). startPause goes through the same
-// task-name prompt as the widget's own play button and the tray menu's
-// Start item — all three funnel through activateButton("play"), which now
-// calls StartCoordinator.requestStart.
+// (macOS). startPause goes through the same task-name prompt as the
+// widget's own play button and the tray menu's Start item — all three funnel
+// through activateButton("play"), which now calls StartCoordinator.requestStart.
 let shortcutHandlers: [String: () -> Void] = [
     "toggleWidget": {
         widgetWindow.setVisible(!widgetWindow.isShown)
@@ -154,6 +152,27 @@ func applyLoginItemIfNeeded(_ settings: PomoppiSettings) {
 }
 
 // -- update checking ------------------------------------------------------
+
+// The once-per-launch "update available" alert (SPEC.md §15). Update opens
+// Settings on General (where the Updates row shows the progress) and starts
+// the download; a copy Inno didn't install gets the release page instead.
+updateChecker.onLaunchUpdateAvailable = { tag, pageURL in
+    let canInstall = updateChecker.installableAsset != nil
+    let interrupts = canInstall && updateChecker.isSessionActive()
+    let choice = UpdateAlert.run(
+        title: L.t("updates.alert.title", tag),
+        message: interrupts ? L.t("updates.sessionActive.message") : nil,
+        primary: canInstall ? L.t("updates.update") : L.t("updates.alert.openReleasePage"),
+        secondary: L.t("updates.alert.later"))
+    guard choice == .primary else { return }
+    if canInstall {
+        SettingsWindow.selectGeneralTab()
+        widgetWindow.activateButton("settings")
+        updateChecker.startUpdate()
+    } else {
+        SettingsWindow.openURL(pageURL)
+    }
+}
 
 var appliedCheckForUpdates: Bool?
 func applyUpdateCheckingIfNeeded(_ settings: PomoppiSettings) {
