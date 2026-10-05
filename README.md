@@ -1,18 +1,11 @@
 # Pomoppi
 
-ポモっぴ: a pixel pomodoro widget for macOS and Windows, with a virtual pet that
-**deteriorates because you are productive**. It does your tasks for you and
-suffers for it. You get the finished pomodoros and the pet gets the
-consequences. It's a spin-off of **Habitsuu**, the habit tracker these creatures
-come from.
+ポモっぴ: a pixel pomodoro widget for macOS and Windows, with your virtual dysfunctional roommate that
+lives in it. It's a spin-off of **Habippi**, the habit tracker tamagotchi-like app i'm still developing.
 
-It's native Swift on both platforms, with no Electron and no runtime
-dependencies.
 
-## Install
+## [Install latest release](https://github.com/lucabessiaristei/Pomoppi/releases/latest)
 
-Download the file for your platform from the
-[latest release](https://github.com/lucabessiaristei/Pomoppi/releases/latest).
 The installers are unsigned, so the first launch shows a warning:
 
 - **macOS** (`Pomoppi-<version>_macOS.pkg`): right-click it in Finder, choose
@@ -46,8 +39,8 @@ on macOS and `%APPDATA%\Pomoppi\` on Windows.
 - A **pomodoro** is a whole cycle: a few focus sessions with short breaks
   between them, then a long break. The dots show how many focus sessions are
   done.
-- The buttons are **↺** reset (throws away the current pomodoro), **▶/⏸**,
-  **⏭** skip, and **♥** settings. While the timer is idle, **− / +** next to the
+- The buttons are **Ⅰ◀** reset (throws away the current pomodoro), **▶/ⅠⅠ**,
+  **▶▶** skip, and **♥** settings. While the timer is idle, **− / +** next to the
   clock change the focus length.
 - Drag anywhere to move the widget. When a timer ends, Pomoppi comes to the
   front and chimes.
@@ -68,7 +61,3 @@ swift build && swift test   # macOS
 swift run PomoppiApp        # run a dev build
 node Scripts/make-app.js    # install a release build to /Applications
 ```
-
-The Windows app builds only on Windows (`WINDOWS_VM.md`). The developer docs
-are `CLAUDE.md` for commands, file map and art pipeline, `SPEC.md` for behavior,
-and `RELEASING.md` for releases.
