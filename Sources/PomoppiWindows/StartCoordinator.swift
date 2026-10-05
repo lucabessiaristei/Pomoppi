@@ -9,6 +9,11 @@ import PomoppiCore
 import WinSDK
 
 enum StartCoordinator {
+    // Set once by main.swift: the prompt's "Recent" titles come from the
+    // log (DiaryExporter.recentTitles), and WidgetInput's one call site
+    // doesn't carry the logger.
+    static var sessionLogger: SessionLogger?
+
     // owner is the widget's hwnd — TaskPromptDialog is created owned by it
     // (see that file) and is also who gets disabled for the prompt's
     // duration. Returns the resulting TimerState so WidgetInput's "play"
@@ -38,7 +43,8 @@ enum StartCoordinator {
         }
 
         let darkMode = WindowsTheme.resolveDarkMode(colorScheme: settings.colorScheme)
-        switch TaskPromptDialog.run(owner: owner, darkMode: darkMode) {
+        switch TaskPromptDialog.run(owner: owner, darkMode: darkMode,
+                                       recentTitles: DiaryExporter.recentTitles(sessionLogger?.allSessionsSync() ?? [])) {
         case .started(let task):
             if !task.isEmpty { timer.setTask(task) }
             return timer.start()

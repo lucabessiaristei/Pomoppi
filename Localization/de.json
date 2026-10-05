@@ -207,6 +207,7 @@
   "prompt.task.title": "Woran arbeitest du gerade?",
   "prompt.task.hint.optional": "Optional — leer lassen, um zu überspringen",
   "prompt.task.placeholder": "Aufgabe oder Projektname",
+  "prompt.task.recent": "Zuletzt",
   "common.start": "Start",
   "common.cancel": "Abbrechen",
   "common.bytes": "{0} Bytes",

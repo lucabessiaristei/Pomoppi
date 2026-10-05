@@ -461,7 +461,12 @@ only when **`loggingEnabled` and `askForTaskName` are both on** (Diary tab,
 of a pomodoro. The title only ever ends up in the log (§8), so there is no
 point asking while nothing is recorded. The title is optional: left blank,
 the pomodoro is logged untitled (the diary heading is just its start time).
-Cancel leaves the timer idle. (Until 2026-09-24 logging made the prompt
+Cancel leaves the timer idle. Under the field the prompt lists **Recent**
+titles: up to 5 pomodoro titles from the log (`DiaryExporter.recentTitles`:
+newest pomodoro first, trimmed, blank ones dropped, deduped
+case-insensitively keeping the newest spelling) as link-style rows; a click
+fills the field (it never starts) and focuses it. With no titles in the log
+the section is absent. (Until 2026-09-24 logging made the prompt
 mandatory and the toggle lived in the timing tab; both are gone.) The prompt
 always shows Pomoppi's icon, dev builds included: an unbundled `swift run`
 loads `assets/AppIcon.icns`, a Windows `swift build` without the embedded

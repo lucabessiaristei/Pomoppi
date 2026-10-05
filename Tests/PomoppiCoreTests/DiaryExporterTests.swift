@@ -67,6 +67,18 @@ final class DiaryExporterTests: XCTestCase {
     // grouped and are simply left out of pomodoros() (no guessing by gap/
     // day/long-break inference anymore) — they still show up in the raw
     // JSON export, just never in a sync file or an export block.
+    func testRecentTitlesAreNewestFirstTrimmedDedupedCaseInsensitivelyAndLimited() {
+        var entries: [SessionLogEntry] = []
+        let titles = ["old", "  Spec ", "", "Taxes", "spec", "Gym", "Read", "Write"]
+        for (i, title) in titles.enumerated() {
+            let start = date(hour: 8 + i, minute: 0)
+            entries.append(makeEntry(task: title, hour: 8 + i, minute: 0, pomodoroStart: start))
+        }
+        XCTAssertEqual(DiaryExporter.recentTitles(entries), ["Write", "Read", "Gym", "spec", "Taxes"])
+        XCTAssertEqual(DiaryExporter.recentTitles(entries, limit: 2), ["Write", "Read"])
+        XCTAssertEqual(DiaryExporter.recentTitles([]), [])
+    }
+
     func testEntriesWithNoPomodoroStartProduceNoPomodoroButStayInJSONExport() throws {
         let entries = [
             makeEntry(task: "old entry", hour: 9, minute: 0),

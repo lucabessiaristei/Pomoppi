@@ -6,6 +6,10 @@ Running list of what has landed on `main` since v0.4.0 (released
 
 ## Changes
 
+- **Recent titles in the title prompt**: under the field, up to 5 titles
+  from past pomodoros (newest first, deduped ignoring case) as link-style
+  rows; clicking one fills the field. Nothing shows when the log has no
+  titles (`SPEC.md` §5).
 - **Update alert at launch**: when the first check after launch finds a
   newer release, an alert offers Update / Later (with a note that a running
   session will be interrupted); Update opens Settings on General and starts

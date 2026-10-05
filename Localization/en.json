@@ -207,6 +207,7 @@
   "prompt.task.title": "What are you working on?",
   "prompt.task.hint.optional": "Optional — leave blank to skip",
   "prompt.task.placeholder": "Task or project name",
+  "prompt.task.recent": "Recent",
   "common.start": "Start",
   "common.cancel": "Cancel",
   "common.bytes": "{0} bytes",

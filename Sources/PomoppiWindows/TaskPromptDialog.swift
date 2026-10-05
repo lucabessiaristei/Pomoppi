@@ -76,6 +76,11 @@ final class TaskPromptDialog {
     private var startButton: HWND!
     private var cancelButton: HWND!
     private var result: TaskPromptResult?
+    private let recentTitles: [String]
+    // Link-style rows: SS_NOTIFY statics, in recentTitles order. Not
+    // tabbable on purpose — Tab stays edit -> Cancel -> Start.
+    private var captionHwnd: HWND?
+    private var linkHwnds: [HWND] = []
 
     private static let className: [UInt16] = Array("PomoppiTaskPromptClass".utf16) + [0]
     private static let windowTitle: [UInt16] = Array("Pomoppi".utf16) + [0]
@@ -86,9 +91,19 @@ final class TaskPromptDialog {
     private static var classRegistered = false
 
     // ~340x150 client, per the plan — wide enough for a two-line hint, short enough to read as a small prompt rather than a
-    // window in its own right.
+    // window in its own right. The recent-titles section adds a caption row
+    // plus one row per title on top of the base height.
     private static let clientWidth: Int32 = 340
-    private static let clientHeight: Int32 = 150
+    private static let baseClientHeight: Int32 = 150
+    private static let linkRowHeight: Int32 = 18
+    private static let linkColorLightHex = "#0066CC"
+    private static let linkColorDarkHex = "#6CB6FF"
+    private static let captionColorDarkHex = "#A0A0A0"
+
+    private static func recentExtraHeight(count: Int) -> Int32 {
+        count == 0 ? 0 : 24 + linkRowHeight * Int32(count)
+    }
+    private var recentExtraHeight: Int32 { Self.recentExtraHeight(count: recentTitles.count) }
     // WS_POPUP imports as UInt32 (its raw value doesn't fit Int32, unlike
     // WS_CAPTION/WS_SYSMENU) — same "convert each to DWORD before ORing"
     // workaround addLabel's alignmentStyle needs, just with no bitPattern:
@@ -120,19 +135,24 @@ final class TaskPromptDialog {
     // (WindowsTheme.resolveDarkMode) rather than read from a SettingsStore
     // here — this dialog stays a fixed, short-lived snapshot rather than
     // reacting live to a theme change mid-prompt, unlike SettingsWindow.
-    static func run(owner: HWND, darkMode: Bool) -> TaskPromptResult {
+    //
+    // recentTitles are the "Recent" suggestions under the hint (SPEC.md §5),
+    // already trimmed/deduped/limited by DiaryExporter.recentTitles; empty
+    // means no section at all and the dialog keeps its base height.
+    static func run(owner: HWND, darkMode: Bool, recentTitles: [String]) -> TaskPromptResult {
         registerClassIfNeeded()
-        let dialog = TaskPromptDialog(owner: owner, darkMode: darkMode)
+        let dialog = TaskPromptDialog(owner: owner, darkMode: darkMode, recentTitles: recentTitles)
         current = dialog
         defer { current = nil }
         return dialog.runModal()
     }
 
-    private init(owner: HWND, darkMode: Bool) {
+    private init(owner: HWND, darkMode: Bool, recentTitles: [String]) {
         self.owner = owner
         self.darkMode = darkMode
+        self.recentTitles = recentTitles
 
-        var rect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.clientHeight)
+        var rect = RECT(left: 0, top: 0, right: Self.clientWidth, bottom: Self.baseClientHeight + Self.recentExtraHeight(count: recentTitles.count))
         AdjustWindowRectEx(&rect, Self.windowStyle, false, 0)
         let windowWidth = rect.right - rect.left
         let windowHeight = rect.bottom - rect.top
@@ -231,12 +251,21 @@ final class TaskPromptDialog {
         // Same string macOS's promptForTaskName uses for informativeText.
         addLabel(L.t("prompt.task.hint.optional"), x: 16, y: 74, width: 308, height: 40)
 
+        // Recent titles sit between the hint and the buttons; the buttons
+        // move down by recentExtraHeight to make room.
+        if !recentTitles.isEmpty {
+            captionHwnd = addLabel(L.t("prompt.task.recent"), x: 16, y: 114, width: 308, height: 16)
+            for (i, title) in recentTitles.enumerated() {
+                linkHwnds.append(addLink(title, x: 16, y: 132 + Self.linkRowHeight * Int32(i), width: 308, height: Self.linkRowHeight))
+            }
+        }
+
         // Same right-to-left order as macOS's NSAlert (Start added first,
         // ends up rightmost/default; Cancel to its left) — also this
         // window's own Tab order (edit -> Cancel -> Start -> wraps), which
         // reads left to right on screen.
-        cancelButton = addButton(L.t("common.cancel"), x: 156, y: 114, width: 80, height: 26)
-        startButton = addButton(L.t("common.start"), x: 244, y: 114, width: 80, height: 26, isDefault: true)
+        cancelButton = addButton(L.t("common.cancel"), x: 156, y: 114 + recentExtraHeight, width: 80, height: 26)
+        startButton = addButton(L.t("common.start"), x: 244, y: 114 + recentExtraHeight, width: 80, height: 26, isDefault: true)
 
         if darkMode {
             Self.applyDarkExplorerTheme(cancelButton)
@@ -277,6 +306,37 @@ final class TaskPromptDialog {
         }
         applyDefaultFont(label)
         return label
+    }
+
+    // A STATIC with SS_NOTIFY: clicks arrive as STN_CLICKED through
+    // WM_COMMAND; the link color comes from handleCtlColor and the hand
+    // cursor from WM_SETCURSOR below. SS_ENDELLIPSIS keeps a long title on
+    // one row.
+    private func addLink(_ text: String, x: Int32, y: Int32, width: Int32, height: Int32) -> HWND {
+        let wide = Array(text.utf16) + [0]
+        guard let link = (Self.staticClassName.withUnsafeBufferPointer { classNamePtr in
+            wide.withUnsafeBufferPointer { textPtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, textPtr.baseAddress,
+                    DWORD(WS_CHILD | WS_VISIBLE | SS_NOPREFIX | SS_NOTIFY | SS_ENDELLIPSIS),
+                    x, y, width, height,
+                    hwnd, nil, Self.hInstance, nil)
+            }
+        }) else {
+            fatalError("CreateWindowExW (task prompt link) failed with error \(GetLastError())")
+        }
+        applyDefaultFont(link)
+        return link
+    }
+
+    // A recent title was clicked: fill the edit (no start), caret at the
+    // end, focus back on it.
+    private func pickRecent(_ index: Int) {
+        var wide = Array(recentTitles[index].utf16) + [0]
+        wide.withUnsafeMutableBufferPointer { _ = SetWindowTextW(editHwnd, $0.baseAddress) }
+        SetFocus(editHwnd)
+        let end = LPARAM(GetWindowTextLengthW(editHwnd))
+        SendMessageW(editHwnd, UINT(EM_SETSEL), WPARAM(end), end)
     }
 
     private func addButton(_ text: String, x: Int32, y: Int32, width: Int32, height: Int32, isDefault: Bool = false) -> HWND {
@@ -384,6 +444,25 @@ final class TaskPromptDialog {
     // window is the direct parent of every control). Light mode falls
     // through unchanged.
     private func handleCtlColor(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        // Recent-section statics: link color / muted caption on whichever
+        // background the dialog already has.
+        if let source = HWND(bitPattern: Int(lParam)), source == captionHwnd || linkHwnds.contains(source),
+           let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))) {
+            let isLink = source != captionHwnd
+            let color: COLORREF
+            let brush: HBRUSH?
+            if darkMode {
+                color = WindowsTheme.colorref(hex: isLink ? Self.linkColorDarkHex : Self.captionColorDarkHex)
+                brush = WindowsTheme.darkBackgroundBrush
+                SetBkColor(hdc, WindowsTheme.colorref(hex: WindowsTheme.darkBackgroundHex))
+            } else {
+                color = isLink ? WindowsTheme.colorref(hex: Self.linkColorLightHex) : GetSysColor(COLOR_GRAYTEXT)
+                brush = GetSysColorBrush(COLOR_BTNFACE)
+                SetBkColor(hdc, GetSysColor(COLOR_BTNFACE))
+            }
+            SetTextColor(hdc, color)
+            if let brush { return LRESULT(Int(bitPattern: brush)) }
+        }
         guard darkMode, let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))), let brush = WindowsTheme.darkBackgroundBrush else {
             return DefWindowProcW(hwnd, message, wParam, lParam)
         }
@@ -457,8 +536,12 @@ final class TaskPromptDialog {
         switch Int32(message) {
         case WM_COMMAND:
             let notificationCode = Int32(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
-            guard notificationCode == BN_CLICKED, let controlHwnd = HWND(bitPattern: Int(lParam)) else {
+            guard notificationCode == BN_CLICKED || notificationCode == STN_CLICKED, let controlHwnd = HWND(bitPattern: Int(lParam)) else {
                 return DefWindowProcW(hwnd, message, wParam, lParam)
+            }
+            if notificationCode == STN_CLICKED, let i = linkHwnds.firstIndex(of: controlHwnd) {
+                pickRecent(i)
+                return 0
             }
             if controlHwnd == startButton {
                 result = .started(readTask())
@@ -472,6 +555,12 @@ final class TaskPromptDialog {
             // from under runModal's own loop.
             result = .cancelled
             return 0
+        case WM_SETCURSOR:
+            if let source = HWND(bitPattern: Int(bitPattern: UInt(wParam))), linkHwnds.contains(source) {
+                SetCursor(LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32649)))
+                return 1
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam)
         case WM_ERASEBKGND:
             return handleEraseBackground(wParam: wParam)
         case WM_CTLCOLORSTATIC, WM_CTLCOLORBTN, WM_CTLCOLOREDIT:

@@ -84,6 +84,21 @@ public enum DiaryExporter {
         .sorted { $0.start < $1.start }
     }
 
+    // The title prompt's suggestions (SPEC.md §5): titles of the log's
+    // pomodoros, newest first, trimmed, blank ones dropped, deduped
+    // case-insensitively keeping the newest spelling, at most `limit`.
+    public static func recentTitles(_ sessions: [SessionLogEntry], limit: Int = 5) -> [String] {
+        var seen = Set<String>()
+        var titles: [String] = []
+        for pomodoro in pomodoros(sessions).reversed() {
+            let title = pomodoro.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty, seen.insert(title.lowercased()).inserted else { continue }
+            titles.append(title)
+            if titles.count == limit { break }
+        }
+        return titles
+    }
+
     static func dayKey(_ date: Date, calendar: Calendar) -> (year: Int, month: Int, day: Int) {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return (c.year ?? 0, c.month ?? 0, c.day ?? 0)
