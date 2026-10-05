@@ -840,6 +840,15 @@ early: skipped, whatever its length.
 that `pomodoroStart` and remembers it, so an append for the same pomodoro
 that lands after the discard (appends are async) is dropped too.
 
+**User-initiated deletes** (the history viewer, §8b): `deletePomodoro(startedAt:)`
+removes every entry with that `pomodoroStart`; `deleteEntry(startTime:phase:)`
+removes the one entry with that phase and start (compared in whole seconds,
+the precision the file stores). Both write atomically and return false only
+when the write fails; deleting what isn't there is a no-op success. Neither
+remembers anything in `discarded`: the viewer never offers to delete the
+pomodoro in progress. They are explicit user actions, not automatic removal,
+so the "only `pruneEmptyPomodoros()` removes automatically" rule stands.
+
 `day`/`month`/`year` sit alongside the full ISO8601 `startTime`/`endTime`
 (not derived from them by whatever reads the file) so trivial date
 filtering doesn't require every consumer to parse a timestamp first.
@@ -928,7 +937,8 @@ edits inside them are overwritten".
 
 **Export: the complete log, one file.** The Full log row's Export… opens a save
 dialog offering Markdown (`.md`, the default: `Pomoppi Diary.md`), plain
-text (`.txt`), OpenDocument text (`.odt`) and JSON (`.json`); the chosen
+text (`.txt`), OpenDocument text (`.odt`), JSON (`.json`) and Excel
+workbook (`.xlsx`); the chosen
 type decides the format. Every day, every pomodoro, every focus and break
 with start–end clock, duration, and "stopped early" where it applies,
 headed "Pomoppi: full pomodoro log" so the file says what it is:
@@ -952,6 +962,28 @@ is the same structure as real headings and paragraphs, written with
 `ODTWriter` over `ZipWriter`: `mimetype` first and stored, then
 `META-INF/manifest.xml`, `content.xml`, `styles.xml`, no new dependency.
 `.json` is the raw log (`{"sessions": [...]}`, every entry, unfiltered).
+`.xlsx` is a workbook written by `XLSXWriter` over `ZipWriter` (same
+from-scratch precedent as `ODTWriter`; inline strings, no shared-strings
+part) with two sheets, names and headers localized through `DiaryText`, the
+first row bold and frozen: *Pomodoros* (date, start, end, title, focus
+sessions, stopped early, focus minutes, break minutes) and *Sessions* (date,
+pomodoro start, title, phase, focus #, start, end, minutes, planned minutes,
+paused minutes, completed yes/no; one row per focus/break the diary shows).
+Dates are Excel serial numbers of the local day (days since 1899-12-30,
+shown `yyyy-mm-dd`), times a fraction of a day (`hh:mm`), durations plain
+minutes to one decimal.
+
+**History viewer model** (`DiaryHistory`, `PomoppiCore`): one row per
+pomodoro `DiaryExporter.pomodoros` shows (id = `pomodoroStart`, start, end,
+title, focus count, focus/break seconds, stopped early), each carrying *all*
+its raw entries in time order, the sub-minute skipped focuses flagged
+`isHiddenFromDiary` so they can be deleted on their own. Sort by start,
+title (case-insensitive, localized, untitled last), focus count, focus
+seconds or break seconds, either direction, ties newest start first;
+default newest first. Search is a case- and diacritic-insensitive substring
+match on the title; totals (pomodoro count, focus seconds) cover the
+filtered set. `Row.isInProgress(current:)` takes the timer's
+`pomodoroStartedAt`.
 
 **Sync: one summarized file per day, nested by year and month.**
 `<folder>/YYYY/MM/YYYY-MM-DD.md`, one block per pomodoro, plain CommonMark

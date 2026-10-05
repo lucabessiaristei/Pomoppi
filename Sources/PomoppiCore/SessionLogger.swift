@@ -194,6 +194,30 @@ public actor SessionLogger {
         return file.sessions.count == before || writeFile(file)
     }
 
+    // The history viewer's delete actions (SPEC.md §8): user-initiated, so
+    // not "automatic removal". Neither touches `discarded`: the viewer never
+    // offers to delete the pomodoro in progress. Return false only when the
+    // write fails; deleting something that isn't there is a no-op success.
+    @discardableResult
+    public func deletePomodoro(startedAt: Date) async -> Bool {
+        let key = pomodoroKey(startedAt)
+        guard var file = readFile() else { return true }
+        let before = file.sessions.count
+        file.sessions.removeAll { $0.pomodoroStart.map(pomodoroKey) == key }
+        return file.sessions.count == before || writeFile(file)
+    }
+
+    // One entry, matched on phase and startTime (whole seconds, as stored).
+    @discardableResult
+    public func deleteEntry(startTime: Date, phase: String) async -> Bool {
+        let key = pomodoroKey(startTime)
+        guard var file = readFile(),
+              let index = file.sessions.firstIndex(where: { $0.phase == phase && pomodoroKey($0.startTime) == key })
+        else { return true }
+        file.sessions.remove(at: index)
+        return writeFile(file)
+    }
+
     // The settings window's "Erase History" button (with its own
     // confirmation dialog — this actor doesn't confirm anything, it just
     // does what it's told).

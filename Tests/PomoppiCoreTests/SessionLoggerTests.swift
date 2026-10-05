@@ -302,3 +302,74 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertEqual(logger.fileSizeBytes(), 0)
     }
 }
+
+final class SessionLoggerDeleteTests: XCTestCase {
+    private func entry(_ phase: String, minute: Int, pomodoro: Int) -> SessionLogEntry {
+        let start = Date(timeIntervalSince1970: 1_790_000_000 + Double(minute * 60))
+        return SessionLogEntry(
+            phase: phase, task: "t", day: 1, month: 1, year: 2026,
+            startTime: start, endTime: start.addingTimeInterval(60), durationMinutes: 1, completed: true,
+            pomodoroStart: Date(timeIntervalSince1970: 1_790_000_000 + Double(pomodoro * 60)))
+    }
+
+    private func makeLogger(_ entries: [SessionLogEntry]) async -> (SessionLogger, URL) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PomoppiDeleteTests-\(UUID().uuidString)")
+        let logger = SessionLogger(getSettings: { PomoppiSettings.defaults.clamped() }, storageDir: dir)
+        // Seed through the file itself: logSession needs real timer events.
+        let file = "{\"sessions\":[],\"version\":2}"
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try! file.write(to: dir.appendingPathComponent("sessions.json"), atomically: true, encoding: .utf8)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        struct F: Encodable { let sessions: [SessionLogEntry]; let version = 2 }
+        try! encoder.encode(F(sessions: entries)).write(to: dir.appendingPathComponent("sessions.json"))
+        return (logger, dir)
+    }
+
+    func testDeletePomodoroRemovesOnlyItsEntries() async {
+        let (logger, dir) = await makeLogger([
+            entry("focus", minute: 0, pomodoro: 0), entry("shortBreak", minute: 25, pomodoro: 0),
+            entry("focus", minute: 100, pomodoro: 100),
+        ])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ok = await logger.deletePomodoro(startedAt: Date(timeIntervalSince1970: 1_790_000_000))
+        XCTAssertTrue(ok)
+        let left = logger.allSessionsSync()
+        XCTAssertEqual(left.count, 1)
+        XCTAssertEqual(left[0].pomodoroStart, Date(timeIntervalSince1970: 1_790_000_000 + 6000))
+    }
+
+    func testDeletePomodoroDoesNotBlockLaterAppendsForThatPomodoro() async {
+        let (logger, dir) = await makeLogger([entry("focus", minute: 0, pomodoro: 0)])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        _ = await logger.deletePomodoro(startedAt: start)
+        let event = PhaseCompleteEvent(
+            phase: .focus, startedAt: start, endedAt: start.addingTimeInterval(60),
+            plannedMs: 60_000, actualMs: 60_000, task: "", completed: true, pomodoroStartedAt: start)
+        _ = await logger.logSession(event)
+        XCTAssertEqual(logger.allSessionsSync().count, 1, "not added to `discarded`")
+    }
+
+    func testDeleteEntryRemovesTheOneMatchingPhaseAndStartTime() async {
+        let (logger, dir) = await makeLogger([
+            entry("focus", minute: 0, pomodoro: 0), entry("shortBreak", minute: 0, pomodoro: 0),
+            entry("focus", minute: 30, pomodoro: 0),
+        ])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ok = await logger.deleteEntry(startTime: Date(timeIntervalSince1970: 1_790_000_000 + 0.4), phase: "focus")
+        XCTAssertTrue(ok)
+        let left = logger.allSessionsSync()
+        XCTAssertEqual(left.map(\.phase), ["shortBreak", "focus"])
+        XCTAssertEqual(left[1].startTime, Date(timeIntervalSince1970: 1_790_000_000 + 1800))
+    }
+
+    func testDeletingSomethingAbsentIsANoOpSuccess() async {
+        let (logger, dir) = await makeLogger([entry("focus", minute: 0, pomodoro: 0)])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = await logger.deleteEntry(startTime: Date(timeIntervalSince1970: 5), phase: "focus")
+        let b = await logger.deletePomodoro(startedAt: Date(timeIntervalSince1970: 5))
+        XCTAssertTrue(a && b)
+        XCTAssertEqual(logger.allSessionsSync().count, 1)
+    }
+}

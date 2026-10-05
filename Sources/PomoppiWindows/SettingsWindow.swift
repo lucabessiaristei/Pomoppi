@@ -2973,7 +2973,7 @@ final class SettingsWindow {
     // needs it to outlive this one call.
     // Returns the chosen path and the DiaryFormat picked via the filter
     // dropdown (nFilterIndex is 1-based, in DiaryFormat.allCases order:
-    // Markdown/plain text/OpenDocument text/JSON). GetSaveFileNameW doesn't
+    // Markdown/plain text/OpenDocument text/JSON/Excel). GetSaveFileNameW doesn't
     // rewrite the extension when the filter selection changes without a
     // matching lpstrDefExt round-trip, so the extension is checked and
     // appended by hand if it doesn't match the picked format.
@@ -2991,6 +2991,7 @@ final class SettingsWindow {
             case .text: label = L.t("diary.format.text")
             case .odt: label = L.t("diary.format.odt")
             case .json: label = L.t("diary.format.json")
+            case .xlsx: label = L.t("diary.format.xlsx")
             }
             return "\(label)\0*.\(format.fileExtension)\0"
         }.joined() + "\0"

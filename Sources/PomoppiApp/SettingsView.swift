@@ -893,6 +893,7 @@ private final class DiaryFormatAccessory: NSObject {
         case .text: return "text"
         case .odt: return "odt"
         case .json: return "json"
+        case .xlsx: return "xlsx"
         }
     }
 

@@ -18,6 +18,12 @@ Running list of what has landed on `main` since v0.4.0 (released
 - **The widget-keys list no longer shows `T` and `P`**, which did nothing;
   the dead `snapshot` shortcut is gone from the shortcut table (a leftover
   entry in an old `settings.json` is ignored) (`SPEC.md` §13, §14).
+- **Excel export**: the Diary's Full log export also saves an `.xlsx`
+  workbook (Pomodoros and Sessions sheets, localized headers, real dates
+  and minutes) (`SPEC.md` §8b).
+- **Core for the history viewer** (no UI yet): `SessionLogger` can delete a
+  pomodoro or a single entry on request, and `DiaryHistory` provides the
+  rows, sorting, search and totals (`SPEC.md` §8, §8b).
 
 ## To verify
 

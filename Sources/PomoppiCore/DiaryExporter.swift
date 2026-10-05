@@ -2,7 +2,7 @@
 // by both platforms. Both read SessionLogger's sessions.json and group it
 // into pomodoros; they then write different things:
 //
-// - Export: the complete log as one file (.md / .txt / .odt / .json), every
+// - Export: the complete log as one file (.md / .txt / .odt / .json / .xlsx), every
 //   focus and break listed under its pomodoro and day.
 // - Sync: one summarized Markdown file per day under <folder>/YYYY/MM/,
 //   one short block per pomodoro. Pomoppi owns these files: each day the
@@ -32,6 +32,7 @@ public enum DiaryFormat: String, CaseIterable {
     case text = "txt"
     case odt
     case json
+    case xlsx
 
     public var fileExtension: String { rawValue }
 }
@@ -236,10 +237,48 @@ public enum DiaryExporter {
     ) -> Data {
         switch format {
         case .json: return exportJSON(sessions)
+        case .xlsx: return XLSXWriter.workbook(spreadsheetSheets(sessions, text: text, calendar: calendar), date: now)
         case .odt: return ODTWriter.document(documentBlocks(sessions, text: text, now: now, calendar: calendar), date: now)
         case .markdown: return Data(markdown(documentBlocks(sessions, text: text, now: now, calendar: calendar)).utf8)
         case .text: return Data(plainText(documentBlocks(sessions, text: text, now: now, calendar: calendar)).utf8)
         }
+    }
+
+    // Two sheets: one row per pomodoro, one per focus/break shown in the
+    // diary. Dates and times are local serial numbers, durations minutes.
+    static func spreadsheetSheets(_ sessions: [SessionLogEntry], text: DiaryText, calendar: Calendar) -> [XLSXWriter.Sheet] {
+        let all = pomodoros(sessions, calendar: calendar)
+        func day(_ d: Date) -> XLSXWriter.Cell { .date(XLSXWriter.serialDay(d, calendar: calendar)) }
+        func time(_ d: Date) -> XLSXWriter.Cell { .time(XLSXWriter.serialTime(d, calendar: calendar)) }
+        func minutes(_ seconds: Int) -> XLSXWriter.Cell { .number((Double(seconds) / 60 * 10).rounded() / 10) }
+        func optionalMinutes(_ seconds: Int?) -> XLSXWriter.Cell { seconds.map(minutes) ?? .blank }
+
+        let pomodoroRows = all.map { p -> [XLSXWriter.Cell] in
+            [day(p.start), time(p.start), time(p.entries.map(\.endTime).max() ?? p.start), .text(p.title),
+             .number(Double(p.sessions)), .number(Double(p.stoppedEarly)),
+             minutes(p.focusSeconds), minutes(p.breakSeconds)]
+        }
+        let sessionRows = all.flatMap { p in
+            p.entries.map { e -> [XLSXWriter.Cell] in
+                [day(e.startTime), time(p.start), .text(p.title), .text(phaseName(e.phase, text)),
+                 e.focusNumber.map { .number(Double($0)) } ?? .blank,
+                 time(e.startTime), time(e.endTime), minutes(e.seconds),
+                 optionalMinutes(e.plannedSeconds), optionalMinutes(e.pausedSeconds),
+                 .text(text.t(e.completed ? "diary.xlsx.yes" : "diary.xlsx.no"))]
+            }
+        }
+        return [
+            XLSXWriter.Sheet(
+                name: text.t("diary.xlsx.sheet.pomodoros"),
+                header: ["date", "start", "end", "title", "focusSessions", "stoppedEarly", "focusMinutes", "breakMinutes"]
+                    .map { text.t("diary.xlsx.\($0)") },
+                columnWidths: [12, 8, 8, 36, 14, 14, 14, 14], rows: pomodoroRows),
+            XLSXWriter.Sheet(
+                name: text.t("diary.xlsx.sheet.sessions"),
+                header: ["date", "pomodoroStart", "title", "phase", "focusNumber", "start", "end", "minutes", "plannedMinutes", "pausedMinutes", "completed"]
+                    .map { text.t("diary.xlsx.\($0)") },
+                columnWidths: [12, 16, 36, 14, 10, 8, 8, 10, 16, 16, 12], rows: sessionRows),
+        ]
     }
 
     static func documentBlocks(_ sessions: [SessionLogEntry], text: DiaryText, now: Date, calendar: Calendar) -> [DocumentBlock] {
