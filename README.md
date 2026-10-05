@@ -1,7 +1,9 @@
-# Pomoppi
+# Pomoppi <kbd>ポモっぴ</kbd>
 
-ポモっぴ: a pixel pomodoro widget for macOS and Windows, with your virtual dysfunctional roommate that
-lives in it. It's a spin-off of **Habippi**, the habit tracker tamagotchi-like app i'm still developing.
+A pixel pomodoro widget for macOS and Windows, with your virtual dysfunctional roommate that
+lives in it. It's a spin-off of **Habippi**, the habit tracker tamagotchi-like app i'm still planning.
+
+<kbd>Pomoppi code is entirely agent-coded usign Claude Code.</kbd>
 
 
 ## [Install latest release](https://github.com/lucabessiaristei/Pomoppi/releases/latest)
