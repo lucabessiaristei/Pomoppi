@@ -55,6 +55,23 @@ The app lands in `dist\Pomoppi-win\Pomoppi.exe` (quit the running copy
 from the tray first). If a release build hangs mid-way, `rmdir /s /q
 .build` and rerun: a stale `.build` has caused that before.
 
+## No internet in the VM
+
+Symptom: the VM resolves names (DNS works) but every connection times out
+(no web pages, update checks fail after 15 s). Cause: the Mac's
+`net.inet.ip.forwarding` got switched off (`sysctl net.inet.ip.forwarding`
+shows `0`; a VPN client connecting/disconnecting can do it), and UTM's
+shared network goes through macOS Internet Sharing, which only turns
+forwarding on when it starts. Restarting the VM alone isn't enough, because
+Internet Sharing keeps running. Fix without sudo:
+```sh
+U=/Applications/UTM.app/Contents/MacOS/utmctl
+$U stop --request pomoppi-windows       # wait until `$U status` says stopped
+while pgrep -x InternetSharing >/dev/null; do sleep 3; done   # it exits on its own
+$U start pomoppi-windows                # forwarding is back to 1
+```
+(Or `sudo sysctl -w net.inet.ip.forwarding=1` with the VM running.)
+
 ## Testing tray, hotkeys and windows
 
 SSH sessions run in Windows Session 0: `Shell_NotifyIcon` and
