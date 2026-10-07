@@ -49,7 +49,7 @@ session, not a plain SSH one — see `WINDOWS_VM.md` for the Task Scheduler
 Pomoppi runs on macOS and Windows. The file map below is split into what's
 shared between both platforms, what's macOS-only, and what's Windows-only.
 
-Open plan: `LOCALIZATION_PLAN.md`. `NEXT_RELEASE.md` lists what has landed
+Open plans: `LOCALIZATION_PLAN.md`, `TRANSFER_PLAN.md` (offline settings + log transfer via QR/code/file). `NEXT_RELEASE.md` lists what has landed
 since the last release (and what still needs verifying before the next). `WINDOWS_VM.md` is how to build and test
 the Windows app; `RELEASING.md` is the release checklist. Finished plans
 were removed; their history is in git.
