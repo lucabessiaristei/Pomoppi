@@ -1,13 +1,12 @@
 # Next release — what's in it
 
-Running list of what has landed on `main` since v0.5.0 (released
+Running list of what has landed on `main` since v0.6.0 (released
 2026-10-07), so the release notes write themselves. Cut it with
 `RELEASING.md`, then empty this file for the next one.
 
 ## Changes
 
-- New last Settings tab, Pomoppi: version + What's new link, Updates and Reset (moved from General), and a Show in Finder/Explorer button for the data folder.
-- Transfer (Pomoppi tab): move settings and pomodoro history to another computer, macOS or Windows, with no account or internet: a QR code, a copyable text code or a `.pomoppi` file; receiving reads a photo or screenshot of the QR, a pasted code or the file, and previews before importing.
+(nothing yet)
 
 ## To verify
 
