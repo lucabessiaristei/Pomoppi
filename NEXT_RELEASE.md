@@ -7,9 +7,11 @@ Running list of what has landed on `main` since v0.5.0 (released
 ## Changes
 
 - New last Settings tab, Pomoppi: version + What's new link, Updates and Reset (moved from General), and a Show in Finder/Explorer button for the data folder.
+- Transfer (Pomoppi tab): move settings and pomodoro history to another computer, macOS or Windows, with no account or internet: a QR code, a copyable text code or a `.pomoppi` file; receiving reads a photo or screenshot of the QR, a pasted code or the file, and previews before importing.
 
 ## To verify
 
+- **Transfer with a real phone photo**: a photo of the QR on screen, sent to the other computer, imports on both platforms (Windows reads it with the shared decoder).
 - **In-app update relaunch, end to end**, now that v0.4.0 is out: from an
   installed v0.3.5, Update to v0.4.0 must close, update and reopen the app
   on its own, on both platforms (Windows: a copy installed with its Setup).

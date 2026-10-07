@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         diaryViewModel.onHistoryChanged = { [unowned self] in self.historyChanged() }
         diaryWindowController = DiaryWindowController(viewModel: diaryViewModel)
         settingsViewModel?.openDiary = { [unowned self] in self.showDiaryWindow() }
+        settingsViewModel?.onLogImported = { [unowned self] in self.historyChanged() }
         timer.onPhaseComplete = { [unowned self] event in
             Task {
                 await self.sessionLogger.logSession(event)

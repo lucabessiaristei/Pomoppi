@@ -678,7 +678,7 @@ never a child of the job and booting out cannot kill it.
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
 `SettingsStore`, same validation, not reimplemented per platform. Seven
-tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary, Pomoppi**. (Pomoppi, added after 0.5.0, holds the app-level things: version and what's new, updates, data folder, reset; its macOS icon is the menu-bar Pomoppi sprite, `trayFrames[0]`, drawn as a thickened template image.) **Terms are fixed**: a *pomodoro* is the whole cycle, a *focus session* (or *focus*) and a *break* are its phases; UI copy never says a bare "session". (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
+tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary, Pomoppi**. (Pomoppi, added after 0.5.0, holds the app-level things: version and what's new, updates, transfer, data folder, reset; its macOS icon is the menu-bar Pomoppi sprite, `trayFrames[0]`, drawn as a template image at 1pt per sprite pixel, centered on its drawn pixels and filled as one path so no seams show.) **Terms are fixed**: a *pomodoro* is the whole cycle, a *focus session* (or *focus*) and a *break* are its phases; UI copy never says a bare "session". (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
 `General` is `Window` renamed and moved first — `Window` was a grab-bag
 naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
@@ -708,6 +708,7 @@ what a brand-new install opens on.
 | | Sync to folder | Diary folder; Choose…; Sync Now | "Pomoppi keeps these files up to date, edits inside them are overwritten" |
 | **Pomoppi** | *(no header)* | "Pomoppi <version>" with a What's new link (the running version's GitHub release page) | — |
 | | Updates | Automatically check for updates; Status row with a Check for updates action | — |
+| | Transfer | **Transfer settings and history…** opens the Transfer window (§16) | "Move your settings and pomodoro history to another computer, with no account or internet" |
 | | Data folder | **Show in Finder** *(Windows: Show in Explorer)* opens the storage dir | "Your settings and pomodoro history are stored here" |
 | | Reset | **Reset Pomoppi…** | "Also erases your pomodoro history" |
 
@@ -1950,3 +1951,35 @@ perspective transform and corrects each block with Reed-Solomon. Loading an
 image file into a luma buffer is the platform's job. Windows uses this decoder
 for imported images; macOS uses Vision (more robust) and keeps this one as the
 reference both are tested against.
+
+### The Transfer window
+
+Opened from the Pomoppi tab's Transfer section (macOS: a sheet on Settings;
+Windows: a popup owned by the Settings window, which is disabled while it's
+open). Send / Receive at the top, Send first.
+
+- **Send** snapshots the current settings and log when opened. Toggles:
+  Settings, Pomodoro history, and under history (disabled when it's off)
+  Task titles, Focus sessions skipped under a minute, Details; all on.
+  Leaving any of the last three out shows "What you leave out won't reach
+  the other computer". Every change re-encodes; a weight line shows
+  "≈ size · QR n×n · N characters" (or "too big for a QR code"). The QR is
+  drawn crisp at a whole number of pixels per module, black on white; too
+  big shows a message in its place. **Copy code** (the text code; "Copied"
+  for 2 s), **Save QR image…** (PNG, 8 px per module, "Pomoppi
+  Transfer.png"; off when too big), **Save file…** ("Pomoppi
+  Transfer.pomoppi", the raw bytes).
+- **Receive**: **Open image…**, **Paste code**, **Open file…**, or drop a
+  file onto the window (macOS also takes dropped text). macOS reads images
+  with Vision, trying both byte-mode count widths and keeping the payload
+  whose checksum passes, then falls back to `QRDecoder`; Windows loads
+  images with GDI+ (PNG, JPEG, BMP, GIF, TIFF) into `QRDecoder`. A file whose
+  text starts with `pomoppi1-` is read as a text code, otherwise as raw
+  bytes. Errors show one line plus "Nothing was changed".
+- **Preview** before anything is written: "N pomodoros (M new)", whether the
+  settings differ from the local ones (and how many), and whether titles or
+  details were left out by the sender. Checkboxes: apply the settings (on
+  when they differ) and add the new pomodoros (on when there are any).
+  **Import** applies the settings through the store (so everything re-applies
+  live) and merges the log, then refreshes the Diary tab and viewer;
+  **Cancel** goes back.

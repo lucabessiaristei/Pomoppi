@@ -504,6 +504,7 @@ private struct GeneralTab: View {
 private struct PomoppiTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var showingResetConfirmation = false
+    @State private var showingTransfer = false
 
     var body: some View {
         Form {
@@ -520,6 +521,13 @@ private struct PomoppiTab: View {
                 UpdateStatusRow(updateChecker: viewModel.updateChecker)
             } header: {
                 Text(L.t("general.updates.header"))
+            }
+            Section {
+                Button(L.t("transfer.open")) { showingTransfer = true }
+            } header: {
+                Text(L.t("transfer.header"))
+            } footer: {
+                Text(L.t("transfer.footer"))
             }
             Section {
                 Button(L.t("pomoppi.dataFolder.show")) {
@@ -541,6 +549,7 @@ private struct PomoppiTab: View {
             }
         }
         .settingsForm()
+        .sheet(isPresented: $showingTransfer) { TransferView(viewModel: viewModel) }
         .confirmationDialog(
             L.t("general.reset.confirm.title"),
             isPresented: $showingResetConfirmation,

@@ -2496,6 +2496,15 @@ final class SettingsWindow {
         addUpdateStatusRow(in: page, y: y)
         y += Self.rowHeight + Self.sectionGap
 
+        y = addSectionHeader(L.t("transfer.header"), in: page, y: y, width: rowWidth)
+        addButton(L.t("transfer.open"), in: page, x: Self.rowMargin, y: y, width: 280, height: Self.controlHeight) { [weak self] in
+            guard let self else { return }
+            TransferWindow.show(owner: self.hwnd, settingsStore: self.settingsStore, sessionLogger: self.sessionLogger)
+        }
+        y += Self.rowHeight
+        addHint(L.t("transfer.footer"), in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
+
         y = addSectionHeader(L.t("pomoppi.dataFolder.header"), in: page, y: y, width: rowWidth)
         addButton(L.t("pomoppi.dataFolder.show.windows"), in: page, x: Self.rowMargin, y: y, width: 200, height: Self.controlHeight) {
             Self.openURL(storageDir())
@@ -2860,6 +2869,13 @@ final class SettingsWindow {
         DiaryWindow.shared?.reload()
     }
 
+    // After a Transfer import changed settings: every control here bakes its
+    // value in at creation, so the window rebuilds, same as a language switch.
+    static func reloadAfterSettingsImport() {
+        guard let shared else { return }
+        PostMessageW(shared.hwnd, rebuildMessage, 0, 0)
+    }
+
     // The Diary tab's count readout and the export buttons' enabled state,
     // after anything that changed the log.
     static func refreshDiarySummary() {
@@ -2885,7 +2901,7 @@ final class SettingsWindow {
         DiaryExporter.pomodoros(sessionLogger.allSessionsSync()).count
     }
 
-    private static func formatHistorySize(_ bytes: Int64) -> String {
+    static func formatHistorySize(_ bytes: Int64) -> String {
         // A handful of sessions is only a few hundred bytes — rounding
         // straight to KB read as "0 KB" for anything real yet non-empty,
         // which looks like the erase didn't work. Bytes below 1 KB, then
