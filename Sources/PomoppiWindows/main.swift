@@ -55,7 +55,10 @@ let timer = PomodoroTimer(settingsGetter: {
 // equivalent (AppDelegate.swift) has always logged to Obsidian; Windows
 // never had any logging wired in until this session log replaced it.
 timer.onPhaseComplete = { event in
-    Task { await sessionLogger.logSession(event) }
+    Task {
+        await sessionLogger.logSession(event)
+        DiaryWindow.notifyHistoryChanged()
+    }
     // SPEC.md §4: the chime plays once, at the moment a phase completes and
     // the ring starts — `completed` is only true on that path
     // (PomodoroTimer.completePhase()), never on a skip/reset that cuts a
@@ -67,12 +70,19 @@ timer.onPhaseComplete = { event in
     }
 }
 timer.onPomodoroDiscarded = { start in
-    Task { await sessionLogger.discardPomodoro(startedAt: start) }
+    Task {
+        await sessionLogger.discardPomodoro(startedAt: start)
+        DiaryWindow.notifyHistoryChanged()
+    }
 }
 
 let widgetWindow = WidgetWindow(timer: timer, settingsStore: settingsStore)
 let trayController = TrayController(window: widgetWindow)
 widgetWindow.trayController = trayController
+
+DiaryWindow.configure(
+    settingsStore: settingsStore, sessionLogger: sessionLogger,
+    currentPomodoroStart: { timer.currentPomodoroStart() }, notifyHwnd: widgetWindow.hwnd)
 
 let globalShortcutManager = GlobalShortcutManager(hwnd: widgetWindow.hwnd)
 widgetWindow.globalShortcutManager = globalShortcutManager

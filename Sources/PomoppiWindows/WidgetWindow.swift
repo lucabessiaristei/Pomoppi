@@ -308,6 +308,9 @@ final class WidgetWindow {
             guard let trayController else { return DefWindowProcW(hwnd, message, wParam, lParam) }
             trayController.handleTrayCallback(lParam: lParam)
             return 0
+        case Int32(DiaryWindow.historyChangedMessage):
+            DiaryWindow.historyChanged()
+            return 0
         case Int32(AppUpdateChecker.resultMessageID):
             guard let updateChecker else { return DefWindowProcW(hwnd, message, wParam, lParam) }
             updateChecker.handleResultMessage(lParam: lParam)

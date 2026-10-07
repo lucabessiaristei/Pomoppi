@@ -987,7 +987,7 @@ match on the title; totals (pomodoro count, focus seconds) cover the
 filtered set. `Row.isInProgress(current:)` takes the timer's
 `pomodoroStartedAt`.
 
-**History viewer (macOS).** A separate resizable window, one instance
+**History viewer (both platforms).** A separate resizable window, one instance
 (reopening brings it to the front), opened by the tray's "Diary…" item (just
 above "Settings…") and the Diary tab's "Open diary…" button. Top: the totals
 line for the filtered set ("N pomodoros · Focus Xh Ym"), a title search field
@@ -1002,6 +1002,16 @@ none has one or the id is unknown), plus "Delete pomodoro", every delete behind 
 The pomodoro in progress can't be deleted (both buttons disabled, with a
 note). The table reloads when an entry is logged or a pomodoro discarded and
 after a delete, which also refreshes the Settings Diary tab's count.
+
+On Windows (`PomoppiWindows/DiaryWindow.swift`) the same window is built from
+raw controls (two `SysListView32`s, themed light/dark). Differences: the
+Diary tab's "Open diary…" button sits beside the count on the "Pomodoros
+recorded" row; the split between table and detail is a fixed proportion that
+relayouts on resize (no draggable splitter); delete confirmations are
+`MessageBoxW` yes/no boxes; the log's refresh after `logSession`/
+`discardPomodoro`/a delete is marshaled onto the message-loop thread with a
+posted message. Clicking blank space in the table keeps the selection, as on
+macOS.
 
 **Sync: one summarized file per day, nested by year and month.**
 `<folder>/YYYY/MM/YYYY-MM-DD.md`, one block per pomodoro, plain CommonMark

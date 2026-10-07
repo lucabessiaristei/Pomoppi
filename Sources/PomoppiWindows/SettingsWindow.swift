@@ -2743,8 +2743,14 @@ final class SettingsWindow {
         y += Self.rowHeight
         let pomodoroCount = recordedPomodoroCount()
         addLabel(L.t("diary.history.pomodorosRecorded"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
-        sessionHistorySizeLabel = addLabel(historySummaryText(), in: page, x: rightX(valueWidth), y: y + Self.labelNudge, width: valueWidth, rightAligned: true)
+        let openButtonWidth: Int32 = 120
+        let countWidth = valueWidth - openButtonWidth - 8
+        sessionHistorySizeLabel = addLabel(historySummaryText(), in: page, x: rightX(countWidth) - openButtonWidth - 8, y: y + Self.labelNudge, width: countWidth, rightAligned: true)
         anchorRight(sessionHistorySizeLabel)
+        let openButton = addButton(L.t("diary.history.open"), in: page, x: rightX(openButtonWidth), y: y, width: openButtonWidth, height: Self.controlHeight) {
+            DiaryWindow.show()
+        }
+        anchorRight(openButton)
         y += Self.rowHeight
         addButton(L.t("diary.history.erase"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
             self?.confirmEraseSessionLog()
@@ -2821,6 +2827,17 @@ final class SettingsWindow {
         }
         guard result == IDYES else { return }
         sessionLogger.eraseAllSync()
+        refreshDiaryTab()
+        DiaryWindow.shared?.reload()
+    }
+
+    // The Diary tab's count readout and the export buttons' enabled state,
+    // after anything that changed the log.
+    static func refreshDiarySummary() {
+        shared?.refreshDiaryTab()
+    }
+
+    private func refreshDiaryTab() {
         if let label = sessionHistorySizeLabel {
             setWindowText(label, historySummaryText())
         }

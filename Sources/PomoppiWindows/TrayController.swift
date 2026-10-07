@@ -42,6 +42,7 @@ final class TrayController {
         case settings = 6
         case quit = 7
         case openUpdatePage = 8
+        case diary = 9
     }
 
     private var nid = NOTIFYICONDATAW()
@@ -151,6 +152,8 @@ final class TrayController {
                 // already calls PostQuitMessage — no need to call it again
                 // here.
                 window.fadeOutAndQuit()
+            case .diary:
+                DiaryWindow.show()
             case .openUpdatePage:
                 // Updating happens in Settings' General tab, not a browser.
                 SettingsWindow.selectGeneralTab()
@@ -328,6 +331,7 @@ final class TrayController {
         appendItem(menu, .toggleAlwaysOnTop, L.t("shortcut.toggleOnTop.label"), checked: settings.alwaysOnTop)
         appendSeparator(menu)
 
+        appendItem(menu, .diary, L.t("tray.diary"))
         appendItem(menu, .settings, L.t("tray.settings"))
         appendItem(menu, .quit, L.t("tray.quit"))
 
