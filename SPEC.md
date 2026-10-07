@@ -985,6 +985,20 @@ match on the title; totals (pomodoro count, focus seconds) cover the
 filtered set. `Row.isInProgress(current:)` takes the timer's
 `pomodoroStartedAt`.
 
+**History viewer (macOS).** A separate resizable window, one instance
+(reopening brings it to the front), opened by the tray's "Diary…" item (just
+above "Settings…") and the Diary tab's "Open diary…" button. Top: the totals
+line for the filtered set ("N pomodoros · Focus Xh Ym"), a title search field
+and "Export to Excel…" (the complete log as `.xlsx`, like Export). Middle: a
+sortable table (Date, Start, Title, Focus sessions, Focus time, Breaks; Date
+and Start both sort by start; default newest first), single selection.
+Bottom: the selected pomodoro's entries (phase, focus number, start–end,
+duration, "stopped early"; the hidden-from-diary ones dimmed), each with a
+delete button, plus "Delete pomodoro", every delete behind a confirmation.
+The pomodoro in progress can't be deleted (both buttons disabled, with a
+note). The table reloads when an entry is logged or a pomodoro discarded and
+after a delete, which also refreshes the Settings Diary tab's count.
+
 **Sync: one summarized file per day, nested by year and month.**
 `<folder>/YYYY/MM/YYYY-MM-DD.md`, one block per pomodoro, plain CommonMark
 (no front matter, no nested lists, nothing Obsidian- or Notes-specific):

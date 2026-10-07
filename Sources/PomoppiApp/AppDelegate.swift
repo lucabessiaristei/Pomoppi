@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var widgetWindow: WidgetWindow!
     private var trayController: TrayController!
     private var updateChecker: AppUpdateChecker!
+    private var diaryViewModel: DiaryViewModel!
+    private var diaryWindowController: DiaryWindowController!
 
     // Owned here so the SwiftUI Settings scene can reuse one view model
     // instead of constructing a new one every time the scene body runs.
@@ -70,8 +72,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         settingsViewModel = SettingsViewModel(
             settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer,
             updateChecker: updateChecker)
+        diaryViewModel = DiaryViewModel(
+            sessionLogger: sessionLogger, currentPomodoroStart: { [unowned self] in self.timer.currentPomodoroStart() })
+        diaryViewModel.onHistoryChanged = { [unowned self] in self.historyChanged() }
+        diaryWindowController = DiaryWindowController(viewModel: diaryViewModel)
+        settingsViewModel?.openDiary = { [unowned self] in self.showDiaryWindow() }
         timer.onPhaseComplete = { [unowned self] event in
-            Task { await self.sessionLogger.logSession(event) }
+            Task {
+                await self.sessionLogger.logSession(event)
+                await MainActor.run { self.historyChanged() }
+            }
             // SPEC.md §4: the chime plays once, at the moment a phase
             // completes and the ring starts — `completed` is only true on
             // that path (completePhase()), never on a skip/reset that cuts
@@ -83,7 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             }
         }
         timer.onPomodoroDiscarded = { [unowned self] start in
-            Task { await self.sessionLogger.discardPomodoro(startedAt: start) }
+            Task {
+                await self.sessionLogger.discardPomodoro(startedAt: start)
+                await MainActor.run { self.historyChanged() }
+            }
         }
 
         widgetWindow = WidgetWindow(
@@ -98,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             timer: timer, settingsStore: settingsStore, widgetWindow: widgetWindow, updateChecker: updateChecker,
             focusedOwnWindow: { [unowned self] in self.focusedOwnWindow() },
             onOpenSettingsRequested: { [unowned self] in self.showSettingsWindow() },
+            onOpenDiaryRequested: { [unowned self] in self.showDiaryWindow() },
             onQuitRequested: { NSApp.terminate(nil) })
 
         // Everything a settings change might need to propagate to, in one
@@ -143,6 +157,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func showSettingsWindow() {
         NSApp.activate(ignoringOtherApps: true)
         settingsOpenerModel.requestOpen()
+    }
+
+    // The Diary's history viewer window (SPEC.md §8b), from the tray menu and
+    // the Settings Diary tab.
+    func showDiaryWindow() {
+        diaryWindowController.show()
+    }
+
+    // The log changed (a phase logged, a pomodoro discarded or deleted):
+    // refresh everything that shows it.
+    private func historyChanged() {
+        diaryViewModel.reload()
+        settingsViewModel?.historyRevision += 1
     }
 
     // The once-per-launch "update available" alert (SPEC.md §15). Update opens

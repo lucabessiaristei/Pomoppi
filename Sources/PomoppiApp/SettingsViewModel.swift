@@ -14,6 +14,11 @@ final class SettingsViewModel: ObservableObject {
     let sessionLogger: SessionLogger
     let chimePlayer: ChimePlayer
     let updateChecker: AppUpdateChecker
+    // Bumped when the log changes behind the Diary tab's back (a phase logged,
+    // a delete in the history viewer), so its count and size refresh.
+    @Published var historyRevision = 0
+    // Wired by AppDelegate: opens the Diary's history viewer window.
+    var openDiary: () -> Void = {}
 
     init(
         settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer,

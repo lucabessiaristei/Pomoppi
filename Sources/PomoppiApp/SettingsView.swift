@@ -40,6 +40,7 @@ struct SettingsView: View {
         .frame(minWidth: 520, idealWidth: 560, minHeight: 400, idealHeight: 560)
         .preferredColorScheme(Self.preferredColorScheme(for: viewModel.settings.colorScheme, systemIsDark: systemAppearance.isDark))
         .onAppear(perform: disableSettingsRestoration)
+        .background(ResizableWindowAccessor())
     }
 
     // The Settings scene would otherwise restore itself at login; Pomoppi
@@ -73,6 +74,35 @@ struct SettingsView: View {
         case "light": return .light
         case "dark": return .dark
         default: return systemIsDark ? .dark : .light
+        }
+    }
+}
+
+// The Settings scene's window has no `.resizable` (`.windowResizability(
+// .contentMinSize)` doesn't add it), and SwiftUI strips it again shortly
+// after any insert, so a one-time fix doesn't stick. KVO on styleMask puts it
+// back only when it's actually removed (twice per open in practice), not on
+// a timer. The minimum stays SwiftUI's (SettingsView's own frame).
+private struct ResizableWindowAccessor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { AccessorView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class AccessorView: NSView {
+        private var observation: NSKeyValueObservation?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observation = nil
+            guard let window else { return }
+            Self.makeResizable(window)
+            observation = window.observe(\.styleMask) { window, _ in
+                DispatchQueue.main.async { Self.makeResizable(window) }
+            }
+        }
+
+        private static func makeResizable(_ window: NSWindow) {
+            guard !window.styleMask.contains(.resizable) else { return }
+            window.styleMask.insert(.resizable)
         }
     }
 }
@@ -694,9 +724,12 @@ private struct DiaryTab: View {
                 // only while recording (SPEC.md §5).
                 Toggle(L.t("diary.history.askForTitle"), isOn: viewModel.binding(\.askForTaskName))
                     .disabled(!viewModel.settings.loggingEnabled)
-                LabeledContent(
-                    L.t("diary.history.pomodorosRecorded"),
-                    value: L.t("diary.history.countAndSize", pomodoroCount, Self.formattedSize(historySizeBytes)))
+                LabeledContent(L.t("diary.history.pomodorosRecorded")) {
+                    HStack {
+                        Text(L.t("diary.history.countAndSize", pomodoroCount, Self.formattedSize(historySizeBytes)))
+                        Button(L.t("diary.history.open")) { viewModel.openDiary() }
+                    }
+                }
                 Button(L.t("diary.history.erase"), role: .destructive) {
                     showingEraseConfirmation = true
                 }
@@ -736,6 +769,10 @@ private struct DiaryTab: View {
         .settingsForm()
         .task {
             await refreshHistorySize()
+            refreshCount()
+        }
+        .onChange(of: viewModel.historyRevision) {
+            Task { await refreshHistorySize() }
             refreshCount()
         }
         .confirmationDialog(

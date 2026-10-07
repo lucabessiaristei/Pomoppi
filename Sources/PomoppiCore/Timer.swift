@@ -247,6 +247,10 @@ public final class PomodoroTimer {
         return state
     }
 
+    // The running pomodoro's start (what the log groups by), nil when none is
+    // under way; the history viewer uses it to protect that pomodoro.
+    public func currentPomodoroStart() -> Date? { pomodoroStartedAt }
+
     // While idle there is no phase counting down, but the widget still has a
     // clock to fill: report the focus length that pressing start would use,
     // derived on read rather than stored, so changing focusMinutes while idle

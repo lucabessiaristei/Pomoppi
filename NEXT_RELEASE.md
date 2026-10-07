@@ -21,9 +21,12 @@ Running list of what has landed on `main` since v0.4.0 (released
 - **Excel export**: the Diary's Full log export also saves an `.xlsx`
   workbook (Pomodoros and Sessions sheets, localized headers, real dates
   and minutes) (`SPEC.md` §8b).
-- **Core for the history viewer** (no UI yet): `SessionLogger` can delete a
-  pomodoro or a single entry on request, and `DiaryHistory` provides the
-  rows, sorting, search and totals (`SPEC.md` §8, §8b).
+- **Diary history viewer (macOS)**: a "Diary…" tray item and the Diary tab's
+  "Open diary…" button open a window with every pomodoro in a sortable,
+  searchable table, its entries below, per-entry and whole-pomodoro delete
+  (not for the one in progress) and Export to Excel. Built on `SessionLogger`'s
+  delete calls and `DiaryHistory` (`SPEC.md` §8, §8b). The Windows viewer is
+  still pending.
 
 ## To verify
 

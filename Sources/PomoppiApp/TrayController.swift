@@ -20,6 +20,7 @@ final class TrayController: NSObject, NSMenuDelegate {
     private let updateChecker: AppUpdateChecker
     private let focusedOwnWindow: () -> NSWindow?
     private let onOpenSettingsRequested: () -> Void
+    private let onOpenDiaryRequested: () -> Void
     private let onQuitRequested: () -> Void
 
     private let statusItem: NSStatusItem
@@ -32,7 +33,8 @@ final class TrayController: NSObject, NSMenuDelegate {
     init(
         timer: PomodoroTimer, settingsStore: SettingsStore, widgetWindow: WidgetWindow, updateChecker: AppUpdateChecker,
         focusedOwnWindow: @escaping () -> NSWindow?,
-        onOpenSettingsRequested: @escaping () -> Void, onQuitRequested: @escaping () -> Void
+        onOpenSettingsRequested: @escaping () -> Void, onOpenDiaryRequested: @escaping () -> Void,
+        onQuitRequested: @escaping () -> Void
     ) {
         self.timer = timer
         self.settingsStore = settingsStore
@@ -40,6 +42,7 @@ final class TrayController: NSObject, NSMenuDelegate {
         self.updateChecker = updateChecker
         self.focusedOwnWindow = focusedOwnWindow
         self.onOpenSettingsRequested = onOpenSettingsRequested
+        self.onOpenDiaryRequested = onOpenDiaryRequested
         self.onQuitRequested = onQuitRequested
         // .variableLength, not .squareLength: the button shows the live
         // clock next to the icon, matching main.js's tray.setTitle.
@@ -145,6 +148,7 @@ final class TrayController: NSObject, NSMenuDelegate {
         menu.addItem(keepOnTop)
         menu.addItem(.separator())
 
+        menu.addItem(makeItem(title: L.t("tray.diary"), action: #selector(handleOpenDiary)))
         menu.addItem(makeItem(
             title: L.t("tray.settings"), action: #selector(handleOpenSettings), shortcut: settings.shortcuts["openSettings"]))
         menu.addItem(makeItem(title: L.t("tray.quit"), action: #selector(handleQuit)))
@@ -242,6 +246,7 @@ final class TrayController: NSObject, NSMenuDelegate {
     }
 
     @objc private func handleOpenSettings() { onOpenSettingsRequested() }
+    @objc private func handleOpenDiary() { onOpenDiaryRequested() }
     @objc private func handleQuit() { onQuitRequested() }
 
     // Updating happens in the General tab's Updates row, so the menu item

@@ -130,7 +130,7 @@ public enum DiaryExporter {
     }
 
     // "1h 32m", "25m", "<1m": never "0m".
-    static func duration(_ seconds: Int, _ text: DiaryText) -> String {
+    public static func duration(_ seconds: Int, _ text: DiaryText) -> String {
         let minutes = seconds / 60
         if minutes < 1 { return text.t("diary.duration.lessThanMinute") }
         if minutes < 60 { return text.t("diary.duration.minutes", minutes) }
@@ -157,7 +157,7 @@ public enum DiaryExporter {
             + " · " + text.t("diary.breaksTotal", duration(pomodoro.breakSeconds, text))
     }
 
-    static func phaseName(_ phase: String, _ text: DiaryText) -> String {
+    public static func phaseName(_ phase: String, _ text: DiaryText) -> String {
         switch phase {
         case "focus": return text.t("tray.phase.focus")
         case "shortBreak": return text.t("tray.phase.shortBreak")
