@@ -7,8 +7,8 @@ Agreed 2026-10-07. Built in chunks, each stopped for a go-ahead.
 | Chunk | State |
 |---|---|
 | 0. "Pomoppi" settings tab | done (macOS icon weight pending a by-hand check) |
-| 1. Core codec | not started — **next** |
-| 2. Core QR encoder + render | not started |
+| 1. Core codec | done (Windows build unchecked, verify with chunk 2) |
+| 2. Core QR encoder + render | not started — **next** |
 | 3. Core QR decoder (images) | not started |
 | 4. macOS UI | not started |
 | 5. Windows UI | not started |

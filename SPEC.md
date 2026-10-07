@@ -1698,3 +1698,232 @@ sets — no request body, no user data, no machine identifier of any kind.
 Nothing about the response is persisted to disk; the parsed result lives
 only in memory for the running session
 (`AppUpdateChecker.latestResult`) and is gone at the next launch.
+
+## 16. Transfer `[both]`
+
+Moves settings and/or the pomodoro log between computers offline
+(`TransferCodec*.swift` in `PomoppiCore`; plan and UI in `TRANSFER_PLAN.md`).
+One binary payload, carried as a text code, a `.pomoppi` file, or a QR. This
+section is the byte format, complete enough to implement elsewhere. Format
+version **1**.
+
+### Primitives
+
+- **varint**: unsigned LEB128 (7 bits per byte, low group first, high bit =
+  more), at most 10 bytes.
+- **int**: a signed value zigzag-mapped (`(n << 1) ^ (n >> 63)`) then a varint.
+- **string**: varint byte length + UTF-8 bytes.
+- **block**: varint byte length + that many bytes.
+
+### Container
+
+```
+varint  format version (1)
+varint  flags
+block   settings block        (only if flag bit 0)
+block   log block             (only if flag bit 1)
+4 bytes checksum = first 4 bytes of SHA-256 over every byte before it
+```
+
+Flags: bit0 settings present, bit1 log present, bit2 titles omitted, bit3
+details omitted, bit4 sub-minute skips omitted (bits 2-4 are informational
+for the import preview), **bit5 reserved for multi-part codes** (a v1 reader
+refuses it: `multipart`), any higher bit is `malformed`. The reader checks
+the version first (anything but 1 = `unsupportedVersion`, whatever follows),
+then the checksum (`badChecksum`), then parses; bytes left over after the
+blocks are `malformed`. Nothing is applied on any error.
+
+Carriers of the same bytes: **text code** `pomoppi1-` + base64url (RFC 4648
+URL-safe alphabet, no padding), one unbroken token (readers trim surrounding
+whitespace, require the prefix); **file** `Pomoppi Transfer.pomoppi`, the raw
+bytes; **QR** (a later chunk).
+
+### Settings block
+
+The sender's transferable settings as a difference from the defaults, a
+sequence of fields: `varint key = fieldNumber << 3 | wireType`, then the
+value. Wire types: **0** varint, **1** exactly 3 bytes, **2** block. A reader
+skips unknown field numbers by wire type (an unknown wire type is
+`malformed`); a known field with the wrong wire type is `malformed`; a field
+that repeats overwrites. A field absent means "the default", so applying a
+payload sets every transferable setting (to the sent value or the default).
+**Field numbers, bit positions and registry orders below are permanent and
+add-only.**
+
+| # | wt | Field | Value |
+|---|---|---|---|
+| 1 | 0 | focusMinutes | seconds (`round(minutes * 60)`) |
+| 2 | 0 | shortBreakMinutes | seconds |
+| 3 | 0 | longBreakMinutes | seconds |
+| 4 | 0 | longBreakEvery | int as varint |
+| 5 | 0 | bool mask | bit set = that bool differs from its default (flipped) |
+| 6 / 7 | 0 / 2 | friend | registry index / unknown id as string |
+| 8 / 9 | 0 / 2 | frameStyle | idem |
+| 10 / 11 | 0 / 2 | background | idem |
+| 12 / 13 | 0 / 2 | chime | idem |
+| 14 / 15 | 0 / 2 | language | idem (`system` is the default, never sent) |
+| 16 / 17 | 0 / 2 | colorScheme | idem |
+| 18 | 1 | inkColor | R, G, B bytes |
+| 19 | 1 | paperColor | R, G, B bytes |
+| 20 | 0 | scale | varint |
+| 21 | 0 | opacity | percent, `round(opacity * 100)` |
+| 22 | 0 | ringSeconds | tenths, `round(seconds * 10)` |
+| 23 | 2 | shortcuts | concatenated shortcut entries (below) |
+
+Never transferred (machine-local, kept from the receiving machine):
+`diaryFolderPath`, `launchAtLogin`, `startHidden`, `alwaysOnTop`.
+
+Bool mask bits: 0 autoStartBreaks, 1 autoStartFocus, 2 loggingEnabled, 3
+raiseOnEnd, 4 reverseTrayClick, 5 checkForUpdates, 6 soundEnabled, 7
+askForTaskName. Defaults: `PomoppiSettings.defaults` of the sender's
+format version (25/5/15 min, every 4, autoStartBreaks on, autoStartFocus
+off, logging on, friend namidappi, frame scallopy, background grid, ink
+`#276231`, paper `#80B391`, color scheme auto, raiseOnEnd on,
+reverseTrayClick off, scale 2, opacity 1.0, checkForUpdates on, language
+system, sound on, chime classic, ring 5 s, askForTaskName on, default
+shortcuts below).
+
+**Enum registries** (index = position, frozen; never the live lists):
+friend `namidappi, onanippi, gemuppin, jankuppin, utsupon`; frameStyle
+`ziggy, scallopy, splotchy, wavey`; background `grid, luna, tatami`; chime
+`classic, chord, jingle, soft`; language `en, de, es, fr, it`; colorScheme
+`auto, light, dark`. A sender writes the index when its id is in the
+registry, else the id as a string in the odd field. A reader ignores an
+index it has no entry for (keeps the default) and then validates the result
+like a settings load (unknown ids clamp to the default).
+
+**Shortcuts** (field 23): only actions whose accelerator differs from the
+default (including cleared ones). Entry:
+
+1. varint action ref: `0` = a string id follows, else index + 1 into
+   `toggleWidget, startPause, skip, reset, toggleOnTop, openSettings`
+   (defaults `Alt+Shift+P`, `Alt+Shift+Space`, `Alt+Shift+K`,
+   `Alt+Shift+R`, `Alt+Shift+T`, `Alt+Shift+,`);
+2. varint modifier mask: `0` = unbound (no more bytes); else bits 0
+   Command, 1 CommandOrControl, 2 Control, 3 Alt, 4 Shift (joined in that
+   order, `+`-separated, key last). Bit 5 (value 32) = the whole accelerator
+   follows as a string (used for anything that isn't canonical);
+3. unless unbound or raw: varint key ref: `0` = string follows, else index
+   + 1 into the key table: `A`-`Z`, `0`-`9`, then the punctuation keys
+   ``` ` - = [ ] \ ; ' , . / ~ _ + { } | : " < > ? ```, then `Space Tab
+   Backspace Delete Insert Return Enter Up Down Left Right Home End PageUp
+   PageDown Escape Plus PrintScreen`, `F1`-`F24`, `numdec numadd numsub
+   nummult numdiv`, `num0`-`num9`.
+
+Precision: minutes are quantized to whole seconds, opacity to whole percent,
+ringSeconds to tenths (the encoder compares against the quantized input).
+
+### Log block
+
+Layout: four string tables, then the pomodoros.
+
+```
+table titles     varint count, strings   (non-empty tasks, most used first)
+table timeZones  idem                     (identifiers)
+table versions   idem                     (appVersion)
+table friends    idem                     (friend ids NOT in the friend registry)
+varint pomodoroCount
+pomodoro * pomodoroCount
+```
+
+A **pomodoro** is a run of consecutive entries with the same `pomodoroStart`
+(entries without one, consecutive, form a run too). `T` is its
+`pomodoroStart`, or its first entry's `startTime` when it has none. All
+times are whole seconds (the encoder refuses fractional dates).
+
+References: *title ref* 0 = empty task, else table index + 1; *tz/version
+ref* 0 = absent, else index + 1; *friend ref* 0 = absent, 1-5 = friend
+registry index + 1, else 5 + (index + 1 into the friends table); *optional
+code* 0 = absent, else `zigzag(value) + 1`.
+
+```
+int     T minus the previous pomodoro's T (first: minus 0)
+varint  flags: bit0 no pomodoroStart, bit1 friend same as previous pomodoro,
+        bit2 focusCount same, bit3 timeZone same, bit4 appVersion same,
+        bit5 pomodoro has no pausedSeconds   (higher = malformed)
+varint  title ref                    (of the first entry)
+varint  friend ref        if bit1 clear
+varint  focusCount optional code if bit2 clear
+varint  tz ref            if bit3 clear
+varint  version ref       if bit4 clear
+varint  entry count
+entry * count
+```
+
+"Previous" starts as absent (refs 0, focusCount absent) before the first
+pomodoro. The pomodoro's title/friend/focusCount/tz/version are those of its
+first entry; its `pausedSeconds` presence too (bit5).
+
+**Entry**: one flag varint `b` (< 128), then values in this order:
+
+- `b` bits 0-1 phase (0 focus, 1 shortBreak, 2 longBreak, 3 = a phase
+  string follows right after `b`), bit2 completed, bit3 starts exactly where
+  the previous entry ended (first entry: at `T`), bit4 plannedSeconds equals
+  the last planned of this phase, bit5 pausedSeconds is 0, bit6 all derived
+  values match (no exceptions mask), bit7 must be 0.
+- varint exceptions mask, only if bit6 clear.
+- int gap = startTime - previous end (first: - `T`), only if bit3 clear.
+- int plannedSeconds, only if present and bit4 clear.
+- int pausedSeconds, only if present and not 0 (bit5).
+- int length, only if the entry is not completed.
+- one payload per set exceptions bit, in bit order.
+
+"Last planned" is tracked per phase code across the whole log, starting at
+1500 (focus), 300 (shortBreak), 900 (longBreak), 0 (custom phase string),
+and updated by every entry that has plannedSeconds.
+
+**Derivation** (what a reader fills in unless an exceptions bit overrides):
+
+- `length` L: planned (0 if absent) when completed, else the stored int.
+  The entry's `durationSeconds` = L, `endTime` = start + L + paused (0 if
+  absent), `durationMinutes` = `max(0, round(L / 60))` (half away from zero).
+- paused is present iff the pomodoro has it (flag bit5 clear), planned is
+  present, `durationSeconds` is present.
+- day/month/year = `startTime` in the proleptic Gregorian calendar of the
+  entry's timeZone (UTC if absent or unknown).
+- `focusNumber` = `max(1, previous entry's focusNumber (0 if absent, or none)
+  + (1 if this is a focus))` within the pomodoro.
+- task, friend, focusCount, timeZone, appVersion = the pomodoro's;
+  `pomodoroStart` = `T` unless flag bit0.
+
+**Exceptions bits** (permanent), payloads in this order:
+
+| Bit | Meaning | Payload |
+|---|---|---|
+| 0 | day/month/year differ | int year, int month, int day |
+| 1 | durationMinutes differs | int |
+| 2 | durationSeconds is absent | none |
+| 3 | completed entry whose length is not its planned | int L |
+| 4 | plannedSeconds absent | none |
+| 5 | pausedSeconds presence is the opposite of the pomodoro's | none |
+| 6 | endTime differs | int, actual end minus predicted end |
+| 7 | focusNumber differs | optional code |
+| 8 | task differs | title ref |
+| 9 | friend differs | friend ref |
+| 10 | timeZone differs | tz ref |
+| 11 | appVersion differs | version ref |
+| 12 | focusCount differs | optional code |
+
+Higher bits are `malformed`. Entry order is the order of the log array and is
+preserved.
+
+### Options (lossy by design, sender side)
+
+Titles off: every task becomes empty. Details off: `pausedSeconds`,
+`appVersion` and `timeZone` become absent, and each `endTime` moves earlier
+by the dropped paused time, so it still follows from start + duration.
+Day/month/year and start are kept (day/month/year via exceptions where the
+UTC prediction misses). Sub-minute skips off: focus entries that are not
+completed and shorter than 60 s are dropped (a dropped focus makes the next
+focusNumber an exception once). Each is a header flag.
+
+### Encoding safety and import
+
+The encoder decodes its own output and compares it to the (option-
+transformed) input; any difference throws `selfCheckFailed` and no code is
+produced. Import: `TransferCodec.applying(sent, to: local)` sets every
+transferable setting from the payload and keeps the four machine-local ones,
+then clamps; `SessionLogger.mergeImported` adds the pomodoros whose
+`pomodoroStart` (whole seconds) is not in the log yet, keeps all local ones,
+sorts by `startTime` and writes once (importing twice changes nothing;
+entries without a `pomodoroStart` are not imported).

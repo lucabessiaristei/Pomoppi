@@ -212,6 +212,57 @@ public actor SessionLogger {
         return file.sessions.count == before || writeFile(file)
     }
 
+    // What importing `incoming` would do (SPEC.md §16): pomodoros are matched
+    // on pomodoroStart, so those already present don't count as new. Entries
+    // without a pomodoroStart can't be placed and are ignored. Pure: writes
+    // nothing.
+    public static func previewImport(
+        _ incoming: [SessionLogEntry], into existing: [SessionLogEntry]
+    ) -> (totalPomodoros: Int, newPomodoros: Int, newEntries: Int) {
+        let have = Set(existing.compactMap { $0.pomodoroStart.map(pomodoroKey) })
+        var all: Set<Int64> = []
+        var fresh: Set<Int64> = []
+        var freshEntries = 0
+        for entry in incoming {
+            guard let start = entry.pomodoroStart else { continue }
+            let key = pomodoroKey(start)
+            all.insert(key)
+            if !have.contains(key) {
+                fresh.insert(key)
+                freshEntries += 1
+            }
+        }
+        return (all.count, fresh.count, freshEntries)
+    }
+
+    public nonisolated func previewImport(_ incoming: [SessionLogEntry]) -> (totalPomodoros: Int, newPomodoros: Int, newEntries: Int) {
+        Self.previewImport(incoming, into: allSessionsSync())
+    }
+
+    // The Transfer import (SPEC.md §16): adds the pomodoros of `entries`
+    // whose pomodoroStart isn't in the log yet, keeps everything already
+    // there, leaves the result sorted by startTime and writes once. Importing
+    // the same entries twice changes nothing. Not an automatic removal.
+    @discardableResult
+    public func mergeImported(_ entries: [SessionLogEntry]) async -> (addedPomodoros: Int, addedEntries: Int) {
+        var file = readFile() ?? .empty
+        let preview = Self.previewImport(entries, into: file.sessions)
+        guard preview.newEntries > 0 else { return (0, 0) }
+        let have = Set(file.sessions.compactMap { $0.pomodoroStart.map(pomodoroKey) })
+        let added = entries.filter { entry in
+            guard let start = entry.pomodoroStart else { return false }
+            return !have.contains(pomodoroKey(start))
+        }
+        // Stable sort: ties keep their current order.
+        file.sessions = (file.sessions + added).enumerated()
+            .sorted { a, b in
+                a.element.startTime != b.element.startTime ? a.element.startTime < b.element.startTime : a.offset < b.offset
+            }
+            .map(\.element)
+        guard writeFile(file) else { return (0, 0) }
+        return (preview.newPomodoros, preview.newEntries)
+    }
+
     // One entry, matched on phase and startTime (whole seconds, as stored).
     @discardableResult
     public func deleteEntry(startTime: Date, phase: String) async -> Bool {
