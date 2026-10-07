@@ -1,4 +1,4 @@
-// TransferWindow.swift — the Transfer window (SPEC.md §16, TRANSFER_PLAN.md):
+// TransferWindow.swift — the Transfer window (SPEC.md §16):
 // Send (QR card, toggles, live weight line, copy/save) and Receive (drop zone:
 // image, pasted code or file -> preview -> import), the counterpart of
 // Sources/PomoppiApp/TransferView.swift. An owned, user-resizable popup

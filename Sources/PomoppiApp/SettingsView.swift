@@ -484,7 +484,7 @@ private struct GeneralTab: View {
             }
             Section {
                 // Every L.t in this window re-evaluates when settings publish,
-                // so the whole form relabels live (LOCALIZATION_PLAN.md L3).
+                // so the whole form relabels live.
                 Picker(L.t("general.language.label"), selection: viewModel.binding(\.language)) {
                     Text(L.t("general.language.system", L.displayName(of: L.resolvedSystemLanguage))).tag("system")
                     ForEach(L.languageIDs, id: \.self) { id in

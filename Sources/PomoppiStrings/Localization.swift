@@ -1,6 +1,6 @@
-// Localization.swift — the runtime side of the string catalog
-// (LOCALIZATION_PLAN.md). Foundation only: the shell passes the OS language
-// in, so nothing here has a platform seam.
+// Localization.swift — the runtime side of the string catalog. Foundation
+// only: the shell passes the OS language in, so nothing here has a platform
+// seam.
 //
 //   L.t("general.reset.button")
 //   L.t("updates.downloading", received, total)   // "{0} of {1}"

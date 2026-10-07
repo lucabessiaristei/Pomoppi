@@ -25,7 +25,7 @@ let swiftSettings: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 // target there needs that test guarded or split out first, which is out of
 // scope for this phase. PomoppiApp (the macOS AppKit/SwiftUI shell) stays
 // out of the Windows branch too, unrelated to any of the above.
-// PomoppiStrings (the generated UI string catalog, LOCALIZATION_PLAN.md) is
+// PomoppiStrings (the generated UI string catalog) is
 // shared: both shells depend on it, PomoppiCore deliberately doesn't.
 #if os(Windows)
 let targets: [Target] = [

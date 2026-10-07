@@ -503,8 +503,7 @@ final class SettingsWindow {
     // Exact order macOS's SettingsView.swift uses. A computed property, not
     // `static let` — a `let` would bake in whatever language was current the
     // first time this type touched (Swift's lazy static-init semantics),
-    // and never see a later language switch's rebuild() (LOCALIZATION_PLAN.md's
-    // L4). Recomputed on every access instead, same as Tab.title itself.
+    // and never see a later language switch's rebuild(). Recomputed on every access instead, same as Tab.title itself.
     private static var tabTitles: [String] { Tab.allCases.map(\.title) }
 
     // Width is both the opening and the minimum width: controls are laid
@@ -1439,7 +1438,7 @@ final class SettingsWindow {
         // Dispatches on `tab` itself, not its display title — the title
         // string used to be the switch key here, and an unmatched title
         // (any rename that forgot to update this switch, or, in the future,
-        // a translated one — see LOCALIZATION_PLAN.md's L4) silently fell
+        // a translated one) silently fell
         // through to a "coming in a later phase" placeholder instead of
         // failing loudly. Switching on Tab instead makes that case
         // unrepresentable: every case is handled, and the compiler enforces
@@ -2571,7 +2570,7 @@ final class SettingsWindow {
         rebuild()
     }
 
-    // Reused verbatim by LOCALIZATION_PLAN.md's L4 (a language switch has
+    // Reused verbatim by the language switch (which has
     // the same "strings are baked in" problem) — a general rebuild, not a
     // reset-specific patch. Destroying the tab control and every page also
     // destroys their children (every checkbox/stepper/button/card on them),

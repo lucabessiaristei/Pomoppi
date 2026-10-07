@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // refresh-strings.js — the one command that keeps the app's UI strings in
-// sync with Localization/*.json (LOCALIZATION_PLAN.md, L0):
+// sync with Localization/*.json:
 //
 //   node refresh-strings
 //

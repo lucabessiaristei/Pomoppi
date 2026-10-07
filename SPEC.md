@@ -915,7 +915,7 @@ dropped. Per pomodoro: *sessions* = focus sessions shown, *stopped early* =
 those with `completed: false`, *Focus* / *Breaks* = summed durations.
 Durations read `1h 32m`, `25m`, or `<1m` below a minute, never `0m`.
 
-**Localized.** Diary text follows the app language (`L`, `LOCALIZATION_PLAN.md`):
+**Localized.** Diary text follows the app language (`L`):
 labels, plurals, weekday/month names. `PomoppiCore` stays free of the strings
 module: the shell passes a `DiaryText` (a lookup closure plus the locale).
 Switching language changes the next export, and the next sync rewrites
@@ -1703,7 +1703,7 @@ only in memory for the running session
 ## 16. Transfer `[both]`
 
 Moves settings and/or the pomodoro log between computers offline
-(`TransferCodec*.swift` in `PomoppiCore`; plan and UI in `TRANSFER_PLAN.md`).
+(`TransferCodec*.swift` in `PomoppiCore`; the UI is under "The Transfer window" below).
 One binary payload, carried as a text code, a `.pomoppi` file, or a QR. This
 section is the byte format, complete enough to implement elsewhere. Format
 version **1**.

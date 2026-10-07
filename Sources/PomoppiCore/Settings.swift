@@ -64,7 +64,7 @@ public struct PomoppiSettings: Codable, Equatable {
     public var checkForUpdates: Bool
 
     // "system" (follow the OS language) or one of languageIDs
-    // (LOCALIZATION_PLAN.md L1). Anything else clamps back to "system".
+    //. Anything else clamps back to "system".
     public var language: String
 
     public var soundEnabled: Bool
