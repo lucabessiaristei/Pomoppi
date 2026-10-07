@@ -1656,9 +1656,15 @@ release installer:
   running copy and relaunches the new one. Cancelling the installer
   changes nothing; the row offers "Open again".
 - **Windows:** the Setup `.exe` (in `%TEMP%`) runs with `/SILENT
-  /SUPPRESSMSGBOXES /NORESTART` (a progress window, no wizard pages); Inno
-  Setup closes Pomoppi through RestartManager (`CloseApplications=yes`),
-  installs, and relaunches it (the `WizardSilent` `[Run]` entry). Only an
+  /SUPPRESSMSGBOXES /NORESTART` (a progress window, no wizard pages) and
+  Pomoppi quits right after launching it. Setup's `PrepareToInstall` waits
+  up to 5 s for Pomoppi's single-instance mutex to go away and force-closes
+  a copy still running (an older version that doesn't quit by itself),
+  then installs and relaunches it (the `WizardSilent` `[Run]` entry).
+  RestartManager (`CloseApplications=yes`) alone isn't enough: on Windows
+  on ARM the system's XtaCache service also holds the x64 build's files, a
+  per-user Setup can't close it, RestartManager then closes nothing, and
+  the copy failed and rolled back. Only an
   Inno-installed copy (`unins000.exe` next to the exe) offers Update; any
   other copy gets the release page.
 

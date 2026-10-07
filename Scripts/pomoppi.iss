@@ -96,3 +96,34 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; closed the running copy): relaunch unconditionally, no page to ask on.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Pomoppi now"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent
+
+[Code]
+// The in-app update runs this Setup with /SILENT while Pomoppi is still
+// running. RestartManager (CloseApplications) can't be relied on to close
+// it: on Windows on ARM the system's XtaCache service also holds the x64
+// build's files, a per-user Setup may not close that service, and
+// RestartManager then gives up on Pomoppi too ("Permission Denied"), so
+// copying failed on a file in use and Setup rolled back. So in a silent
+// install, wait up to 5 s for Pomoppi to quit (0.6.2+ quits by itself
+// right after launching Setup) and force-close anything still running,
+// before any file is touched. Its single-instance mutex (main.swift) says
+// whether it's still up.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  I, ResultCode: Integer;
+begin
+  Result := '';
+  if not WizardSilent then Exit;
+  for I := 1 to 50 do
+  begin
+    if not CheckForMutexes('PomoppiSingleInstanceMutex') then Exit;
+    Sleep(100);
+  end;
+  Log('Pomoppi is still running after 5 s, closing it.');
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  for I := 1 to 30 do
+  begin
+    if not CheckForMutexes('PomoppiSingleInstanceMutex') then Exit;
+    Sleep(100);
+  end;
+end;

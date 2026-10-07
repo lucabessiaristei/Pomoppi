@@ -185,6 +185,13 @@ updateChecker.onLaunchUpdateAvailable = { tag, pageURL in
     }
 }
 
+// Setup can only replace files Pomoppi isn't running from: quit through the
+// tray's own Quit path as soon as it's launched. Setup relaunches the new
+// version when it's done.
+updateChecker.onInstallerLaunched = {
+    widgetWindow.fadeOutAndQuit()
+}
+
 var appliedCheckForUpdates: Bool?
 func applyUpdateCheckingIfNeeded(_ settings: PomoppiSettings) {
     guard appliedCheckForUpdates != settings.checkForUpdates else { return }

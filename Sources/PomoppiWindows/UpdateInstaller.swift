@@ -1,8 +1,14 @@
 // UpdateInstaller.swift — the Windows side of the in-app update
 // (SPEC.md §15): download the release's Setup .exe to %TEMP%, verify
-// it, delete any Mark-of-the-Web stream, and run it with /SILENT. Inno Setup
-// then closes Pomoppi through RestartManager (CloseApplications=yes),
-// installs, and relaunches it (the WizardSilent [Run] entry).
+// it, delete any Mark-of-the-Web stream, and run it with /SILENT, then quit
+// (AppUpdateChecker.onInstallerLaunched) so Setup can replace the files.
+// Inno's RestartManager can't be relied on to close Pomoppi: on Windows on
+// ARM the system's XtaCache service also holds the x64 build's files, a
+// per-user Setup isn't allowed to close it, and RestartManager then gives
+// up on Pomoppi too (the copy fails and Setup rolls back). Setup also
+// waits for Pomoppi to go, and force-closes an older copy that doesn't quit
+// on its own (Scripts/pomoppi.iss, PrepareToInstall); it then installs and
+// relaunches it (the WizardSilent [Run] entry).
 //
 // Owned by AppUpdateChecker. URLSession's delegate callbacks arrive on its
 // own queue, never the message loop's thread, so every state change goes

@@ -8,6 +8,7 @@
 //   node Scripts/vm-sync.js            sync + debug `swift build`
 //   node Scripts/vm-sync.js --test     sync + `swift test`
 //   node Scripts/vm-sync.js --release  sync + `node Scripts\make-windows-app.js`
+//   node Scripts/vm-sync.js --installer  same, plus the Setup .exe (`--installer`)
 //   node Scripts/vm-sync.js --no-build sync only
 const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
@@ -47,7 +48,8 @@ try {
     'git reset -q --hard FETCH_HEAD',
     `del ${vmBundle.replace(/\//g, '\\')}`,
   ];
-  if (args.has('--release')) steps.push('node Scripts\\make-windows-app.js');
+  if (args.has('--installer')) steps.push('node Scripts\\make-windows-app.js --installer');
+  else if (args.has('--release')) steps.push('node Scripts\\make-windows-app.js');
   else if (args.has('--test')) steps.push(`call ${vcvars} >nul`, 'swift test');
   // The debug exe needs the side-by-side manifest next to it too: without
   // it Windows loads comctl32 v5, which has no SetWindowSubclass and friends,

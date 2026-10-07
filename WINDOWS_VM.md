@@ -24,7 +24,7 @@ history if needed.
 **Day to day: `node Scripts/vm-sync.js`** from the Mac sends the working
 tree as it is (uncommitted and untracked files too, `.gitignore`
 respected) and runs a debug `swift build` in the VM; `--test` runs
-`swift test`, `--release` runs `make-windows-app.js`, `--no-build` only
+`swift test`, `--release` runs `make-windows-app.js` (`--installer` adds the Setup .exe), `--no-build` only
 syncs. It never touches the Mac's index, tree or HEAD (temporary index +
 throwaway ref, deleted after) and prints the build time. Only changed files
 are rewritten in the VM, so builds stay incremental.

@@ -96,12 +96,16 @@ final class AppUpdateChecker {
     // §15), handed the release tag and its page. Fired at most once per
     // launch, and only by the first background check.
     var onLaunchUpdateAvailable: ((String, URL) -> Void)?
+    // Set by main.swift: quits Pomoppi once Setup is running, so Setup can
+    // replace its files (see UpdateInstaller's header).
+    var onInstallerLaunched: (() -> Void)?
     private var launchAlertOffered = false
     private lazy var installer: UpdateInstaller = {
         let installer = UpdateInstaller(post: { [weak self] work in self?.postToMainThread(work) })
         installer.onStateChange = { [weak self] state in
             self?.installState = state
             self?.onUpdate?()
+            if case .installerOpened = state { self?.onInstallerLaunched?() }
         }
         return installer
     }()
