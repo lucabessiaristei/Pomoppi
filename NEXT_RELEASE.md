@@ -1,6 +1,6 @@
 # Next release — what's in it
 
-Running list of what has landed on `main` since v0.6.0 (released
+Running list of what has landed on `main` since v0.6.1 (released
 2026-10-07), so the release notes write themselves. Cut it with
 `RELEASING.md`, then empty this file for the next one.
 
