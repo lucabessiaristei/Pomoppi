@@ -286,8 +286,6 @@
   "transfer.saveImage": "Enregistrer l'image QR…",
   "transfer.saveFile": "Enregistrer le fichier…",
   "transfer.error.encode": "Impossible de créer le code",
-  "transfer.receive.hint": "Ouvrez une photo ou une capture d'un code QR Pomoppi, collez un code ou ouvrez un fichier .pomoppi, ou déposez-le ici",
-  "transfer.openImage": "Ouvrir une image…",
   "transfer.pasteCode": "Coller le code",
   "transfer.openFile": "Ouvrir un fichier…",
   "transfer.preview.header": "Prêt à importer",
@@ -313,5 +311,10 @@
   "transfer.error.noQR": "Aucun code QR trouvé dans cette image",
   "transfer.error.unreadableQR": "Code QR trouvé mais illisible, essayez une photo plus nette",
   "transfer.error.file": "Impossible d'ouvrir ce fichier",
-  "transfer.error.nothingChanged": "Rien n'a été modifié"
+  "transfer.error.nothingChanged": "Rien n'a été modifié",
+  "transfer.drop.title": "Déposez-le ici",
+  "transfer.drop.hint": "Une photo ou une capture du code QR, ou un fichier .pomoppi",
+  "transfer.drop.or": "ou",
+  "transfer.reading": "Lecture…",
+  "transfer.send.hint": "Photographiez ce code pour l'autre ordinateur, ou envoyez-lui le code ou le fichier"
 }

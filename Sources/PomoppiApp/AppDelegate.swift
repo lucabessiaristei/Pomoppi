@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var updateChecker: AppUpdateChecker!
     private var diaryViewModel: DiaryViewModel!
     private var diaryWindowController: DiaryWindowController!
+    private var transferWindowController: TransferWindowController!
 
     // Owned here so the SwiftUI Settings scene can reuse one view model
     // instead of constructing a new one every time the scene body runs.
@@ -78,6 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         diaryViewModel.onHistoryChanged = { [unowned self] in self.historyChanged() }
         diaryWindowController = DiaryWindowController(viewModel: diaryViewModel)
         settingsViewModel?.openDiary = { [unowned self] in self.showDiaryWindow() }
+        transferWindowController = TransferWindowController(viewModel: settingsViewModel!)
+        settingsViewModel?.openTransfer = { [unowned self] in self.transferWindowController.show() }
         settingsViewModel?.onLogImported = { [unowned self] in self.historyChanged() }
         timer.onPhaseComplete = { [unowned self] event in
             Task {

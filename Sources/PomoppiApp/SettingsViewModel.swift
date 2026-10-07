@@ -21,6 +21,8 @@ final class SettingsViewModel: ObservableObject {
     @Published var historyRevision = 0
     // Wired by AppDelegate: opens the Diary's history viewer window.
     var openDiary: () -> Void = {}
+    // Wired by AppDelegate: opens the Transfer window.
+    var openTransfer: () -> Void = {}
     // Wired by AppDelegate: refreshes everything that shows the log after a Transfer import.
     var onLogImported: () -> Void = {}
 

@@ -132,7 +132,11 @@ lossy by design and says so.
 **Carriers of the same payload:**
 - **Text code:** `pomoppi1-<base64url>`, one unbroken token (no spaces,
   so a double-click selects it all and chat apps don't wrap it).
-- **File:** `Pomoppi Transfer.pomoppi`, the raw payload bytes.
+- **File:** `transfer-YYYY-MM-DD.pomoppi`, the **text code** as plain text
+  (decided 2026-10-07; was raw bytes). Opened or dropped like a QR image;
+  reading still accepts raw bytes too.
+- **Only ever one QR** (user, 2026-10-07): too big for one code means no QR,
+  the text code / file carry it. No multi-part.
 - **QR:** below.
 
 ## QR (`PomoppiCore`)
@@ -168,6 +172,17 @@ lossy by design and says so.
   clear message, nothing written.
 
 ## UI: the Transfer popup
+
+**UX pass 2 (2026-10-07, after the user's first hand test):** a real,
+vertically resizable window instead of a fixed sheet (it was too short and
+cut the QR off with no hint that it scrolled); a scrolling middle with fade
+gradients and a pinned bottom bar for the actions; Send shows the QR first;
+Receive is one big visible drop zone (the drop target wasn't
+discoverable); light motion on macOS (crossfades, bounce on Copied/import
+success, shake on error, Reduce Motion respected). The
+behavior is written down in `SPEC.md` §16.
+QR size is as expected: 1.3 KB of payload is a 137×137 code at level M,
+and a real phone photo of it reads with both Vision and the shared decoder.
 
 Opened from a Transfer section in Settings → General.
 - **Send:** the toggles above, a live weight line ("≈ 1.3 KB · QR 137×137 ·

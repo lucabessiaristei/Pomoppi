@@ -1736,8 +1736,10 @@ blocks are `malformed`. Nothing is applied on any error.
 
 Carriers of the same bytes: **text code** `pomoppi1-` + base64url (RFC 4648
 URL-safe alphabet, no padding), one unbroken token (readers trim surrounding
-whitespace, require the prefix); **file** `Pomoppi Transfer.pomoppi`, the raw
-bytes; **QR** (a later chunk).
+whitespace, require the prefix); **file** `transfer-YYYY-MM-DD.pomoppi`
+holding the text code as UTF-8 text (readers also accept a file of the raw
+bytes); **QR**, only ever one: a payload too big for one code has no QR,
+the text code and the file carry it (see "QR").
 
 ### Settings block
 
@@ -1954,32 +1956,50 @@ reference both are tested against.
 
 ### The Transfer window
 
-Opened from the Pomoppi tab's Transfer section (macOS: a sheet on Settings;
-Windows: a popup owned by the Settings window, which is disabled while it's
-open). Send / Receive at the top, Send first.
+Opened from the Pomoppi tab's Transfer section: its own window, one
+instance (reopening brings it to the front), resizable (vertically above
+all; macOS remembers its frame), default about 500×760. Send / Receive at
+the top; the middle scrolls (macOS: fade gradients at whichever edge has
+more content; Windows: a native scroll bar); a bottom bar stays pinned
+for the actions. No Close button: the window's own close does it.
 
-- **Send** snapshots the current settings and log when opened. Toggles:
-  Settings, Pomodoro history, and under history (disabled when it's off)
-  Task titles, Focus sessions skipped under a minute, Details; all on.
-  Leaving any of the last three out shows "What you leave out won't reach
-  the other computer". Every change re-encodes; a weight line shows
-  "≈ size · QR n×n · N characters" (or "too big for a QR code"). The QR is
-  drawn crisp at a whole number of pixels per module, black on white; too
-  big shows a message in its place. **Copy code** (the text code; "Copied"
-  for 2 s), **Save QR image…** (PNG, 8 px per module, "Pomoppi
-  Transfer.png"; off when too big), **Save file…** ("Pomoppi
-  Transfer.pomoppi", the raw bytes).
-- **Receive**: **Open image…**, **Paste code**, **Open file…**, or drop a
-  file onto the window (macOS also takes dropped text). macOS reads images
-  with Vision, trying both byte-mode count widths and keeping the payload
-  whose checksum passes, then falls back to `QRDecoder`; Windows loads
-  images with GDI+ (PNG, JPEG, BMP, GIF, TIFF) into `QRDecoder`. A file whose
-  text starts with `pomoppi1-` is read as a text code, otherwise as raw
-  bytes. Errors show one line plus "Nothing was changed".
-- **Preview** before anything is written: "N pomodoros (M new)", whether the
-  settings differ from the local ones (and how many), and whether titles or
-  details were left out by the sender. Checkboxes: apply the settings (on
-  when they differ) and add the new pomodoros (on when there are any).
-  **Import** applies the settings through the store (so everything re-applies
-  live) and merges the log, then refreshes the Diary tab and viewer;
-  **Cancel** goes back.
+- **Send** snapshots the current settings and log when the window opens
+  from closed. Top to bottom: the QR on a white rounded card (crisp, a
+  whole number of pixels per module, black on white; too big: a message on
+  the card instead, never a second QR), "Scan or photograph this code on
+  the other computer, or send it the code or the file", then the Include
+  toggles: Settings, Pomodoro history, and under history Task titles,
+  Focus sessions skipped under a minute, Details, all on; the three
+  collapse away while history is off. Leaving any of them out shows "What
+  you leave out won't reach the other computer". Every change re-encodes.
+  The pinned bar: "≈ size · QR n×n · N characters" (or "too big for a QR
+  code"), **Copy code** (the text code; a checkmark and "Copied" for 2 s),
+  **Save QR image…** (PNG, 8 px per module, "Pomoppi Transfer.png"; off
+  when too big), **Save file…** (the text code, `transfer-YYYY-MM-DD.pomoppi`).
+- **Receive** is one dashed drop zone that stretches to the window's
+  height, contents centered: Gemuppin's line art alone (only its outline
+  pixels, 2 px per sprite pixel, in the system's secondary gray, no
+  backdrop, idling through its two frames; still under Reduce Motion),
+  "Drop it here", "A photo or screenshot of the QR code, or a .pomoppi
+  file", then "or" and **Open file…** (an image goes to the QR reader,
+  anything else is read as a code) and **Paste code**. macOS highlights the
+  zone while something is dragged over it and also takes dropped text. Reading an image shows "Reading…" (macOS reads off
+  the main thread). macOS reads images with Vision, trying both byte-mode
+  count widths and keeping the payload whose checksum passes, then falls
+  back to `QRDecoder`; Windows loads images with GDI+ (PNG, JPEG, BMP, GIF,
+  TIFF) into `QRDecoder`. A file whose text starts with `pomoppi1-` is
+  read as a text code, otherwise as raw bytes. Errors show in red, one line
+  plus "Nothing was changed" (macOS also shakes the zone).
+- **Preview** replaces the drop zone before anything is written: "N
+  pomodoros (M new)", whether the settings differ from the local ones (and
+  how many), and whether titles or details were left out by the sender.
+  Checkboxes: apply the settings (on when they differ) and add the new
+  pomodoros (shown, and on, only when there are new ones). **Import** and **Cancel** sit in the
+  pinned bar (macOS: Return and Esc). Import applies the settings through
+  the store (so everything re-applies live) and merges the log, then
+  refreshes the Diary tab and viewer; the result shows with a checkmark
+  above the drop zone. **Cancel** goes back.
+- **Motion (macOS):** crossfade plus a short slide between Send and
+  Receive, crossfades when the QR changes, springy collapse, bounce on
+  Copied and on a finished import, shake on an error. With Reduce Motion
+  only fades remain.

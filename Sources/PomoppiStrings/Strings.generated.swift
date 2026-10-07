@@ -300,8 +300,6 @@ enum GeneratedStrings {
         "transfer.saveImage": "Save QR image…",
         "transfer.saveFile": "Save file…",
         "transfer.error.encode": "Couldn't create a code",
-        "transfer.receive.hint": "Open a photo or screenshot of a Pomoppi QR code, paste a code or open a .pomoppi file, or drop it here",
-        "transfer.openImage": "Open image…",
         "transfer.pasteCode": "Paste code",
         "transfer.openFile": "Open file…",
         "transfer.preview.header": "Ready to import",
@@ -328,6 +326,11 @@ enum GeneratedStrings {
         "transfer.error.unreadableQR": "Found a QR code but couldn't read it, try a sharper photo",
         "transfer.error.file": "Couldn't open this file",
         "transfer.error.nothingChanged": "Nothing was changed",
+        "transfer.drop.title": "Drop it here",
+        "transfer.drop.hint": "A photo or screenshot of the QR code, or a .pomoppi file",
+        "transfer.drop.or": "or",
+        "transfer.reading": "Reading…",
+        "transfer.send.hint": "Scan or photograph this code on the other computer, or send it the code or the file",
     ]
 
     static let table_de: [String: String] = [
@@ -618,8 +621,6 @@ enum GeneratedStrings {
         "transfer.saveImage": "QR-Bild sichern…",
         "transfer.saveFile": "Datei sichern…",
         "transfer.error.encode": "Code konnte nicht erstellt werden",
-        "transfer.receive.hint": "Öffne ein Foto oder Bildschirmfoto eines Pomoppi-QR-Codes, füge einen Code ein oder öffne eine .pomoppi-Datei, oder zieh sie hierher",
-        "transfer.openImage": "Bild öffnen…",
         "transfer.pasteCode": "Code einfügen",
         "transfer.openFile": "Datei öffnen…",
         "transfer.preview.header": "Bereit zum Importieren",
@@ -646,6 +647,11 @@ enum GeneratedStrings {
         "transfer.error.unreadableQR": "QR-Code gefunden, aber nicht lesbar, versuche ein schärferes Foto",
         "transfer.error.file": "Diese Datei konnte nicht geöffnet werden",
         "transfer.error.nothingChanged": "Es wurde nichts geändert",
+        "transfer.drop.title": "Hier ablegen",
+        "transfer.drop.hint": "Ein Foto oder Bildschirmfoto des QR-Codes oder eine .pomoppi-Datei",
+        "transfer.drop.or": "oder",
+        "transfer.reading": "Wird gelesen…",
+        "transfer.send.hint": "Fotografiere diesen Code für den anderen Computer oder schick ihm den Code oder die Datei",
     ]
 
     static let table_es: [String: String] = [
@@ -936,8 +942,6 @@ enum GeneratedStrings {
         "transfer.saveImage": "Guardar imagen QR…",
         "transfer.saveFile": "Guardar archivo…",
         "transfer.error.encode": "No se pudo crear el código",
-        "transfer.receive.hint": "Abre una foto o captura de un código QR de Pomoppi, pega un código o abre un archivo .pomoppi, o suéltalo aquí",
-        "transfer.openImage": "Abrir imagen…",
         "transfer.pasteCode": "Pegar código",
         "transfer.openFile": "Abrir archivo…",
         "transfer.preview.header": "Listo para importar",
@@ -964,6 +968,11 @@ enum GeneratedStrings {
         "transfer.error.unreadableQR": "Se encontró un código QR pero no se pudo leer, prueba con una foto más nítida",
         "transfer.error.file": "No se pudo abrir este archivo",
         "transfer.error.nothingChanged": "No se ha cambiado nada",
+        "transfer.drop.title": "Suéltalo aquí",
+        "transfer.drop.hint": "Una foto o captura del código QR, o un archivo .pomoppi",
+        "transfer.drop.or": "o",
+        "transfer.reading": "Leyendo…",
+        "transfer.send.hint": "Fotografía este código para el otro ordenador, o envíale el código o el archivo",
     ]
 
     static let table_fr: [String: String] = [
@@ -1254,8 +1263,6 @@ enum GeneratedStrings {
         "transfer.saveImage": "Enregistrer l'image QR…",
         "transfer.saveFile": "Enregistrer le fichier…",
         "transfer.error.encode": "Impossible de créer le code",
-        "transfer.receive.hint": "Ouvrez une photo ou une capture d'un code QR Pomoppi, collez un code ou ouvrez un fichier .pomoppi, ou déposez-le ici",
-        "transfer.openImage": "Ouvrir une image…",
         "transfer.pasteCode": "Coller le code",
         "transfer.openFile": "Ouvrir un fichier…",
         "transfer.preview.header": "Prêt à importer",
@@ -1282,6 +1289,11 @@ enum GeneratedStrings {
         "transfer.error.unreadableQR": "Code QR trouvé mais illisible, essayez une photo plus nette",
         "transfer.error.file": "Impossible d'ouvrir ce fichier",
         "transfer.error.nothingChanged": "Rien n'a été modifié",
+        "transfer.drop.title": "Déposez-le ici",
+        "transfer.drop.hint": "Une photo ou une capture du code QR, ou un fichier .pomoppi",
+        "transfer.drop.or": "ou",
+        "transfer.reading": "Lecture…",
+        "transfer.send.hint": "Photographiez ce code pour l'autre ordinateur, ou envoyez-lui le code ou le fichier",
     ]
 
     static let table_it: [String: String] = [
@@ -1572,8 +1584,6 @@ enum GeneratedStrings {
         "transfer.saveImage": "Salva immagine QR…",
         "transfer.saveFile": "Salva file…",
         "transfer.error.encode": "Impossibile creare il codice",
-        "transfer.receive.hint": "Apri una foto o uno screenshot di un codice QR di Pomoppi, incolla un codice o apri un file .pomoppi, oppure trascinalo qui",
-        "transfer.openImage": "Apri immagine…",
         "transfer.pasteCode": "Incolla codice",
         "transfer.openFile": "Apri file…",
         "transfer.preview.header": "Pronto per l'importazione",
@@ -1600,5 +1610,10 @@ enum GeneratedStrings {
         "transfer.error.unreadableQR": "Codice QR trovato ma illeggibile, prova con una foto più nitida",
         "transfer.error.file": "Impossibile aprire questo file",
         "transfer.error.nothingChanged": "Non è stato modificato nulla",
+        "transfer.drop.title": "Trascinalo qui",
+        "transfer.drop.hint": "Una foto o uno screenshot del codice QR, oppure un file .pomoppi",
+        "transfer.drop.or": "oppure",
+        "transfer.reading": "Lettura…",
+        "transfer.send.hint": "Fotografa questo codice dall'altro computer, oppure inviagli il codice o il file",
     ]
 }

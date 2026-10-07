@@ -3975,6 +3975,9 @@ final class SettingsWindow {
                let stepper = steppers.first(where: { $0.upDownHwnd == header.pointee.hwndFrom }) {
                 return handleUpDownDeltaPos(lParam: lParam, stepper: stepper)
             }
+            if isDarkModeActive, let result = WindowsTheme.disabledButtonCustomDraw(lParam: lParam) {
+                return result
+            }
             if header.pointee.code == NM_CUSTOMDRAW, let opacityTrackbar, header.pointee.hwndFrom == opacityTrackbar {
                 return handleOpacityTrackbarCustomDraw(lParam: lParam)
             }

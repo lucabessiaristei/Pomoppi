@@ -74,4 +74,24 @@ enum WindowsTheme {
     // object, not window-owned state, so SettingsWindow and TaskPromptDialog
     // painting with the same handle is fine.
     static let darkBackgroundBrush: HBRUSH? = CreateSolidBrush(colorref(hex: darkBackgroundHex))
+
+    // A "DarkMode_Explorer" push button keeps its light text when disabled,
+    // so it looks enabled. Both windows' WM_NOTIFY handlers pass an
+    // NM_CUSTOMDRAW from a button here: a disabled one gets its text color
+    // set to a dim gray before the themed draw (CDRF_NEWFONT); anything else
+    // returns nil and falls through to the caller's own handling.
+    static let disabledButtonTextHex = "#6A6A6A"
+
+    static func disabledButtonCustomDraw(lParam: LPARAM) -> LRESULT? {
+        guard let draw = UnsafeMutablePointer<NMCUSTOMDRAW>(bitPattern: UInt(bitPattern: Int(lParam))),
+              draw.pointee.hdr.code == UINT(NM_CUSTOMDRAW),
+              draw.pointee.dwDrawStage == DWORD(CDDS_PREPAINT),
+              !IsWindowEnabled(draw.pointee.hdr.hwndFrom),
+              let hdc = draw.pointee.hdc else { return nil }
+        var className = [UInt16](repeating: 0, count: 8)
+        GetClassNameW(draw.pointee.hdr.hwndFrom, &className, Int32(className.count))
+        guard String(decoding: className.prefix { $0 != 0 }, as: UTF16.self) == "Button" else { return nil }
+        SetTextColor(hdc, colorref(hex: disabledButtonTextHex))
+        return LRESULT(CDRF_NEWFONT)
+    }
 }
