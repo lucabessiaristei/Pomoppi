@@ -4,4 +4,4 @@
 // to rewrite Settings.swift's friendIDs/backgroundIDs) rather than each
 // hardcoding their own copy. Bump this, nothing else, to release a new
 // version.
-public let pomoppiVersion = "0.6.3"
+public let pomoppiVersion = "0.7.0"
