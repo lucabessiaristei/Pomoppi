@@ -316,5 +316,21 @@
   "transfer.drop.hint": "Une photo ou une capture du code QR, ou un fichier .pomoppi",
   "transfer.drop.or": "ou",
   "transfer.reading": "Lecture…",
-  "transfer.send.hint": "Photographiez ce code pour l'autre ordinateur, ou envoyez-lui le code ou le fichier"
+  "transfer.send.hint": "Photographiez ce code pour l'autre ordinateur, ou envoyez-lui le code ou le fichier",
+  "feedback.header": "Retours",
+  "feedback.title": "Écrire à Luca",
+  "feedback.write": "Écrire un e-mail",
+  "feedback.copyAddress": "Copier l'adresse",
+  "feedback.lineNotice": "L'e-mail se termine par cette ligne, vous pouvez la supprimer",
+  "feedback.handled.link": "Comment cet e-mail est traité",
+  "feedback.handled.1": "Il arrive dans ma propre boîte, hébergée par iCloud Mail d'Apple",
+  "feedback.handled.2": "C'est un e-mail ordinaire, sans chiffrement de bout en bout",
+  "feedback.handled.3": "Je lis chaque e-mail et j'écris chaque réponse moi-même, sans réponse automatique ni numéro de ticket",
+  "feedback.handled.4": "Ma réponse part vers l'adresse d'où vous avez écrit",
+  "feedback.handled.signature": "— Luca",
+  "feedback.footer": "Ouvre votre propre app de messagerie, rien n'est envoyé avant que vous appuyiez sur Envoyer",
+  "feedback.noMailApp": "Aucune app de messagerie configurée, copiez l'adresse et écrivez depuis votre webmail",
+  "feedback.template.happened": "Ce qui s'est passé, ou ce que vous aimeriez :",
+  "feedback.template.expected": "Ce que vous attendiez :",
+  "feedback.template.deleteHint": "(vous pouvez supprimer cette ligne)"
 }

@@ -316,5 +316,21 @@
   "transfer.drop.hint": "Una foto o captura del código QR, o un archivo .pomoppi",
   "transfer.drop.or": "o",
   "transfer.reading": "Leyendo…",
-  "transfer.send.hint": "Fotografía este código para el otro ordenador, o envíale el código o el archivo"
+  "transfer.send.hint": "Fotografía este código para el otro ordenador, o envíale el código o el archivo",
+  "feedback.header": "Comentarios",
+  "feedback.title": "Escribe a Luca",
+  "feedback.write": "Escribir un correo",
+  "feedback.copyAddress": "Copiar dirección",
+  "feedback.lineNotice": "El correo termina con esta línea, puedes borrarla",
+  "feedback.handled.link": "Cómo se trata este correo",
+  "feedback.handled.1": "Llega a mi propio buzón, alojado en iCloud Mail de Apple",
+  "feedback.handled.2": "Es un correo normal, sin cifrado de extremo a extremo",
+  "feedback.handled.3": "Leo cada correo y escribo cada respuesta yo mismo, sin respuestas automáticas ni números de ticket",
+  "feedback.handled.4": "Mi respuesta va a la dirección desde la que escribiste",
+  "feedback.handled.signature": "— Luca",
+  "feedback.footer": "Abre tu propia app de correo, no se envía nada hasta que pulses Enviar",
+  "feedback.noMailApp": "No hay ninguna app de correo configurada, copia la dirección y escribe desde tu webmail",
+  "feedback.template.happened": "Qué pasó, o qué te gustaría:",
+  "feedback.template.expected": "Qué esperabas:",
+  "feedback.template.deleteHint": "(puedes borrar esta línea)"
 }

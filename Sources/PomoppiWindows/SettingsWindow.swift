@@ -393,6 +393,7 @@ final class SettingsWindow {
     // these two are the live exceptions, re-rendered from the *other*
     // control's own change handler rather than their own.
     private var hintLabels: Set<HWND> = []
+    private var feedbackCopyButton: HWND?
     private var trayClickHintLabel: HWND?
     private var askForTitleCheckbox: HWND?
     private var languageCombo: HWND?
@@ -417,6 +418,7 @@ final class SettingsWindow {
     private static let manualCheckRevertTimerID: UINT_PTR = 1
     // Wheel scrolling eases in (SmoothScroll) on whichever page is showing.
     private static let scrollTimerID: UINT_PTR = 2
+    private static let feedbackCopiedTimerID: UINT_PTR = 3
     private var smoothScroll = SmoothScroll()
     private var smoothScrollPage: HWND?
     private var manualCheckRevertPending = false
@@ -2547,6 +2549,8 @@ final class SettingsWindow {
         addHint(L.t("transfer.footer"), in: page, y: &y, width: rowWidth)
         y += Self.sectionGap
 
+        buildFeedbackSection(page: page, y: &y, rowWidth: rowWidth)
+
         y = addSectionHeader(L.t("pomoppi.dataFolder.header"), in: page, y: y, width: rowWidth)
         addButton(L.t("pomoppi.dataFolder.show.windows"), in: page, x: Self.rowMargin, y: y, width: 200, height: Self.controlHeight) {
             Self.openURL(storageDir())
@@ -2562,6 +2566,92 @@ final class SettingsWindow {
         y += Self.rowHeight
         addHint(L.t("general.reset.footer"), in: page, y: &y, width: rowWidth)
     }
+
+    // Feedback (SPEC.md §17): opens a mailto: in the user's own email app.
+    // Nothing typed passes through Pomoppi; the one version line is shown
+    // here before the click.
+    private func buildFeedbackSection(page: HWND, y: inout Int32, rowWidth: Int32) {
+        let line = FeedbackSystem.versionLine()
+        y = addSectionHeader(L.t("feedback.header"), in: page, y: y, width: rowWidth)
+        addLabel(L.t("feedback.title"), in: page, x: Self.rowMargin, y: y, width: rowWidth)
+        y += 22
+
+        let wideAddress = Array(Feedback.address.utf16) + [0]
+        if let edit = (Self.editClassName.withUnsafeBufferPointer { classNamePtr in
+            wideAddress.withUnsafeBufferPointer { textPtr in
+                CreateWindowExW(
+                    0, classNamePtr.baseAddress, textPtr.baseAddress,
+                    DWORD(WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_READONLY | ES_AUTOHSCROLL),
+                    Self.rowMargin, y, rowWidth, 26,
+                    page, nil, Self.hInstance, nil)
+            }
+        }) {
+            if let font = Self.feedbackAddressFont {
+                SendMessageW(edit, UINT(WM_SETFONT), WPARAM(UInt(bitPattern: font)), LPARAM(1))
+            }
+        }
+        y += 26 + Self.itemGap
+
+        let copyX: Int32
+        if FeedbackSystem.hasMailHandler() {
+            addButton(L.t("feedback.write"), in: page, x: Self.rowMargin, y: y, width: 170, height: Self.controlHeight) {
+                let template = Feedback.Template(
+                    happened: L.t("feedback.template.happened"),
+                    expected: L.t("feedback.template.expected"),
+                    deleteHint: L.t("feedback.template.deleteHint"))
+                Self.openURL(Feedback.mailtoURL(template: template, line: line))
+            }
+            copyX = Self.rowMargin + 170 + 8
+        } else {
+            addHint(L.t("feedback.noMailApp"), in: page, y: &y, width: rowWidth)
+            copyX = Self.rowMargin
+        }
+        feedbackCopyButton = addButton(L.t("feedback.copyAddress"), in: page, x: copyX, y: y, width: 170, height: Self.controlHeight) { [weak self] in
+            self?.copyFeedbackAddress()
+        }
+        y += Self.rowHeight
+
+        addHint(L.t("feedback.lineNotice"), in: page, y: &y, width: rowWidth)
+        addHint(line.text, in: page, y: &y, width: rowWidth)
+        addButton(L.t("feedback.handled.link"), in: page, x: Self.rowMargin, y: y, width: 280, height: Self.controlHeight) { [weak self] in
+            guard let self else { return }
+            FeedbackHandledDialog.run(owner: self.hwnd, darkMode: self.isDarkMode)
+        }
+        y += Self.rowHeight
+        addHint(L.t("feedback.footer"), in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
+    }
+
+    // Same clipboard dance as TransferWindow.copyCode; the button reads
+    // "✓ Copied" for 2 s (feedbackCopiedTimerID reverts it in WM_TIMER).
+    private func copyFeedbackAddress() {
+        guard let button = feedbackCopyButton else { return }
+        let wide = Array(Feedback.address.utf16) + [0]
+        let bytes = wide.count * MemoryLayout<UInt16>.size
+        guard OpenClipboard(hwnd) else { return }
+        defer { CloseClipboard() }
+        EmptyClipboard()
+        guard let handle = GlobalAlloc(UINT(GMEM_MOVEABLE), SIZE_T(bytes)), let memory = GlobalLock(handle) else { return }
+        wide.withUnsafeBytes { memory.copyMemory(from: $0.baseAddress!, byteCount: bytes) }
+        GlobalUnlock(handle)
+        guard SetClipboardData(UINT(CF_UNICODETEXT), handle) != nil else {
+            GlobalFree(handle)
+            return
+        }
+        setWindowText(button, "✓ " + L.t("transfer.copied"))
+        SetTimer(hwnd, Self.feedbackCopiedTimerID, 2000, nil)
+    }
+
+    // DEFAULT_GUI_FONT three points larger, for the address.
+    private static let feedbackAddressFont: HFONT? = {
+        guard let stockFont = GetStockObject(DEFAULT_GUI_FONT), let hdc = GetDC(nil) else { return nil }
+        defer { ReleaseDC(nil, hdc) }
+        var logFont = LOGFONTW()
+        guard GetObjectW(stockFont, Int32(MemoryLayout<LOGFONTW>.size), &logFont) != 0 else { return nil }
+        let threePoints = max(1, Int32((Double(GetDeviceCaps(hdc, LOGPIXELSY)) * 3.0 / 72.0).rounded()))
+        logFont.lfHeight += logFont.lfHeight < 0 ? -threePoints : threePoints
+        return CreateFontIndirectW(&logFont)
+    }()
 
     // The tray-icon hint's own two variants — kept as a pure function so
     // both buildGeneralTab (initial paint) and refreshTrayClickHint (the
@@ -2650,6 +2740,8 @@ final class SettingsWindow {
         diarySyncButton = nil
         diarySyncStatusLabel = nil
         hintLabels = []
+        KillTimer(hwnd, Self.feedbackCopiedTimerID)
+        feedbackCopyButton = nil
         trayClickHintLabel = nil
         askForTitleCheckbox = nil
         languageCombo = nil
@@ -4074,6 +4166,11 @@ final class SettingsWindow {
                     setPageScroll(page, to: smoothScroll.step(from: state.scrollY))
                 }
                 if !smoothScroll.animating { stopSmoothScroll() }
+                return 0
+            }
+            if wParam == Self.feedbackCopiedTimerID {
+                KillTimer(hwnd, Self.feedbackCopiedTimerID)
+                if let button = feedbackCopyButton { setWindowText(button, L.t("feedback.copyAddress")) }
                 return 0
             }
             if wParam == Self.manualCheckRevertTimerID {

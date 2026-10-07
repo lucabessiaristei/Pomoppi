@@ -316,5 +316,21 @@
   "transfer.drop.hint": "Ein Foto oder Bildschirmfoto des QR-Codes oder eine .pomoppi-Datei",
   "transfer.drop.or": "oder",
   "transfer.reading": "Wird gelesen…",
-  "transfer.send.hint": "Fotografiere diesen Code für den anderen Computer oder schick ihm den Code oder die Datei"
+  "transfer.send.hint": "Fotografiere diesen Code für den anderen Computer oder schick ihm den Code oder die Datei",
+  "feedback.header": "Feedback",
+  "feedback.title": "Schreib Luca",
+  "feedback.write": "E-Mail schreiben",
+  "feedback.copyAddress": "Adresse kopieren",
+  "feedback.lineNotice": "Die E-Mail endet mit dieser Zeile, du kannst sie löschen",
+  "feedback.handled.link": "Was mit dieser E-Mail passiert",
+  "feedback.handled.1": "Sie landet in meinem eigenen Postfach, gehostet von Apples iCloud Mail",
+  "feedback.handled.2": "Es ist eine normale E-Mail, nicht Ende-zu-Ende-verschlüsselt",
+  "feedback.handled.3": "Ich lese jede E-Mail und schreibe jede Antwort selbst, keine automatischen Antworten, keine Ticketnummern",
+  "feedback.handled.4": "Meine Antwort geht an die Adresse, von der du geschrieben hast",
+  "feedback.handled.signature": "— Luca",
+  "feedback.footer": "Öffnet deine eigene Mail-App, nichts wird gesendet, bevor du auf Senden drückst",
+  "feedback.noMailApp": "Keine Mail-App eingerichtet, kopiere die Adresse und schreib über dein Webmail",
+  "feedback.template.happened": "Was ist passiert, oder was wünschst du dir:",
+  "feedback.template.expected": "Was hast du erwartet:",
+  "feedback.template.deleteHint": "(du kannst diese Zeile löschen)"
 }

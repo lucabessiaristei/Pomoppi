@@ -316,5 +316,21 @@
   "transfer.drop.hint": "Una foto o uno screenshot del codice QR, oppure un file .pomoppi",
   "transfer.drop.or": "oppure",
   "transfer.reading": "Lettura…",
-  "transfer.send.hint": "Fotografa questo codice dall'altro computer, oppure inviagli il codice o il file"
+  "transfer.send.hint": "Fotografa questo codice dall'altro computer, oppure inviagli il codice o il file",
+  "feedback.header": "Feedback",
+  "feedback.title": "Scrivi a Luca",
+  "feedback.write": "Scrivi un'email",
+  "feedback.copyAddress": "Copia indirizzo",
+  "feedback.lineNotice": "L'email termina con questa riga, puoi cancellarla",
+  "feedback.handled.link": "Come viene gestita questa email",
+  "feedback.handled.1": "Arriva nella mia casella personale, ospitata da iCloud Mail di Apple",
+  "feedback.handled.2": "È una normale email, senza crittografia end-to-end",
+  "feedback.handled.3": "Leggo ogni email e scrivo ogni risposta di persona, niente risposte automatiche, niente ticket",
+  "feedback.handled.4": "Ti rispondo all'indirizzo da cui hai scritto",
+  "feedback.handled.signature": "— Luca",
+  "feedback.footer": "Apre la tua app di posta, non parte nulla finché non premi Invia",
+  "feedback.noMailApp": "Nessuna app di posta configurata, copia l'indirizzo e scrivi dalla tua webmail",
+  "feedback.template.happened": "Cosa è successo, o cosa vorresti:",
+  "feedback.template.expected": "Cosa ti aspettavi:",
+  "feedback.template.deleteHint": "(puoi cancellare questa riga)"
 }

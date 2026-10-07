@@ -36,6 +36,23 @@ It only makes outbound requests to GitHub, and only for updates:
 Your settings and session history stay in `~/Library/Application Support/Pomoppi/`
 on macOS and `%APPDATA%\Pomoppi\` on Windows.
 
+GitHub, where the update checks go, is owned by Microsoft.
+
+## Feedback
+
+**Settings → Pomoppi → Feedback → Write an email** opens an ordinary email to
+me, `pomoppi@lucabessiaristei.it`, in your own email app. Pomoppi sends
+nothing itself: you write the email there, and nothing leaves until you press
+Send. It ends with one line, your Pomoppi version, system and processor type,
+which you can delete.
+
+- It lands in my own inbox, hosted by Apple's iCloud Mail. It's ordinary email,
+  not end-to-end encrypted.
+- I read every email and write every reply myself. No auto-replies, no ticket
+  numbers. My reply goes to the address you wrote from.
+- If a picture helps, capture just that window: ⌘⇧4 then Space on macOS,
+  Win+Shift+S then Window on Windows.
+
 ## Using it
 
 - A **pomodoro** is a whole cycle: a few focus sessions with short breaks

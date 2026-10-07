@@ -709,6 +709,7 @@ what a brand-new install opens on.
 | **Pomoppi** | *(no header)* | "Pomoppi <version>" with a What's new link (the running version's GitHub release page) | — |
 | | Updates | Automatically check for updates; Status row with a Check for updates action | — |
 | | Transfer | **Transfer settings and history…** opens the Transfer window (§16) | "Move your settings and pomodoro history to another computer, with no account or internet" |
+| | Feedback | "Write to Luca", the address (selectable), **Write an email** (hidden when no email app is set up, replaced by a line saying so) and **Copy address**, the version line the email ends with, and a **How this email is handled** link (§17) | "Opens your own email app, nothing is sent until you press Send" |
 | | Data folder | **Show in Finder** *(Windows: Show in Explorer)* opens the storage dir | "Your settings and pomodoro history are stored here" |
 | | Reset | **Reset Pomoppi…** | "Also erases your pomodoro history" |
 
@@ -1699,7 +1700,8 @@ https://api.github.com/repos/lucabessiaristei/Pomoppi/releases/latest`,
 hit on the schedule above and nowhere else; the only other request is the
 asset download a user's Update click starts, from the URL that response
 names. No telemetry, no analytics, no
-crash reporting. Nothing is sent but a `User-Agent: Pomoppi/<version>`
+crash reporting. Feedback (§17) adds no network code: it opens an email in
+the user's own email app. Nothing is sent but a `User-Agent: Pomoppi/<version>`
 header plus the two GitHub-API-version headers `requestHeaders(appVersion:)`
 sets — no request body, no user data, no machine identifier of any kind.
 Nothing about the response is persisted to disk; the parsed result lives
@@ -2009,3 +2011,45 @@ for the actions. No Close button: the window's own close does it.
   Receive, crossfades when the QR changes, springy collapse, bounce on
   Copied and on a finished import, shake on an error. With Reduce Motion
   only fades remain.
+
+## 17. Feedback `[both]`
+
+Added after 0.6.3 (`Sources/PomoppiCore/Feedback.swift`; each platform's
+Pomoppi tab is the UI). **Pomoppi doesn't take feedback: it opens an email
+from the user to Luca in their own email app.** The user writes it there,
+sees every word and presses Send there.
+
+**Safe by construction.** No feedback server and no feedback network code.
+Nothing the user types passes through Pomoppi: not a link, not the
+clipboard, not a draft. Pomoppi adds exactly one line to the email, shown
+in the section before the click and deletable in the email. No pictures,
+settings or history are ever attached. Rules that keep it that way:
+
+- The `mailto:` link holds only the address, the fixed English subject
+  `Pomoppi feedback`, and the body: the localized template ("What
+  happened, or what you'd like:" / "What you expected:") and the version
+  line, "— Pomoppi <version> · <system> · <architecture> (you can delete
+  this line)". RFC 6068 encoding: UTF-8 percent-encoding, `%20` for
+  spaces, `%0D%0A` for line breaks.
+- `FeedbackVersionLine` has exactly three fields (version, system,
+  architecture). Don't add a fourth: tests pin the line's shape. Windows'
+  architecture names the machine and, when different, what Pomoppi runs
+  as ("ARM64, running as x64").
+- Nothing personal in the link means a browser handling `mailto:`
+  (webmail) is fine as is.
+- **No email app**: detected before the button shows (on Windows a bare
+  `mailto:` with no handler opens a Store dialog, a dead end), the button
+  is replaced by "No email app set up, copy the address and write from
+  your webmail". macOS always has Mail, so the button is always there.
+- **How this email is handled** opens a small panel inside the app, never
+  a web page: it lands in Luca's own iCloud Mail inbox, it's ordinary
+  email (not end-to-end encrypted), he reads and answers every email
+  himself (no auto-replies, no ticket numbers), and the reply goes to the
+  address the user wrote from. No "no AI reads this" claim: Apple Mail has
+  AI features of its own, so it couldn't be honestly promised.
+- One reassurance, said once, as a fact: the footer. No privacy boasting,
+  no mascot, no "help improve Pomoppi", and Pomoppi never asks for
+  feedback on its own.
+
+Address: `pomoppi@lucabessiaristei.it`. The window-only screenshot tip
+lives in `README.md`, not in the app.

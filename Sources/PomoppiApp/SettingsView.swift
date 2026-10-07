@@ -528,6 +528,7 @@ private struct PomoppiTab: View {
             } footer: {
                 Text(L.t("transfer.footer"))
             }
+            FeedbackSection()
             Section {
                 Button(L.t("pomoppi.dataFolder.show")) {
                     NSWorkspace.shared.open(viewModel.storageDir)

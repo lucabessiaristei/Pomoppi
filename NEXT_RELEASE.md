@@ -6,10 +6,16 @@ Running list of what has landed on `main` since v0.6.3 (released
 
 ## Changes
 
-(nothing yet)
+- Feedback: Settings → Pomoppi → Feedback opens an email to Luca in your own
+  email app, with a short template and one line (version, system,
+  processor) you can delete. Pomoppi sends nothing itself; "How this email
+  is handled" says where it goes.
 
 ## To verify
 
+- **Feedback on Windows 11 with no email app set up**: the "No email app
+  set up" line shows instead of the button (no Store dialog). And with
+  new Outlook / classic Outlook / webmail in a browser as the handler.
 - **In-app update relaunch, end to end**, now that v0.4.0 is out: from an
   installed v0.3.5, Update to v0.4.0 must close, update and reopen the app
   on its own, on both platforms (Windows: a copy installed with its Setup).
