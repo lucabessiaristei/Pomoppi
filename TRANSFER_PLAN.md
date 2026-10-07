@@ -10,8 +10,8 @@ Agreed 2026-10-07. Built in chunks, each stopped for a go-ahead.
 | 1. Core codec | done |
 | 2. Core QR encoder + render | done |
 | 3. Core QR decoder (images) | done |
-| 4. macOS UI | done (real phone photo: user check pending) |
-| 5. Windows UI | done (Open image with a real photo unchecked) |
+| 4. macOS UI | done (real phone photo imported, checked by the user) |
+| 5. Windows UI | done (checked by the user in the VM; the same phone photo decodes with the shared decoder) |
 
 Update this table (and the chunk's commit hash) when a chunk lands.
 

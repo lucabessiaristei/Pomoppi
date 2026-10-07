@@ -11,7 +11,7 @@ Running list of what has landed on `main` since v0.5.0 (released
 
 ## To verify
 
-- **Transfer with a real phone photo**: a photo of the QR on screen, sent to the other computer, imports on both platforms (Windows reads it with the shared decoder).
+- **Transfer on Windows with a real phone photo**: Open file… on a JPEG photo of the QR, in the installed app (GDI+ loading; the decoder itself already reads such a photo, and macOS imports one).
 - **In-app update relaunch, end to end**, now that v0.4.0 is out: from an
   installed v0.3.5, Update to v0.4.0 must close, update and reopen the app
   on its own, on both platforms (Windows: a copy installed with its Setup).
