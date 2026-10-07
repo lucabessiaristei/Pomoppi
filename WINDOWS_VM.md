@@ -21,6 +21,21 @@ history if needed.
 
 ## Syncing code into the VM
 
+**Day to day: `node Scripts/vm-sync.js`** from the Mac sends the working
+tree as it is (uncommitted and untracked files too, `.gitignore`
+respected) and runs a debug `swift build` in the VM; `--test` runs
+`swift test`, `--release` runs `make-windows-app.js`, `--no-build` only
+syncs. It never touches the Mac's index, tree or HEAD (temporary index +
+throwaway ref, deleted after) and prints the build time. Only changed files
+are rewritten in the VM, so builds stay incremental.
+
+Windows Defender excludes the clone, the Swift toolchain, Build Tools, the
+Windows SDK, `%LOCALAPPDATA%\swiftpm` and `%TEMP%`, plus the compiler,
+linker, git and node processes (added 2026-10-07; real-time scanning of
+every compiler file read/write was a large share of build time).
+
+The manual route, for committed history only:
+
 The VM clone (`C:\Users\bubvm\pomoppi`) has no GitHub remote; it takes
 committed history from a bundle. Uncommitted Mac changes never transfer.
 
@@ -53,8 +68,29 @@ schtasks /run /tn PomoppiTest
 ```
 stdout isn't captured that way; log to a file and read it back over SSH.
 
+Lessons from the UI verify scripts (`C:\Users\bubvm\*.ps1`):
+- Back up `%APPDATA%\Pomoppi\settings.json`, `sessions.json` and
+  `HKCU\Software\Pomoppi` first and check the copies by hash; restore and
+  re-check at the end (old `*.bak` files in the home dir are stale).
+- Delete the script's log before `schtasks /run`, or polling reads the last
+  run's DONE. Log early: a hung task gives no output and leaves
+  `powershell.exe` running (kill it before rerunning).
+- Don't name a function `Kill` (PowerShell's `kill` alias wins and waits
+  for input). Pass `[NullString]::Value`, not `$null`, as a P/Invoke
+  window title. Find windows by class, not by English title.
+- The widget is topmost at screen centre: move the window under test aside
+  before screenshotting. The debug exe registers hotkeys a few seconds
+  later than the release one; retry.
+
 ## WinSDK / Swift interop gotchas
 
+- **"The procedure entry point TaskDialogIndirect / SetWindowSubclass could
+  not be located"** when launching `.build\debug\PomoppiWindows.exe`: the
+  debug exe has no side-by-side manifest next to it, so Windows loads
+  comctl32 v5, which lacks those. Copy
+  `Sources\PomoppiWindows\Pomoppi.exe.manifest` to
+  `.build\debug\PomoppiWindows.exe.manifest` (`vm-sync.js` does it after
+  every build); `dist\` already has it.
 - Win32 flag constants (`MOD_ALT`, `NIF_ICON`, `WM_APP`, `SS_*`, `SB_*`)
   import as plain `Int32`, not `OptionSet`: cast (`UINT(MOD_ALT)`), no
   `.rawValue`.
