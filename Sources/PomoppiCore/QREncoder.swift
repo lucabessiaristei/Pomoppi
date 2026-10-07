@@ -122,7 +122,7 @@ public struct QRCode: Equatable {
 
     // MARK: Reed-Solomon over GF(256), primitive polynomial 0x11D
 
-    private static let gfTables: (exp: [UInt8], log: [Int]) = {
+    static let gfTables: (exp: [UInt8], log: [Int]) = {
         var exp = [UInt8](repeating: 0, count: 512)
         var log = [Int](repeating: 0, count: 256)
         var x = 1
@@ -168,8 +168,10 @@ public struct QRCode: Equatable {
     // MARK: Format and version information (BCH)
 
     // 15 format bits for level M (bits 00) + mask, already XORed with 0x5412.
-    static func formatBits(mask: Int) -> Int {
-        let data = mask  // level M = 0b00 in the top two of the five data bits
+    static func formatBits(mask: Int) -> Int { formatBits(data: mask) }  // level M = 0b00 in the top two
+
+    // Same for any 5 data bits (2 level bits + 3 mask bits); the decoder needs all 32.
+    static func formatBits(data: Int) -> Int {
         var rem = data
         for _ in 0..<10 { rem = (rem << 1) ^ ((rem >> 9) * 0x537) }
         return ((data << 10) | rem) ^ 0x5412

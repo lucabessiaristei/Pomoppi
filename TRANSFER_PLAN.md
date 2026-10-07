@@ -9,8 +9,8 @@ Agreed 2026-10-07. Built in chunks, each stopped for a go-ahead.
 | 0. "Pomoppi" settings tab | done |
 | 1. Core codec | done |
 | 2. Core QR encoder + render | done |
-| 3. Core QR decoder (images) | not started — **next** |
-| 4. macOS UI | not started |
+| 3. Core QR decoder (images) | done |
+| 4. macOS UI | not started — **next** |
 | 5. Windows UI | not started |
 
 Update this table (and the chunk's commit hash) when a chunk lands.

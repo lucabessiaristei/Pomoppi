@@ -1937,3 +1937,16 @@ code. Byte mode only, error correction level M, the smallest version
 v40-M code holds, anything bigger gets no QR (the code and the file remain).
 `PixelCanvas+QR.swift` draws plain square modules, always black on white
 (never themed), with a 4-module quiet zone, at an integer module scale.
+
+Reading an image back is `QRDecoder.decode(luma:width:height:)` (`QRDecoder.swift`,
+`QRDecoder+Locate.swift`, `QRReedSolomon.swift`; hand-rolled, Foundation-only): a
+grayscale buffer in, the byte-mode payload out, or `notFound` (no finder
+triple), `unreadable` (format info or Reed-Solomon failed) or `unsupported` (a
+valid code that isn't level M / byte mode). It binarizes adaptively, finds the
+three finder patterns, takes the version from the number of runs along the
+timing patterns, pins the fourth corner on the bottom-right alignment pattern
+(refitting through every alignment pattern on v7+), samples the grid through a
+perspective transform and corrects each block with Reed-Solomon. Loading an
+image file into a luma buffer is the platform's job. Windows uses this decoder
+for imported images; macOS uses Vision (more robust) and keeps this one as the
+reference both are tested against.
