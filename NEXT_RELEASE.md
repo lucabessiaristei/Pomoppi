@@ -1,35 +1,12 @@
 # Next release — what's in it
 
-Running list of what has landed on `main` since v0.4.0 (released
-2026-09-24), so the release notes write themselves. Cut it with
+Running list of what has landed on `main` since v0.5.0 (released
+2026-10-07), so the release notes write themselves. Cut it with
 `RELEASING.md`, then empty this file for the next one.
 
 ## Changes
 
-- **Recent titles in the title prompt**: under the field, up to 5 titles
-  from past pomodoros (newest first, deduped ignoring case) as link-style
-  rows; clicking one fills the field. Nothing shows when the log has no
-  titles (`SPEC.md` §5).
-- **Update alert at launch**: when the first check after launch finds a
-  newer release, an alert offers Update / Later (with a note that a running
-  session will be interrupted); Update opens Settings on General and starts
-  the update. Windows copies not installed with Setup get "Open release
-  page". Only that first check asks, once per launch (`SPEC.md` §15).
-- **The widget-keys list no longer shows `T` and `P`**, which did nothing;
-  the dead `snapshot` shortcut is gone from the shortcut table (a leftover
-  entry in an old `settings.json` is ignored) (`SPEC.md` §13, §14).
-- **Excel export**: the Diary's Full log export also saves an `.xlsx`
-  workbook (Pomodoros and Sessions sheets, localized headers, real dates
-  and minutes) (`SPEC.md` §8b).
-- **Diary history viewer (macOS and Windows)**: a "Diary…" tray item and the Diary tab's
-  "Open diary…" button open a window with every pomodoro in a sortable,
-  searchable table, its entries below, per-entry and whole-pomodoro delete
-  (not for the one in progress), the pomodoro's friend shown in the detail
-  header (new optional `friend` log field; a "?" tile for older entries) and Export to Excel. Built on `SessionLogger`'s
-  delete calls and `DiaryHistory` (`SPEC.md` §8, §8b). The Windows viewer is the same window over
-  raw Win32 controls; in the VM the live search, both deletes with their
-  confirmations, Excel export, the in-progress lock and the refresh after a
-  new session were exercised.
+(nothing yet)
 
 ## To verify
 
