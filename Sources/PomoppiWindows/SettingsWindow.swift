@@ -415,6 +415,10 @@ final class SettingsWindow {
     }
     private var manualCheckState: ManualCheckState = .idle
     private static let manualCheckRevertTimerID: UINT_PTR = 1
+    // Wheel scrolling eases in (SmoothScroll) on whichever page is showing.
+    private static let scrollTimerID: UINT_PTR = 2
+    private var smoothScroll = SmoothScroll()
+    private var smoothScrollPage: HWND?
     private var manualCheckRevertPending = false
 
     // Every page scrolls vertically with its own native WS_VSCROLL bar, so
@@ -803,6 +807,12 @@ final class SettingsWindow {
             ShowWindow(page, index == rememberedIndex ? SW_SHOW : SW_HIDE)
         }
         SendMessageW(tab, UINT(TCM_SETCURSEL), WPARAM(rememberedIndex), 0)
+        // The tab strip fills the whole client area under the pages. Created
+        // first, it sat above them in the Z order, so its WS_CLIPSIBLINGS
+        // never excluded them and every repaint of it after a resize filled
+        // its display area right over the visible page, leaving it blank.
+        // At the bottom, the showing page clips it instead.
+        SetWindowPos(tab, HWND(bitPattern: 1), 0, 0, 0, 0, UINT(SWP_NOMOVE) | UINT(SWP_NOSIZE) | UINT(SWP_NOACTIVATE))
     }
 
     // WM_SIZE — resizes the tab strip and every page via the same
@@ -814,7 +824,7 @@ final class SettingsWindow {
         var clientRect = RECT()
         GetClientRect(hwnd, &clientRect)
         let tabAreaHeight = clientRect.bottom - clientRect.top
-        SetWindowPos(tab, nil, 0, 0, clientRect.right - clientRect.left, tabAreaHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        SetWindowPos(tab, nil, 0, 0, clientRect.right - clientRect.left, tabAreaHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_NOCOPYBITS))
 
         var displayRect = RECT(left: 0, top: 0, right: clientRect.right - clientRect.left, bottom: tabAreaHeight)
         withUnsafeMutablePointer(to: &displayRect) { rectPtr in
@@ -823,7 +833,7 @@ final class SettingsWindow {
         let pageWidth = displayRect.right - displayRect.left
         let pageHeight = displayRect.bottom - displayRect.top
         for page in pages {
-            SetWindowPos(page, nil, displayRect.left, displayRect.top, pageWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+            SetWindowPos(page, nil, displayRect.left, displayRect.top, pageWidth, pageHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_NOCOPYBITS))
             if var state = pageScroll[page], state.widthDelta != pageWidth - state.builtWidth {
                 state.widthDelta = pageWidth - state.builtWidth
                 pageScroll[page] = state
@@ -831,6 +841,9 @@ final class SettingsWindow {
             }
             updatePageScrollInfo(page)
         }
+        // Everything repaints after a size change, so nothing of the old
+        // layout lingers (SWP_NOCOPYBITS above: no stale pixels moved along).
+        RedrawWindow(hwnd, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN))
     }
 
     // -- page scrolling ---------------------------------------------------------
@@ -888,6 +901,24 @@ final class SettingsWindow {
     // WS_CLIPCHILDREN on the page (createPage) keeps its erase off the
     // children, which is what made this flicker-free on Appearance.
     private func scrollPage(_ page: HWND, to target: Int32) {
+        stopSmoothScroll()
+        setPageScroll(page, to: target)
+    }
+
+    private func stopSmoothScroll() {
+        smoothScroll.jump(to: smoothScrollPage.flatMap { pageScroll[$0]?.scrollY } ?? 0)
+        smoothScrollPage = nil
+        KillTimer(hwnd, Self.scrollTimerID)
+    }
+
+    private func maxScroll(of page: HWND) -> Int32 {
+        guard let state = pageScroll[page] else { return 0 }
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        return max(0, state.contentHeight - (clientRect.bottom - clientRect.top))
+    }
+
+    private func setPageScroll(_ page: HWND, to target: Int32) {
         guard var state = pageScroll[page] else { return }
         var clientRect = RECT()
         GetClientRect(page, &clientRect)
@@ -959,13 +990,25 @@ final class SettingsWindow {
     // one control that consumes it itself), so it scrolls whichever page is
     // showing. The high word of wParam is a signed multiple of WHEEL_DELTA
     // (120) per notch, already carrying the user's scroll-direction setting.
+    // SmoothScroll decides how far (Windows' lines-per-notch setting) and
+    // whether to ease in.
     private func handleMouseWheel(wParam: WPARAM, lParam: LPARAM) -> LRESULT {
         guard let page = pages.first(where: { IsWindowVisible($0) }), let state = pageScroll[page] else {
             return DefWindowProcW(hwnd, UINT(WM_MOUSEWHEEL), wParam, lParam)
         }
-        let highWord = UInt16(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
-        let notches = Double(Int16(bitPattern: highWord)) / 120.0
-        scrollPage(page, to: state.scrollY + Int32((-notches * 60).rounded()))
+        if smoothScrollPage != page { stopSmoothScroll() }
+        var clientRect = RECT()
+        GetClientRect(page, &clientRect)
+        guard let move = smoothScroll.wheel(
+            wParam: wParam, current: state.scrollY, maxScroll: maxScroll(of: page), pageHeight: clientRect.bottom - clientRect.top
+        ) else { return 0 }
+        if move.animate {
+            smoothScrollPage = page
+            SetTimer(hwnd, Self.scrollTimerID, SmoothScroll.tick, nil)
+            setPageScroll(page, to: smoothScroll.step(from: state.scrollY))
+        } else {
+            setPageScroll(page, to: move.target)
+        }
         return 0
     }
 
@@ -3552,6 +3595,7 @@ final class SettingsWindow {
         if recordingActionID != nil {
             stopRecording()
         }
+        stopSmoothScroll()
         for (i, page) in pages.enumerated() {
             ShowWindow(page, i == index ? SW_SHOW : SW_HIDE)
         }
@@ -4025,6 +4069,13 @@ final class SettingsWindow {
             // The Updates row's own "Up to date" -> idle auto-revert, 5s
             // after a manual check resolves to no update — see
             // checkForUpdatesNow.
+            if wParam == Self.scrollTimerID {
+                if let page = smoothScrollPage, let state = pageScroll[page] {
+                    setPageScroll(page, to: smoothScroll.step(from: state.scrollY))
+                }
+                if !smoothScroll.animating { stopSmoothScroll() }
+                return 0
+            }
             if wParam == Self.manualCheckRevertTimerID {
                 KillTimer(hwnd, Self.manualCheckRevertTimerID)
                 manualCheckRevertPending = false
@@ -4055,6 +4106,7 @@ final class SettingsWindow {
             return 0
         case WM_DESTROY:
             if manualCheckRevertPending { KillTimer(hwnd, Self.manualCheckRevertTimerID) }
+            KillTimer(hwnd, Self.scrollTimerID)
             updateChecker.onUpdate = nil
             Self.shared = nil
             return 0

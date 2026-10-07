@@ -44,6 +44,7 @@ enum URLSessionUpdateFetch {
     // shape as macOS's own URLSessionUpdateFetch.fetch.
     static let fetch: UpdateChecker.Fetch = { url, completion in
         var request = URLRequest(url: url)
+        request.timeoutInterval = UpdateChecker.requestTimeout
         for (field, value) in UpdateChecker.requestHeaders(appVersion: pomoppiVersion) {
             request.setValue(value, forHTTPHeaderField: field)
         }

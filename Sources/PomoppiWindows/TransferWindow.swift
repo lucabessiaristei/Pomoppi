@@ -146,6 +146,8 @@ final class TransferWindow {
     private var contentHeight: Int32 = 0
     private var viewportHeight: Int32 = 0
     private var scrollY: Int32 = 0
+    // The wheel sets a target, the scroll timer eases scrollY toward it.
+    private var smoothScroll = SmoothScroll()
     private var barTop: Int32 = 0
     private var cardRect: RECT?
     private var zoneRect: RECT?
@@ -184,6 +186,7 @@ final class TransferWindow {
     private static let importDoneMessage = UINT(WM_APP) + 1
     private static let copiedTimerID: UINT_PTR = 1
     private static let critterTimerID: UINT_PTR = 2
+    private static let scrollTimerID: UINT_PTR = 3
     private static let critterInterval: UINT = 600
     private static let critterSide: Int32 = 64
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "bmp", "gif", "tif", "tiff"]
@@ -296,7 +299,7 @@ final class TransferWindow {
         guard let createdViewport = (Self.viewportClassName.withUnsafeBufferPointer { classNamePtr in
             CreateWindowExW(
                 0, classNamePtr.baseAddress, nil,
-                DWORD(WS_CHILD | WS_CLIPCHILDREN | WS_VISIBLE | WS_VSCROLL),
+                DWORD(WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VISIBLE | WS_VSCROLL),
                 0, Self.topBarHeight, 100, 100,
                 createdHwnd, nil, Self.hInstance, nil)
         }) else {
@@ -383,9 +386,12 @@ final class TransferWindow {
         let wide = Array(text.utf16) + [0]
         guard let control = (cls.withUnsafeBufferPointer { clsPtr in
             wide.withUnsafeBufferPointer { textPtr in
+                // The pinned bar's controls sit beside the viewport: clipping
+                // siblings keeps either from painting over the other while a
+                // resize has them overlapping.
                 CreateWindowExW(
                     0, clsPtr.baseAddress, textPtr.baseAddress,
-                    style, 0, 0, 10, 10,
+                    parent != nil ? style | DWORD(WS_CLIPSIBLINGS) : style, 0, 0, 10, 10,
                     parent ?? viewport, nil, Self.hInstance, nil)
             }
         }) else {
@@ -519,14 +525,11 @@ final class TransferWindow {
         return 1
     }
 
+    // paintViewport fills every pixel itself (off screen, then one blit),
+    // so the viewport is never erased: an erase followed by a repaint is
+    // what flickered while scrolling and could leave it blank mid-resize.
     fileprivate func eraseViewport(wParam: WPARAM) -> LRESULT {
-        guard darkMode, let hdc = HDC(bitPattern: Int(bitPattern: UInt(wParam))), let brush = WindowsTheme.darkBackgroundBrush else {
-            return DefWindowProcW(viewport, UINT(WM_ERASEBKGND), wParam, 0)
-        }
-        var rect = RECT()
-        GetClientRect(viewport, &rect)
-        FillRect(hdc, &rect, brush)
-        return 1
+        1
     }
 
     private func handleCtlColor(message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
@@ -614,7 +617,7 @@ final class TransferWindow {
         // The viewport.
         let viewportTop = Self.topBarHeight
         viewportHeight = max(0, barTop - viewportTop)
-        SetWindowPos(viewport, nil, 0, viewportTop, clientWidth, viewportHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE))
+        SetWindowPos(viewport, nil, 0, viewportTop, clientWidth, viewportHeight, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_NOCOPYBITS))
 
         // Content, in content coordinates. The width is fixed against the
         // scrollbar gutter being always reserved, so showing or hiding the
@@ -759,14 +762,18 @@ final class TransferWindow {
         }
     }
 
+    // SWP_NOCOPYBITS: a moved control is repainted where it lands instead
+    // of having its old pixels copied there (which left stale copies of the
+    // bar's text behind on resize).
     private func pin(_ control: HWND, x: Int32, y: Int32, width: Int32, height: Int32) {
-        SetWindowPos(control, nil, x, y, width, height, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_SHOWWINDOW))
+        SetWindowPos(control, nil, x, y, width, height, UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_SHOWWINDOW) | UINT(SWP_NOCOPYBITS))
     }
 
     // -- scrolling ----------------------------------------------------------
 
     private func updateScrollInfo() {
-        scrollY = min(max(0, scrollY), max(0, contentHeight - viewportHeight))
+        scrollY = min(max(0, scrollY), maxScroll)
+        stopScrollAnimation()
         var info = SCROLLINFO()
         info.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
         info.fMask = UINT(SIF_RANGE | SIF_PAGE | SIF_POS)
@@ -777,25 +784,41 @@ final class TransferWindow {
         SetScrollInfo(viewport, Int32(SB_VERT), &info, true)
     }
 
-    // One DeferWindowPos batch moves every control, then the viewport is
-    // redrawn in one go (the cards are painted, not controls).
-    private func applyPlacements() {
+    // One DeferWindowPos batch moves every control (a scroll step only
+    // moves them; a layout also sizes and shows them), then the painted
+    // cards are redrawn without an erase and whatever moved is flushed at
+    // once, so a fast wheel or thumb drag never queues paints behind it.
+    private func applyPlacements(scrollOnly: Bool = false) {
         var batch = BeginDeferWindowPos(Int32(placements.count))
+        let flags = UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | (scrollOnly ? UINT(SWP_NOSIZE) : UINT(SWP_SHOWWINDOW))
         for item in placements {
-            batch = DeferWindowPos(
-                batch, item.hwnd, nil, item.x, item.y - scrollY, item.width, item.height,
-                UINT(SWP_NOZORDER) | UINT(SWP_NOACTIVATE) | UINT(SWP_SHOWWINDOW))
+            batch = DeferWindowPos(batch, item.hwnd, nil, item.x, item.y - scrollY, item.width, item.height, flags)
         }
         EndDeferWindowPos(batch)
-        RedrawWindow(viewport, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN) | UINT(RDW_UPDATENOW))
+        InvalidateRect(viewport, nil, false)
+        RedrawWindow(viewport, nil, nil, UINT(RDW_UPDATENOW) | UINT(RDW_ALLCHILDREN))
     }
 
+    private var maxScroll: Int32 { max(0, contentHeight - viewportHeight) }
+
+    // Jumps straight there (scrollbar clicks and drags) and cancels any
+    // wheel easing in flight.
     private func scroll(to target: Int32) {
-        let clamped = min(max(0, target), max(0, contentHeight - viewportHeight))
+        stopScrollAnimation()
+        setScrollY(target)
+    }
+
+    private func setScrollY(_ value: Int32) {
+        let clamped = min(max(0, value), maxScroll)
         guard clamped != scrollY else { return }
         scrollY = clamped
         SetScrollPos(viewport, Int32(SB_VERT), clamped, true)
-        applyPlacements()
+        applyPlacements(scrollOnly: true)
+    }
+
+    private func stopScrollAnimation() {
+        smoothScroll.jump(to: scrollY)
+        KillTimer(hwnd, Self.scrollTimerID)
     }
 
     fileprivate func handleVScroll(wParam: WPARAM) {
@@ -821,11 +844,21 @@ final class TransferWindow {
     }
 
     // WM_MOUSEWHEEL goes to the focused control and DefWindowProc bubbles it
-    // up to here; the high word of wParam is a signed multiple of 120.
+    // up to here. SmoothScroll decides how far (Windows' lines-per-notch
+    // setting) and whether to ease.
     private func handleMouseWheel(wParam: WPARAM) {
-        let highWord = UInt16(truncatingIfNeeded: UInt32(truncatingIfNeeded: wParam) >> 16)
-        let notches = Double(Int16(bitPattern: highWord)) / 120.0
-        scroll(to: scrollY + Int32((-notches * 60).rounded()))
+        guard let move = smoothScroll.wheel(wParam: wParam, current: scrollY, maxScroll: maxScroll, pageHeight: viewportHeight) else { return }
+        if move.animate {
+            SetTimer(hwnd, Self.scrollTimerID, SmoothScroll.tick, nil)
+            setScrollY(smoothScroll.step(from: scrollY))
+        } else {
+            setScrollY(move.target)
+        }
+    }
+
+    private func stepScrollAnimation() {
+        setScrollY(smoothScroll.step(from: scrollY))
+        if !smoothScroll.animating { KillTimer(hwnd, Self.scrollTimerID) }
     }
 
     // -- painting -----------------------------------------------------------
@@ -850,10 +883,30 @@ final class TransferWindow {
         if let brush { DeleteObject(HGDIOBJ(OpaquePointer(brush))) }
     }
 
+    // Everything the viewport itself shows (background, cards, QR, drop
+    // zone, critter) is drawn into an off-screen bitmap and copied in one
+    // BitBlt; the controls on top are excluded by WS_CLIPCHILDREN.
     fileprivate func paintViewport() {
         var ps = PAINTSTRUCT()
-        guard let hdc = BeginPaint(viewport, &ps) else { return }
+        guard let screen = BeginPaint(viewport, &ps) else { return }
         defer { EndPaint(viewport, &ps) }
+        var client = RECT()
+        GetClientRect(viewport, &client)
+        let width = client.right, height = client.bottom
+        guard width > 0, height > 0, let hdc = CreateCompatibleDC(screen),
+              let buffer = CreateCompatibleBitmap(screen, width, height) else { return }
+        let previousBuffer = SelectObject(hdc, HGDIOBJ(OpaquePointer(buffer)))
+        defer {
+            BitBlt(screen, 0, 0, width, height, hdc, 0, 0, DWORD(SRCCOPY))
+            SelectObject(hdc, previousBuffer)
+            DeleteObject(HGDIOBJ(OpaquePointer(buffer)))
+            DeleteDC(hdc)
+        }
+        if darkMode, let brush = WindowsTheme.darkBackgroundBrush {
+            FillRect(hdc, &client, brush)
+        } else {
+            FillRect(hdc, &client, GetSysColorBrush(COLOR_BTNFACE))
+        }
 
         if let card = cardRect.map(offset) {
             strokeRoundRect(hdc, card, penStyle: PS_SOLID, penHex: darkMode ? Self.borderDarkHex : Self.borderLightHex, fillWhite: true)
@@ -916,6 +969,7 @@ final class TransferWindow {
         }
         SendMessageW(sendRadio, UINT(BM_SETCHECK), WPARAM(newMode == .send ? BST_CHECKED : BST_UNCHECKED), 0)
         SendMessageW(receiveRadio, UINT(BM_SETCHECK), WPARAM(newMode == .receive ? BST_CHECKED : BST_UNCHECKED), 0)
+        stopScrollAnimation()
         scrollY = 0
         layout()
         InvalidateRect(hwnd, nil, true)
@@ -1313,9 +1367,11 @@ final class TransferWindow {
             handleDrop(wParam: wParam)
             return 0
         case WM_TIMER:
-            if UINT_PTR(wParam) == Self.critterTimerID {
+            if UINT_PTR(wParam) == Self.scrollTimerID {
+                stepScrollAnimation()
+            } else if UINT_PTR(wParam) == Self.critterTimerID {
                 critterFrame = (critterFrame + 1) % max(1, critterFrames.count)
-                if var rect = critterRect.map(offset) { InvalidateRect(viewport, &rect, true) }
+                if var rect = critterRect.map(offset) { InvalidateRect(viewport, &rect, false) }
             } else if UINT_PTR(wParam) == Self.copiedTimerID {
                 KillTimer(hwnd, Self.copiedTimerID)
                 setText(copyButton, L.t("transfer.copyCode"))
@@ -1333,7 +1389,9 @@ final class TransferWindow {
             return 0
         case WM_SIZE:
             layout()
-            InvalidateRect(hwnd, nil, true)
+            // The whole window and the pinned bar's controls repaint after a
+            // size change, so nothing from the old layout can linger.
+            RedrawWindow(hwnd, nil, nil, UINT(RDW_INVALIDATE) | UINT(RDW_ERASE) | UINT(RDW_ALLCHILDREN))
             return 0
         case WM_MOUSEWHEEL:
             handleMouseWheel(wParam: wParam)
@@ -1354,6 +1412,7 @@ final class TransferWindow {
         case WM_DESTROY:
             KillTimer(hwnd, Self.copiedTimerID)
             KillTimer(hwnd, Self.critterTimerID)
+            KillTimer(hwnd, Self.scrollTimerID)
             disposeCritter()
             disposeQR()
             Self.current = nil

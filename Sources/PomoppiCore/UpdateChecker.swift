@@ -122,6 +122,11 @@ public enum UpdateChecker {
         URL(string: "https://github.com/\(repositorySlug)/releases/tag/v\(version)")!
     }
 
+    // How long one update request may go without a response before it
+    // fails. Without it, an offline machine (or one whose traffic is being
+    // dropped) leaves a manual check on "Checking…" for a minute or more.
+    public static let requestTimeout: TimeInterval = 15
+
     public static func requestHeaders(appVersion: String) -> [String: String] {
         [
             "User-Agent": "Pomoppi/\(appVersion)",
