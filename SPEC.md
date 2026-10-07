@@ -1927,3 +1927,13 @@ then clamps; `SessionLogger.mergeImported` adds the pomodoros whose
 `pomodoroStart` (whole seconds) is not in the log yet, keeps all local ones,
 sorts by `startTime` and writes once (importing twice changes nothing;
 entries without a `pomodoroStart` are not imported).
+
+### QR
+
+A transfer can be shown as a QR code (`QREncoder.swift`, hand-rolled, no
+dependency). The QR payload is the raw container bytes above, not the text
+code. Byte mode only, error correction level M, the smallest version
+(1-40) that fits, lowest-penalty mask of the 8; 2331 bytes is the most a
+v40-M code holds, anything bigger gets no QR (the code and the file remain).
+`PixelCanvas+QR.swift` draws plain square modules, always black on white
+(never themed), with a 4-module quiet zone, at an integer module scale.

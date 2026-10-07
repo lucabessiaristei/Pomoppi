@@ -6,10 +6,10 @@ Agreed 2026-10-07. Built in chunks, each stopped for a go-ahead.
 
 | Chunk | State |
 |---|---|
-| 0. "Pomoppi" settings tab | done (macOS icon weight pending a by-hand check) |
-| 1. Core codec | done (Windows build unchecked, verify with chunk 2) |
-| 2. Core QR encoder + render | not started — **next** |
-| 3. Core QR decoder (images) | not started |
+| 0. "Pomoppi" settings tab | done |
+| 1. Core codec | done |
+| 2. Core QR encoder + render | done |
+| 3. Core QR decoder (images) | not started — **next** |
 | 4. macOS UI | not started |
 | 5. Windows UI | not started |
 
@@ -140,7 +140,7 @@ lossy by design and says so.
 - **Encoder** (hand-rolled, same precedent as `ZipWriter`/`SHA256`): byte
   mode, versions 1–40, Reed–Solomon, masking with penalty scoring, error
   correction M (survives a skewed or slightly blurry phone photo). Renders to `PixelCanvas`,
-  so both platforms draw it identically, in Pomoppi's pixel style.
+  so both platforms draw it identically, always plain black on white (never the theme colors: a light-on-dark or low-contrast theme can make it unscannable).
 - **Size:** the encoder picks the smallest version that fits (21×21 up
   to 177×177), error correction M: one code holds up to ~2.3 KB. A payload
   bigger than that shows no QR; the popup says so and offers the code and
