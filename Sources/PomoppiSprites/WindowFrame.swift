@@ -14,7 +14,7 @@ public enum WindowFrame {
     private static let frameAmp = 8.0
     private static let frameRadius = 25.0
     private static let framePeriods: [FrameStyle: Double] = [
-        .ziggy: 24, .scallopy: 26, .splotchy: 25, .wavey: 10,
+        .ziggy: 24, .scallopy: 26, .splotchy: 30, .wavey: 10,
     ]
     private static let framePeriod = 14.0
 
@@ -34,8 +34,15 @@ public enum WindowFrame {
         case .scallopy:
             let r = period / 2
             let dx = (p - r) / r
-            return 10 * max(0, 1 - dx * dx).squareRoot()
+            let bump = 10 * max(0, 1 - dx * dx).squareRoot()
+            // Where two bumps meet they'd pinch into a thin pointy slit;
+            // a shallow V (tip 4px up) trims each valley shorter.
+            let q = min(p, period - p)
+            guard q < 3 else { return bump }
+            return max(bump, 4 + q)
         case .splotchy:
+            // `t` here is the offset along the whole outline (see grid()),
+            // not a per-segment one.
             return 5 * (0.5 - 0.5 * cos((p / period) * Double.pi * 2))
         }
     }
@@ -109,8 +116,10 @@ public enum WindowFrame {
         let key = CacheKey(style: style, w: w, h: h)
         if let cached = cache[key] { return cached }
 
-        let amp = style == .scallopy ? 10.0 : frameAmp
-        let r: Double = style == .scallopy ? 32 : (style == .splotchy || style == .wavey ? 25 : frameRadius)
+        // splotchy's waves are only 5px tall, so it skips the 3px of dead
+        // margin the others keep and leaves more room for the background.
+        let amp = style == .scallopy ? 10.0 : style == .splotchy ? 5.0 : frameAmp
+        let r: Double = style == .scallopy ? 32 : style == .splotchy ? 38 : (style == .wavey ? 25 : frameRadius)
 
         let bw = Double(w) - 1 - 2 * amp
         let bh = Double(h) - 1 - 2 * amp
@@ -120,11 +129,21 @@ public enum WindowFrame {
         let segLen = [sw, arc, sh, arc, sw, arc, sh, arc]
         let segPeriod = segLen.map { len in len / max(1, (len / wanted).rounded()) }
 
+        // splotchy runs one wave around the whole outline instead of
+        // per segment, with a wave count that's a multiple of 4 so it stays
+        // mirror-symmetric both ways; offset by half the top edge so a valley
+        // sits at the top center.
+        let perimeter = segLen.reduce(0, +)
+        let loopPeriod = perimeter / max(4, (perimeter / wanted / 4).rounded() * 4)
+        let segStart = segLen.indices.map { i in segLen[..<i].reduce(0, +) }
+
         var inside = Array(repeating: Array(repeating: false, count: w), count: h)
         for y in 0..<h {
             for x in 0..<w {
                 let probe = rrProbe(Double(x) - amp, Double(y) - amp, bw, bh, r)
-                let out = wave(style, probe.t, segPeriod[probe.seg])
+                let out = style == .splotchy
+                    ? wave(style, segStart[probe.seg] + probe.t - sw / 2, loopPeriod)
+                    : wave(style, probe.t, segPeriod[probe.seg])
                 inside[y][x] = probe.d <= out
             }
         }

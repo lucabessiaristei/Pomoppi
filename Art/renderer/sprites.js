@@ -61,7 +61,7 @@ const FRAME_STYLES = ["ziggy", "scallopy", "splotchy", "wavey"];
 
 const FRAME_AMP = 8;
 const FRAME_RADIUS = 25;
-const FRAME_PERIODS = { ziggy: 24, scallopy: 26, splotchy: 25, wavey: 10 };
+const FRAME_PERIODS = { ziggy: 24, scallopy: 26, splotchy: 30, wavey: 10 };
 const FRAME_PERIOD = 14;
 
 function wave(style, t, period) {
@@ -73,7 +73,12 @@ function wave(style, t, period) {
 	if (style === "scallopy") {
 		const r = period / 2;
 		const dx = (p - r) / r;
-		return 10 * Math.sqrt(Math.max(0, 1 - dx * dx));
+		const bump = 10 * Math.sqrt(Math.max(0, 1 - dx * dx));
+		// Where two bumps meet they'd pinch into a thin pointy slit;
+		// a shallow V (tip 4px up) trims each valley shorter.
+		const q = Math.min(p, period - p);
+		if (q >= 3) return bump;
+		return Math.max(bump, 4 + q);
 	}
 	if (style === "splotchy") {
 		return 5 * (0.5 - 0.5 * Math.cos((p / period) * Math.PI * 2));
@@ -150,10 +155,12 @@ function windowFrame(style, w, h) {
 	const key = style + ":" + w + "x" + h;
 	if (frameCache.has(key)) return frameCache.get(key);
 
-	const amp = style === "scallopy" ? 10 : FRAME_AMP;
+	// splotchy's waves are only 5px tall, so it skips the 3px of dead
+	// margin the others keep and leaves more room for the background.
+	const amp = style === "scallopy" ? 10 : style === "splotchy" ? 5 : FRAME_AMP;
 
 	const r = style === "scallopy" ? 32
-        : style === "splotchy"   ? 25 
+        : style === "splotchy"   ? 38 
         : style === "wavey"      ? 25 
         : FRAME_RADIUS;
         
@@ -174,13 +181,23 @@ function windowFrame(style, w, h) {
 		return len / Math.max(1, Math.round(len / wanted));
 	});
 
+	// splotchy runs one wave around the whole outline instead of per
+	// segment, with a wave count that's a multiple of 4 so it stays
+	// mirror-symmetric both ways; offset by half the top edge so a valley
+	// sits at the top center.
+	const perimeter = segLen.reduce((a, b) => a + b, 0);
+	const loopPeriod = perimeter / Math.max(4, Math.round(perimeter / wanted / 4) * 4);
+	const segStart = segLen.map((_, i) => segLen.slice(0, i).reduce((a, b) => a + b, 0));
+
 	const inside = [];
 	for (let y = 0; y < h; y++) {
 		const row = new Array(w);
 		for (let x = 0; x < w; x++) {
 			const probe = rrProbe(x - amp, y - amp, bw, bh, r);
 			// Calcola l'onda relazionandola rigorosamente al segmento corrente
-			const out = wave(style, probe.t, segPeriod[probe.seg]);
+			const out = style === "splotchy"
+				? wave(style, segStart[probe.seg] + probe.t - segLen[0] / 2, loopPeriod)
+				: wave(style, probe.t, segPeriod[probe.seg]);
 			row[x] = probe.d <= out;
 		}
 		inside.push(row);
