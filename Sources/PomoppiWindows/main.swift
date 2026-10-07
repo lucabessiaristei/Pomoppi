@@ -165,7 +165,7 @@ func applyLoginItemIfNeeded(_ settings: PomoppiSettings) {
 // -- update checking ------------------------------------------------------
 
 // The once-per-launch "update available" alert (SPEC.md §15). Update opens
-// Settings on General (where the Updates row shows the progress) and starts
+// Settings on the Pomoppi tab (where the Updates row shows the progress) and starts
 // the download; a copy Inno didn't install gets the release page instead.
 updateChecker.onLaunchUpdateAvailable = { tag, pageURL in
     let canInstall = updateChecker.installableAsset != nil
@@ -177,7 +177,7 @@ updateChecker.onLaunchUpdateAvailable = { tag, pageURL in
         secondary: L.t("updates.alert.later"))
     guard choice == .primary else { return }
     if canInstall {
-        SettingsWindow.selectGeneralTab()
+        SettingsWindow.selectPomoppiTab()
         widgetWindow.activateButton("settings")
         updateChecker.startUpdate()
     } else {

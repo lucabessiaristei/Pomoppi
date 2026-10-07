@@ -1,7 +1,7 @@
 // SettingsWindow.swift — a real titled top-level window (unlike
-// WidgetWindow's layered popup) holding a SysTabControl32 with the same 6
+// WidgetWindow's layered popup) holding a SysTabControl32 with the same 7
 // tabs/order as macOS's SettingsView.swift (General, Rhythm, Appearance,
-// Keys, Sound, Diary — Window renamed General and moved first, Color
+// Keys, Sound, Diary, Pomoppi — Window renamed General and moved first, Color
 // scheme moved into it from Appearance; Log folded into Diary in the
 // 2026-09-20 redesign), bound directly to SettingsStore. One singleton
 // instance, mirroring macOS's single reused `Settings` scene.
@@ -159,7 +159,7 @@ final class SettingsWindow {
     // re-applies the table afterward via main.swift's own registration logic.
     private let globalShortcutManager: GlobalShortcutManager
     private let reregisterShortcuts: () -> Void
-    // Owned by main.swift (WidgetWindow's own instance) — the General tab's
+    // Owned by main.swift (WidgetWindow's own instance) — the Pomoppi tab's
     // Updates row reads/triggers checks through it directly, same "own object passed
     // in, no separate view-model wrapper" shape as sessionLogger/chimePlayer
     // above.
@@ -377,7 +377,7 @@ final class SettingsWindow {
     private var diarySyncButton: HWND?
     private var diarySyncStatusLabel: HWND?
 
-    // The General tab's Updates row action button, relabeled in place as
+    // The Pomoppi tab's Updates row action button, relabeled in place as
     // the check state changes (refreshUpdateStatus); mirrors macOS's
     // UpdateStatusRow.
     private var updatesActionButton: HWND?
@@ -485,7 +485,7 @@ final class SettingsWindow {
     // that came from it). `title` is still what actually populates the
     // strip and feeds drawTabControlDark's own by-index text lookup.
     private enum Tab: Int, CaseIterable {
-        case general, rhythm, appearance, keys, sound, diary
+        case general, rhythm, appearance, keys, sound, diary, pomoppi
 
         var title: String {
             switch self {
@@ -495,6 +495,7 @@ final class SettingsWindow {
             case .keys: return L.t("tab.keys")
             case .sound: return L.t("tab.sound")
             case .diary: return L.t("tab.diary")
+            case .pomoppi: return L.t("tab.pomoppi")
             }
         }
     }
@@ -971,7 +972,7 @@ final class SettingsWindow {
 
     // -- update status row -------------------------------------------------------
 
-    // The General tab's Updates section own version/check-for-updates row —
+    // The Pomoppi tab's Updates section own version/check-for-updates row —
     // mirrors macOS's UpdateStatusRow. Version on the left; on the right a
     // primary button and, when a state has a second action, a secondary one
     // to its left (hidden otherwise). The in-app update (SPEC.md §15)
@@ -982,7 +983,7 @@ final class SettingsWindow {
     private static let updatesSecondaryWidth: Int32 = 96
 
     private func addUpdateStatusRow(in page: HWND, y: Int32) {
-        addLabel(L.t("updates.version", pomoppiVersion), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        addLabel(L.t("updates.status"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         updatesActionButton = addButton(
             L.t("updates.checkNow"), in: page,
             x: rightX(Self.updatesPrimaryWidth), y: y,
@@ -1461,6 +1462,8 @@ final class SettingsWindow {
             buildSoundTab(page: page, width: layoutWidth)
         case .diary:
             buildDiaryTab(page: page, width: layoutWidth)
+        case .pomoppi:
+            buildPomoppiTab(page: page, width: layoutWidth)
         }
         captureScrollLayout(page: page, builtWidth: width)
         return page
@@ -2397,7 +2400,7 @@ final class SettingsWindow {
 
     // Mirrors macOS's GeneralTab, same section order: how the widget
     // behaves (Widget, Tray icon, Startup) first, then Pomoppi's own window
-    // chrome (Color scheme), then maintenance (Updates, Reset).
+    // chrome (Color scheme), then Language.
     private func buildGeneralTab(page: HWND, width: Int32) {
         let settings = settingsStore.get()
         let rowWidth = width - 2 * Self.rowMargin
@@ -2462,7 +2465,25 @@ final class SettingsWindow {
         addLabel(L.t("general.language.label"), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
         addLanguageCombo(in: page, y: y)
         y += Self.rowHeight
-        y += Self.sectionGap
+    }
+
+    // Mirrors macOS's PomoppiTab: version + What's new, Updates, Data
+    // folder, Reset.
+    private func buildPomoppiTab(page: HWND, width: Int32) {
+        let settings = settingsStore.get()
+        let rowWidth = width - 2 * Self.rowMargin
+        var y = Self.rowMargin
+
+        addLabel(L.t("updates.version", pomoppiVersion), in: page, x: Self.rowMargin, y: y + Self.labelNudge, width: Self.labelColumnWidth - 8)
+        let whatsNew = addButton(
+            L.t("pomoppi.whatsNew"), in: page,
+            x: rightX(130), y: y,
+            width: 130, height: Self.controlHeight
+        ) {
+            Self.openURL(UpdateChecker.releasePageURL(for: pomoppiVersion))
+        }
+        anchorRight(whatsNew)
+        y += Self.rowHeight + Self.sectionGap
 
         y = addSectionHeader(L.t("general.updates.header"), in: page, y: y, width: rowWidth)
         addCheckbox(
@@ -2474,6 +2495,14 @@ final class SettingsWindow {
         y += Self.rowHeight
         addUpdateStatusRow(in: page, y: y)
         y += Self.rowHeight + Self.sectionGap
+
+        y = addSectionHeader(L.t("pomoppi.dataFolder.header"), in: page, y: y, width: rowWidth)
+        addButton(L.t("pomoppi.dataFolder.show.windows"), in: page, x: Self.rowMargin, y: y, width: 200, height: Self.controlHeight) {
+            Self.openURL(storageDir())
+        }
+        y += Self.rowHeight
+        addHint(L.t("pomoppi.dataFolder.footer"), in: page, y: &y, width: rowWidth)
+        y += Self.sectionGap
 
         y = addSectionHeader(L.t("general.reset.header"), in: page, y: y, width: rowWidth)
         addButton(L.t("general.reset.button"), in: page, x: Self.rowMargin, y: y, width: 140, height: Self.controlHeight) { [weak self] in
@@ -3516,14 +3545,14 @@ final class SettingsWindow {
 
     // -- tab memory --------------------------------------------------------
 
-    // The tray's "Update available" item: the Updates row lives on General,
-    // so remember General for the next open and switch to it now if the
+    // The tray's "Update available" item: the Updates row lives on the
+    // Pomoppi tab, so remember it for the next open and switch to it now if the
     // window is already showing.
-    static func selectGeneralTab() {
-        saveRememberedTabIndex(Tab.general.rawValue)
+    static func selectPomoppiTab() {
+        saveRememberedTabIndex(Tab.pomoppi.rawValue)
         guard let window = shared, let tabControl = window.tabControl else { return }
-        SendMessageW(tabControl, UINT(TCM_SETCURSEL), WPARAM(Tab.general.rawValue), 0)
-        window.selectTab(Tab.general.rawValue)
+        SendMessageW(tabControl, UINT(TCM_SETCURSEL), WPARAM(Tab.pomoppi.rawValue), 0)
+        window.selectTab(Tab.pomoppi.rawValue)
     }
 
     // Windows' counterpart to macOS's `@AppStorage("pomoppi.settingsTab")` —

@@ -52,7 +52,7 @@ not a plan.
 |---|---|---|
 | Tray click mapping | Left-click raises the widget, right-click opens the menu (§9), the standard convention as of Phase W2b — a `reverseTrayClick` toggle restores the original left=menu/right=raise mapping | Same convention, same `reverseTrayClick` setting, read at click time (Phase W4) |
 | Tray clock | `tray.setTitle`, live `mm:ss` text next to the menu-bar icon, monospaced digits (§9) | No text slot in the notification area — the live `mm:ss` moves to a hover tooltip instead (Phase W4) |
-| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 6 tabs: General/Pomodoro/Appearance/Shortcuts/Sound/Diary | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 6 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
+| Settings chrome | SwiftUI `Settings` scene, standard titled, resizable window, native tab control, 7 tabs: General/Pomodoro/Appearance/Shortcuts/Sound/Diary/Pomoppi | `SysTabControl32` in a titled, user-resizable (`WS_THICKFRAME`) window: fixed minimum width 560, free height down to 240 (opens at 680, clamped to the screen) since every page scrolls with a native `WS_VSCROLL` bar; bold section headers, labels on the left and each labeled row's control flush with the right edge (following it on resize), standing in for `Form`'s grouped sections; same 7 tabs in the same order, same `SettingsStore`/validation — not a pixel match (Phase W6/W7) |
 | Shortcut display text | Glyphs via `Shortcuts.display()`, e.g. `Alt+Shift+P` → `⌥⇧P` | Plain text via `Shortcuts.displayWindows()`, e.g. `Alt+Shift+P` (unchanged — Windows' own accelerator strings are already this shape) (Phase W5) |
 | Storage path | Real bundle: `~/Library/Application Support/Pomoppi/settings.json`; loose dev binary: `.dev-app-support/settings.json` (see `AppDelegate.storageDir()`) | `%APPDATA%\Pomoppi\settings.json`, via `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` (`AppStorage.swift`, Phase W3) |
 | Launch-at-login mechanism | `SMAppService.mainApp` (macOS 13+), only meaningful from a real installed `.app` bundle (see `LoginItem.swift`) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry value (`LoginItem.swift`, Phase W5) |
@@ -60,7 +60,7 @@ not a plan.
 | Chime playback | `AVAudioPlayer(data:)` (`ChimePlayer.swift`), one persistent player per pack+sound, built from `GeneratedSounds` via `WAVFile` (§4) | Direct `waveOut` (`ChimePlayer.swift`), one `WAVEFORMATEX` device opened for the process's life and one reused `WAVEHDR`, the raw PCM held in a never-freed buffer per pack+sound (§4) |
 | SVG snapshot | **None.** Dropped in the native rewrite, and its `snapshot` shortcut id with it (§14) | Same |
 | Virtual-desktop/Spaces visibility | `collectionBehavior = [.canJoinAllSpaces]` — the widget follows you across every Space (§9b, R2) | **Not implemented.** No equivalent call exists in `WidgetWindow.swift` — the widget is visible only on whichever virtual desktop it was created on. A real, undocumented-until-now gap; no phase has claimed it |
-| Update check and in-app update | A tray item ("Update available: `<tag>`", opens the General tab) shown only when one exists; the General tab's Updates row shows the version, check states, and Update (download, verify, open the `.pkg` in Installer.app; postinstall relaunches) (§15) | Same tray item and row (Win32 children of the General page, `WM_TIMER` auto-revert). Update runs the Setup `.exe` with `/SILENT`; Inno closes and relaunches Pomoppi. Only an Inno-installed copy offers Update, others get the release page. Endpoint, cadence, verification and opt-out identical (§15) |
+| Update check and in-app update | A tray item ("Update available: `<tag>`", opens the Pomoppi tab) shown only when one exists; the Pomoppi tab's Updates row shows the check states, and Update (download, verify, open the `.pkg` in Installer.app; postinstall relaunches) (§15) | Same tray item and row (Win32 children of the Pomoppi page, `WM_TIMER` auto-revert). Update runs the Setup `.exe` with `/SILENT`; Inno closes and relaunches Pomoppi. Only an Inno-installed copy offers Update, others get the release page. Endpoint, cadence, verification and opt-out identical (§15) |
 
 ## 1. Art direction (non-negotiable) `[divergent]`
 
@@ -677,8 +677,8 @@ never a child of the job and booting out cannot kill it.
 
 The form is **tabbed**, one panel per group, and every setting has one flat,
 visible home inside its tab — true on both platforms, same
-`SettingsStore`, same validation, not reimplemented per platform. Six
-tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary**. **Terms are fixed**: a *pomodoro* is the whole cycle, a *focus session* (or *focus*) and a *break* are its phases; UI copy never says a bare "session". (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
+`SettingsStore`, same validation, not reimplemented per platform. Seven
+tabs, left to right: **General, Pomodoro, Appearance, Shortcuts, Sound, Diary, Pomoppi**. (Pomoppi, added after 0.5.0, holds the app-level things: version and what's new, updates, data folder, reset; its macOS icon is the menu-bar Pomoppi sprite, `trayFrames[0]`, drawn as a thickened template image.) **Terms are fixed**: a *pomodoro* is the whole cycle, a *focus session* (or *focus*) and a *break* are its phases; UI copy never says a bare "session". (Shortcuts was "Keys" until 2026-09-24: "Keys" didn't translate; its sections no longer repeat the word.) **UI copy never ends a sentence with a period** (2026-09-24): hints, statuses, confirmations and prompts alike; a string that needs two clauses joins them with a comma or colon instead. (Pomodoro was "Rhythm" until 2026-09-24; its macOS icon is SF Symbol `timer` until a pixel tomato replaces it.)
 `General` is `Window` renamed and moved first — `Window` was a grab-bag
 naming only its first section (widget layering + tray clicks + startup +
 updates + reset), and once it also holds Color scheme, "General" is what
@@ -693,8 +693,6 @@ what a brand-new install opens on.
 | | Startup | Open Pomoppi when I log in; Start without showing the widget | "“Start hidden” applies from the next launch" |
 | | Color scheme | Mode: Auto / Light / Dark (segmented) | "Pomoppi's own windows only, widget colors are in Appearance" |
 | | Language | App language: "System (<its name>)" then each language in its own name (English, Deutsch, Español, Français, Italiano); `language` setting. macOS relabels the window live; Windows (a drop-down list) rebuilds it on the same tab | — |
-| | Updates | Automatically check for updates; "Pomoppi <version>" with a Check for updates action | — |
-| | Reset | **Reset Pomoppi…** | "Also erases your pomodoro history" |
 | **Pomodoro** | Focus | Length; **Focus sessions** (2..10; persisted as `longBreakEvery`, same key as before, so existing values carry over) | "A short break after each session and a long break at the end, or set the length from the widget's clock" |
 | | Breaks | Short break; Long break | — |
 | | Auto-start | Start breaks automatically; Start the next focus automatically | — |
@@ -708,6 +706,10 @@ what a brand-new install opens on.
 | **Diary** | Pomodoro history | Record every pomodoro; Ask for a title when a pomodoro starts (`askForTaskName`, disabled while not recording); Pomodoros recorded: N (size); **Erase History…** | "Stored only on this computer" |
 | | Export | Full log → Export…; Diary archive → Export… (each with a one-line hint under its label, one shared status line) | — |
 | | Sync to folder | Diary folder; Choose…; Sync Now | "Pomoppi keeps these files up to date, edits inside them are overwritten" |
+| **Pomoppi** | *(no header)* | "Pomoppi <version>" with a What's new link (the running version's GitHub release page) | — |
+| | Updates | Automatically check for updates; Status row with a Check for updates action | — |
+| | Data folder | **Show in Finder** *(Windows: Show in Explorer)* opens the storage dir | "Your settings and pomodoro history are stored here" |
+| | Reset | **Reset Pomoppi…** | "Also erases your pomodoro history" |
 
 Windows' chrome is `SysTabControl32` with hand-laid-out raw controls, not
 a pixel match for SwiftUI's `Form`/`Section` — that's accepted (identical
@@ -1619,7 +1621,7 @@ the app keeps running; **no state is persisted across launches** — no
 "last checked," no "skipped version" — because `/releases/latest` already
 excludes drafts/prereleases server-side, so there is nothing worth
 remembering between runs. Opt-out is `Settings.checkForUpdates` (default
-`true`), a toggle in the General tab's "Updates" section (§7) on both
+`true`), a toggle in the Pomoppi tab's "Updates" section (§7) on both
 platforms; a separate "Reset Pomoppi…" button lives in that tab's own
 "Reset" section (wipes the storage dir after confirming — the in-app answer
 to "fresh install," see §8's reinstall/upgrade semantics). "failed" on a
@@ -1633,7 +1635,7 @@ row keeps its Check button to look again.
 **In-app update (since v0.3.5).** Checking is background; downloading and
 installing **never start without a click** — no auto-download, no
 auto-install, no extra setting. When a check finds a newer release, the
-General tab's Updates row shows "vX available" with an **Update** button,
+Pomoppi tab's Updates row shows "vX available" with an **Update** button,
 and the tray item ("Update available: `<tag>`") opens that tab instead of
 a browser. Update picks this platform's asset out of the release
 (`ReleaseAsset`/`UpdatePlatform` in `UpdateChecker.swift`, matched by name
@@ -1666,7 +1668,7 @@ raise one alert — "Pomoppi `<tag>` is available", buttons **Update** /
 launch; nothing is remembered across launches, so "Later" just means it asks
 again next launch. If a focus or break is running the alert adds that
 updating will close Pomoppi and the session under way won't be recorded.
-Update opens Settings on the General tab (as the tray item does) and starts
+Update opens Settings on the Pomoppi tab (as the tray item does) and starts
 the update; on Windows a copy Inno didn't install shows **Open release
 page** instead and opens it. macOS uses an `NSAlert` with the app icon;
 Windows uses `TaskDialogIndirect` (`UpdateAlert.swift`).

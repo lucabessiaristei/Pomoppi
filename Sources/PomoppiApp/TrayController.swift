@@ -249,11 +249,11 @@ final class TrayController: NSObject, NSMenuDelegate {
     @objc private func handleOpenDiary() { onOpenDiaryRequested() }
     @objc private func handleQuit() { onQuitRequested() }
 
-    // Updating happens in the General tab's Updates row, so the menu item
+    // Updating happens in the Pomoppi tab's Updates row, so the menu item
     // opens Settings on that tab rather than a browser. The tab is the
     // `@AppStorage("pomoppi.settingsTab")` SettingsView already remembers.
     @objc private func handleOpenUpdatePage() {
-        UserDefaults.standard.set("general", forKey: "pomoppi.settingsTab")
+        UserDefaults.standard.set("pomoppi", forKey: "pomoppi.settingsTab")
         onOpenSettingsRequested()
     }
 

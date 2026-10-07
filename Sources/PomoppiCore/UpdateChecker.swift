@@ -116,6 +116,12 @@ public enum UpdateChecker {
     public static let repositorySlug = "lucabessiaristei/Pomoppi"
     public static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/\(repositorySlug)/releases/latest")!
 
+    // The release page of a given version (tags are `v<version>`), for the
+    // "What's new" link on the running build.
+    public static func releasePageURL(for version: String) -> URL {
+        URL(string: "https://github.com/\(repositorySlug)/releases/tag/v\(version)")!
+    }
+
     public static func requestHeaders(appVersion: String) -> [String: String] {
         [
             "User-Agent": "Pomoppi/\(appVersion)",

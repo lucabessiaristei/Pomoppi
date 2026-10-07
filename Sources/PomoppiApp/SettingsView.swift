@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import PomoppiCore
+import PomoppiSprites
 import PomoppiStrings
 
 // Content of the SwiftUI `Settings` scene. `Tab(_:systemImage:)` only
@@ -31,6 +32,15 @@ struct SettingsView: View {
             }
             Tab(L.t("tab.diary"), systemImage: "book.closed", value: "diary") {
                 DiaryTab(viewModel: viewModel)
+            }
+            Tab(value: "pomoppi") {
+                PomoppiTab(viewModel: viewModel)
+            } label: {
+                Label {
+                    Text(L.t("tab.pomoppi"))
+                } icon: {
+                    Image(nsImage: PomoppiTabIcon.image)
+                }
             }
         }
         // No bottom padding: each tab's Form scrolls right to the window's
@@ -436,7 +446,6 @@ private struct ThemePresetPicker: View {
 
 private struct GeneralTab: View {
     @ObservedObject var viewModel: SettingsViewModel
-    @State private var showingResetConfirmation = false
 
     var body: some View {
         Form {
@@ -485,11 +494,41 @@ private struct GeneralTab: View {
             } header: {
                 Text(L.t("general.language.header"))
             }
+        }
+        .settingsForm()
+    }
+}
+
+// MARK: - Pomoppi
+
+private struct PomoppiTab: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @State private var showingResetConfirmation = false
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent(L.t("updates.version", pomoppiVersion)) {
+                    Button(L.t("pomoppi.whatsNew")) {
+                        NSWorkspace.shared.open(UpdateChecker.releasePageURL(for: pomoppiVersion))
+                    }
+                    .buttonStyle(.link)
+                }
+            }
             Section {
                 Toggle(L.t("general.updates.checkForUpdates"), isOn: viewModel.binding(\.checkForUpdates))
                 UpdateStatusRow(updateChecker: viewModel.updateChecker)
             } header: {
                 Text(L.t("general.updates.header"))
+            }
+            Section {
+                Button(L.t("pomoppi.dataFolder.show")) {
+                    NSWorkspace.shared.open(viewModel.storageDir)
+                }
+            } header: {
+                Text(L.t("pomoppi.dataFolder.header"))
+            } footer: {
+                Text(L.t("pomoppi.dataFolder.footer"))
             }
             Section {
                 Button(L.t("general.reset.button"), role: .destructive) {
@@ -516,7 +555,48 @@ private struct GeneralTab: View {
     }
 }
 
-// The General tab's Updates section own version/check-for-updates row.
+// The Pomoppi tab's icon: the menu-bar Pomoppi (`trayFrames[0]`), a 16x16
+// "0"/"1" grid, as a template image. SF Symbols are heavier than a
+// 1px-stroke pixel sprite, so each set pixel is drawn `strokeGrowth`
+// larger on every side (in points) to thicken the strokes. The sprite sits
+// top-left in its grid, so it's centered on its drawn pixels instead.
+private enum PomoppiTabIcon {
+    static let pointSize: CGFloat = 16
+    static let strokeGrowth: CGFloat = 0
+
+    static let image: NSImage = {
+        let grid = GeneratedSprites.trayFrames.first ?? []
+        let cell = pointSize / 16
+        let set = grid.enumerated().flatMap { y, row in
+            row.enumerated().compactMap { x, char in char == "1" ? (x, y) : nil }
+        }
+        let minX = set.map(\.0).min() ?? 0, maxX = set.map(\.0).max() ?? 15
+        let minY = set.map(\.1).min() ?? 0, maxY = set.map(\.1).max() ?? 15
+        let offsetX = ((pointSize - CGFloat(maxX - minX + 1) * cell) / 2).rounded() - CGFloat(minX) * cell
+        let offsetY = ((pointSize - CGFloat(maxY - minY + 1) * cell) / 2).rounded() - CGFloat(minY) * cell
+        let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: true) { _ in
+            // One path filled once: per-pixel fills leave antialiased seams
+            // between neighbors when the toolbar scales the image.
+            let path = NSBezierPath()
+            path.windingRule = .nonZero
+            for (x, y) in set {
+                path.appendRect(NSRect(
+                    x: offsetX + CGFloat(x) * cell - strokeGrowth,
+                    y: offsetY + CGFloat(y) * cell - strokeGrowth,
+                    width: cell + 2 * strokeGrowth,
+                    height: cell + 2 * strokeGrowth
+                ))
+            }
+            NSColor.black.setFill()
+            path.fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+}
+
+// The Pomoppi tab's Updates section check-for-updates row.
 // `@ObservedObject` on updateChecker itself, not just viewModel: a
 // background check that resolves while the window is already open (or a
 // manual check firing while this tab isn't the visible one) both need to
@@ -531,7 +611,7 @@ private struct UpdateStatusRow: View {
     }
 
     var body: some View {
-        LabeledContent(L.t("updates.version", pomoppiVersion)) {
+        LabeledContent(L.t("updates.status")) {
             actionView
         }
     }

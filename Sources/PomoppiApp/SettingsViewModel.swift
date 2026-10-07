@@ -14,6 +14,8 @@ final class SettingsViewModel: ObservableObject {
     let sessionLogger: SessionLogger
     let chimePlayer: ChimePlayer
     let updateChecker: AppUpdateChecker
+    // The folder holding settings.json and sessions.json, for the Pomoppi tab's Data folder button.
+    let storageDir: URL
     // Bumped when the log changes behind the Diary tab's back (a phase logged,
     // a delete in the history viewer), so its count and size refresh.
     @Published var historyRevision = 0
@@ -22,12 +24,13 @@ final class SettingsViewModel: ObservableObject {
 
     init(
         settingsStore: SettingsStore, sessionLogger: SessionLogger, chimePlayer: ChimePlayer,
-        updateChecker: AppUpdateChecker
+        updateChecker: AppUpdateChecker, storageDir: URL
     ) {
         self.settingsStore = settingsStore
         self.sessionLogger = sessionLogger
         self.chimePlayer = chimePlayer
         self.updateChecker = updateChecker
+        self.storageDir = storageDir
         self.settings = settingsStore.get()
     }
 
@@ -35,7 +38,7 @@ final class SettingsViewModel: ObservableObject {
         settings = settingsStore.update(mutate)
     }
 
-    // The General tab's "Reset Pomoppi…": erases session history, then
+    // The Pomoppi tab's "Reset Pomoppi…": erases session history, then
     // resets the settings store to defaults. reset() persists and fires
     // onChange, which AppDelegate already wires to re-apply the widget,
     // shortcuts, login item and update checking live — so this resets the

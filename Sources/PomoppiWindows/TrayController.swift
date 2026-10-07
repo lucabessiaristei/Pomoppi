@@ -155,8 +155,8 @@ final class TrayController {
             case .diary:
                 DiaryWindow.show()
             case .openUpdatePage:
-                // Updating happens in Settings' General tab, not a browser.
-                SettingsWindow.selectGeneralTab()
+                // Updating happens in Settings' Pomoppi tab, not a browser.
+                SettingsWindow.selectPomoppiTab()
                 window.activateButton("settings")
             }
             return

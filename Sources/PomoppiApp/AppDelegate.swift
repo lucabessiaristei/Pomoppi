@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         updateChecker.isSessionActive = { [unowned self] in self.timer.getState().phase != .idle }
         settingsViewModel = SettingsViewModel(
             settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer,
-            updateChecker: updateChecker)
+            updateChecker: updateChecker, storageDir: Self.storageDir())
         diaryViewModel = DiaryViewModel(
             sessionLogger: sessionLogger, currentPomodoroStart: { [unowned self] in self.timer.currentPomodoroStart() },
             getSettings: { [unowned self] in self.settingsStore.get() })
@@ -187,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         alert.addButton(withTitle: L.t("updates.update"))
         alert.addButton(withTitle: L.t("updates.alert.later"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        UserDefaults.standard.set("general", forKey: "pomoppi.settingsTab")
+        UserDefaults.standard.set("pomoppi", forKey: "pomoppi.settingsTab")
         showSettingsWindow()
         updateChecker.startUpdate()
     }
@@ -282,7 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // reformat/rewrite a file you rely on day to day, or touch your real
     // Obsidian vault. #filePath is stable at compile time on this machine,
     // so the dev path doesn't depend on the process's working directory.
-    private static func storageDir() -> URL {
+    static func storageDir() -> URL {
         if Bundle.main.bundleIdentifier != nil {
             return FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

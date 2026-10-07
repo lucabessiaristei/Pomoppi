@@ -6,7 +6,7 @@ Running list of what has landed on `main` since v0.5.0 (released
 
 ## Changes
 
-(nothing yet)
+- New last Settings tab, Pomoppi: version + What's new link, Updates and Reset (moved from General), and a Show in Finder/Explorer button for the data folder.
 
 ## To verify
 
