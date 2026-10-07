@@ -796,6 +796,7 @@ Each entry:
   "focusCount": 4,
   "timeZone": "Europe/Rome",
   "appVersion": "0.4.0",
+  "friend": "namidappi",
   "completed": true
 }
 ```
@@ -810,6 +811,7 @@ Each entry:
 | `focusCount` | focus sessions planned for the pomodoro when the phase ended (`longBreakEvery`) |
 | `timeZone` | the zone `day`/`month`/`year` were computed in |
 | `appVersion` | the Pomoppi version that wrote the entry |
+| `friend` | the friend (`PomoppiSettings.friend`) active when the entry was written; added in 0.5.0, absent from older entries |
 
 **The schema only grows.** From log version 2 (0.4.0) on, fields are added,
 never renamed, repurposed or removed, and every new field is optional in
@@ -994,7 +996,9 @@ sortable table (Date, Start, Title, Focus sessions, Focus time, Breaks; Date
 and Start both sort by start; default newest first), single selection.
 Bottom: the selected pomodoro's entries (phase, focus number, start–end,
 duration, "stopped early"; the hidden-from-diary ones dimmed), each with a
-delete button, plus "Delete pomodoro", every delete behind a confirmation.
+delete button, a small pixel sprite of the pomodoro's friend in the header (the
+latest entry's `friend`; a dimmed "?" tile with a "not recorded" tooltip when
+none has one or the id is unknown), plus "Delete pomodoro", every delete behind a confirmation.
 The pomodoro in progress can't be deleted (both buttons disabled, with a
 note). The table reloads when an entry is logged or a pomodoro discarded and
 after a delete, which also refreshes the Settings Diary tab's count.

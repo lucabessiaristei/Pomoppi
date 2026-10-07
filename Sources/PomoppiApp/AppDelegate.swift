@@ -73,7 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             settingsStore: settingsStore, sessionLogger: sessionLogger, chimePlayer: chimePlayer,
             updateChecker: updateChecker)
         diaryViewModel = DiaryViewModel(
-            sessionLogger: sessionLogger, currentPomodoroStart: { [unowned self] in self.timer.currentPomodoroStart() })
+            sessionLogger: sessionLogger, currentPomodoroStart: { [unowned self] in self.timer.currentPomodoroStart() },
+            getSettings: { [unowned self] in self.settingsStore.get() })
         diaryViewModel.onHistoryChanged = { [unowned self] in self.historyChanged() }
         diaryWindowController = DiaryWindowController(viewModel: diaryViewModel)
         settingsViewModel?.openDiary = { [unowned self] in self.showDiaryWindow() }

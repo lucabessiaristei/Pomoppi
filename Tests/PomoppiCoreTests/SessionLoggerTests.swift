@@ -247,6 +247,7 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertEqual(sessions[0].task, "old style entry")
         XCTAssertNil(sessions[0].durationSeconds)
         XCTAssertNil(sessions[0].pomodoroStart)
+        XCTAssertNil(sessions[0].friend)
         XCTAssertEqual(sessions[0].seconds, 25 * 60, "falls back to durationMinutes x 60")
     }
 
@@ -269,6 +270,7 @@ final class SessionLoggerTests: XCTestCase {
         XCTAssertEqual(entry.focusCount, 4)
         XCTAssertEqual(entry.timeZone, Calendar.current.timeZone.identifier)
         XCTAssertEqual(entry.appVersion, pomoppiVersion)
+        XCTAssertEqual(entry.friend, PomoppiSettings.defaults.friend)
     }
 
     // A pomodoro whose every focus was skipped under a minute is removed at

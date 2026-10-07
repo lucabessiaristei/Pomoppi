@@ -197,6 +197,7 @@
   "diary.viewer.deletePomodoro": "Supprimer le pomodoro",
   "diary.viewer.deleteEntryConfirm.title": "Supprimer cette session ?",
   "diary.viewer.deletePomodoroConfirm.title": "Supprimer ce pomodoro ?",
+  "diary.viewer.friendUnknown": "Compagnon non enregistré pour ce pomodoro",
   "diary.viewer.hiddenEntry": "Non affichée dans le journal",
   "updates.version": "Pomoppi {0}",
   "updates.downloading": "{0} sur {1}",

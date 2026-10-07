@@ -21,11 +21,11 @@ final class DiaryWindowController {
         viewModel.reload()
         if window == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
+                contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = L.t("diary.viewer.windowTitle")
             window.isReleasedWhenClosed = false
-            window.contentMinSize = NSSize(width: 620, height: 420)
+            window.contentMinSize = NSSize(width: 620, height: 460)
             // By default an NSHostingView resizes its window to the SwiftUI
             // content's ideal size, so the window jumped with every search
             // keystroke; only the minimum comes from SwiftUI, the user owns the rest.
@@ -59,13 +59,24 @@ final class DiaryViewModel: ObservableObject {
 
     private let sessionLogger: SessionLogger
     private let currentPomodoroStart: () -> Date?
+    private let getSettings: () -> PomoppiSettings
     // Set by AppDelegate: refreshes every other view of the log (the Settings
     // Diary tab's count) after a delete.
     var onHistoryChanged: (() -> Void)?
 
-    init(sessionLogger: SessionLogger, currentPomodoroStart: @escaping () -> Date?) {
+    init(sessionLogger: SessionLogger, currentPomodoroStart: @escaping () -> Date?,
+         getSettings: @escaping () -> PomoppiSettings) {
         self.sessionLogger = sessionLogger
         self.currentPomodoroStart = currentPomodoroStart
+        self.getSettings = getSettings
+    }
+
+    // The friend's resting pose in the current theme colours, the same icon the
+    // Appearance picker shows; nil when the id wasn't recorded or is unknown.
+    func friendImage(_ id: String?) -> NSImage? {
+        guard let id else { return nil }
+        let settings = getSettings()
+        return PixelPreviews.friendIcon(friendID: id, inkColor: settings.inkColor, paperColor: settings.paperColor)
     }
 
     var text: DiaryText {
@@ -168,7 +179,7 @@ struct DiaryView: View {
                     table(displayed)
                         .frame(maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
                     detail(displayed.first { $0.id == viewModel.selection })
-                        .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: 200, idealHeight: 260, maxHeight: .infinity)
                 }
             }
         }
@@ -239,29 +250,54 @@ struct DiaryView: View {
     private func detail(_ row: DiaryHistory.Row?) -> some View {
         if let row {
             let inProgress = viewModel.isInProgress(row)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(row.title.isEmpty ? L.t("diary.viewer.untitled") : row.title)
-                        .font(.headline)
-                        .foregroundStyle(row.title.isEmpty ? .tertiary : .primary)
-                    if inProgress {
-                        Text(L.t("diary.viewer.inProgress"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            // The friend stands to the left of the whole detail (header and
+            // entries), not squeezed into the header line.
+            HStack(alignment: .top, spacing: 12) {
+                friendBadge(row.friend)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(row.title.isEmpty ? L.t("diary.viewer.untitled") : row.title)
+                            .font(.headline)
+                            .foregroundStyle(row.title.isEmpty ? .tertiary : .primary)
+                        if inProgress {
+                            Text(L.t("diary.viewer.inProgress"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(L.t("diary.viewer.deletePomodoro"), role: .destructive) {
+                            viewModel.pendingDelete = .pomodoro(row)
+                        }
+                        .disabled(inProgress)
                     }
-                    Spacer()
-                    Button(L.t("diary.viewer.deletePomodoro"), role: .destructive) {
-                        viewModel.pendingDelete = .pomodoro(row)
+                    List(row.entries, id: \.entry.startTime) { item in
+                        entryRow(item, inProgress: inProgress)
                     }
-                    .disabled(inProgress)
-                }
-                List(row.entries, id: \.entry.startTime) { item in
-                    entryRow(item, inProgress: inProgress)
                 }
             }
             .padding(12)
         } else {
             ContentUnavailableView(L.t("diary.viewer.selectPrompt"), systemImage: "list.bullet.rectangle")
+        }
+    }
+
+    // Nearest-neighbor so the pixel art stays crisp; a dimmed "?" tile stands
+    // in when the friend wasn't recorded (older entries) or no longer exists.
+    @ViewBuilder
+    private func friendBadge(_ id: String?) -> some View {
+        if let image = viewModel.friendImage(id) {
+            Image(nsImage: image)
+                .interpolation(.none)
+                .resizable()
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .help((id ?? "").capitalized)
+        } else {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.quaternary)
+                .frame(width: 72, height: 72)
+                .overlay(Text("?").font(.title).foregroundStyle(.tertiary))
+                .help(L.t("diary.viewer.friendUnknown"))
         }
     }
 

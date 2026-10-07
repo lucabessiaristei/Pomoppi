@@ -39,6 +39,8 @@ public struct SessionLogEntry: Codable, Equatable {
     public let focusCount: Int?        // focus sessions planned for the pomodoro then
     public let timeZone: String?       // what day/month/year were computed in
     public let appVersion: String?     // the Pomoppi that wrote the entry
+    // Added in 0.5.0: the friend (PomoppiSettings.friend) active when it was written.
+    public let friend: String?
 
     public init(
         phase: String, task: String, day: Int, month: Int, year: Int,
@@ -46,7 +48,8 @@ public struct SessionLogEntry: Codable, Equatable {
         durationSeconds: Int? = nil, pomodoroStart: Date? = nil,
         plannedSeconds: Int? = nil, pausedSeconds: Int? = nil,
         focusNumber: Int? = nil, focusCount: Int? = nil,
-        timeZone: String? = nil, appVersion: String? = nil
+        timeZone: String? = nil, appVersion: String? = nil,
+        friend: String? = nil
     ) {
         self.phase = phase
         self.task = task
@@ -65,6 +68,7 @@ public struct SessionLogEntry: Codable, Equatable {
         self.focusCount = focusCount
         self.timeZone = timeZone
         self.appVersion = appVersion
+        self.friend = friend
     }
 
     // Older entries only have whole minutes.
@@ -123,6 +127,7 @@ public actor SessionLogger {
         guard getSettings().loggingEnabled else { return false }
         if let start = event.pomodoroStartedAt, discarded.contains(pomodoroKey(start)) { return false }
 
+        let settings = getSettings()
         let calendar = Calendar.current
         let comps = calendar.dateComponents([.day, .month, .year], from: event.startedAt)
         let lengthMs = event.completed ? event.plannedMs : event.actualMs
@@ -139,7 +144,7 @@ public actor SessionLogger {
             focusNumber: event.focusNumber > 0 ? event.focusNumber : nil,
             focusCount: event.focusCount > 0 ? event.focusCount : nil,
             timeZone: calendar.timeZone.identifier,
-            appVersion: pomoppiVersion)
+            appVersion: pomoppiVersion, friend: settings.friend)
 
         var file = readFile() ?? .empty
         file.sessions.append(entry)

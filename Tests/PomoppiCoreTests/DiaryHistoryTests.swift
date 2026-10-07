@@ -37,6 +37,25 @@ final class DiaryHistoryTests: XCTestCase {
         XCTAssertEqual(rows[0].stoppedEarlyCount, 1)
     }
 
+    func testRowFriendIsTheLatestEntrysThatHasOne() {
+        func withFriend(_ e: SessionLogEntry, _ friend: String?) -> SessionLogEntry {
+            SessionLogEntry(
+                phase: e.phase, task: e.task, day: e.day, month: e.month, year: e.year,
+                startTime: e.startTime, endTime: e.endTime, durationMinutes: e.durationMinutes,
+                completed: e.completed, durationSeconds: e.durationSeconds,
+                pomodoroStart: e.pomodoroStart, friend: friend)
+        }
+        let sessions = [
+            withFriend(entry(at: 0, pomodoro: 0), "namidappi"),
+            withFriend(entry("shortBreak", at: 25, seconds: 300, pomodoro: 0), "utsupon"),
+            withFriend(entry("shortBreak", at: 55, seconds: 300, pomodoro: 0), nil),
+            entry(at: 100, pomodoro: 100),
+        ]
+        let rows = DiaryHistory.rows(sessions)
+        XCTAssertNil(rows[0].friend)
+        XCTAssertEqual(rows[1].friend, "utsupon")
+    }
+
     func testRowsKeepSkippedFocusesAsHiddenRawEntries() {
         var log = sample()
         log.append(entry(at: 40, seconds: 20, completed: false, pomodoro: 0))

@@ -24,7 +24,8 @@ Running list of what has landed on `main` since v0.4.0 (released
 - **Diary history viewer (macOS)**: a "Diary…" tray item and the Diary tab's
   "Open diary…" button open a window with every pomodoro in a sortable,
   searchable table, its entries below, per-entry and whole-pomodoro delete
-  (not for the one in progress) and Export to Excel. Built on `SessionLogger`'s
+  (not for the one in progress), the pomodoro's friend shown in the detail
+  header (new optional `friend` log field; a "?" tile for older entries) and Export to Excel. Built on `SessionLogger`'s
   delete calls and `DiaryHistory` (`SPEC.md` §8, §8b). The Windows viewer is
   still pending.
 

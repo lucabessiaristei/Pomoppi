@@ -25,6 +25,7 @@ public enum DiaryHistory {
         public let breakSeconds: Int
         public let stoppedEarlyCount: Int
         public let entries: [Item]    // every raw entry, in time order
+        public let friend: String?    // the latest entry's that has one; nil if none
 
         // `current` is the timer's pomodoroStartedAt, nil when none runs.
         public func isInProgress(current: Date?) -> Bool {
@@ -57,7 +58,8 @@ public enum DiaryHistory {
                 title: pomodoro.title, focusCount: pomodoro.sessions,
                 focusSeconds: pomodoro.focusSeconds, breakSeconds: pomodoro.breakSeconds,
                 stoppedEarlyCount: pomodoro.stoppedEarly,
-                entries: all.map { Item(entry: $0, isHiddenFromDiary: !DiaryExporter.isShown($0)) })
+                entries: all.map { Item(entry: $0, isHiddenFromDiary: !DiaryExporter.isShown($0)) },
+                friend: all.last { $0.friend != nil }?.friend)
         }
         return sorted(rows, by: .start, ascending: false)
     }
